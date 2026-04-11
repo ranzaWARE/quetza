@@ -390,10 +390,19 @@ function fitW() {
 
 // ── Canvas pointer events ─────────────────────────────────
 function setupCanvas() {
+  // Fix allineamento: usa la posizione reale del canvas NON scalato
+  // getBoundingClientRect() ritorna dimensioni CSS (scalate), dobbiamo
+  // dividere per zoom per tornare alle coordinate logiche del canvas
   function gP(ex, ey) {
     const r = CV.getBoundingClientRect();
-    return { x: (ex - r.left) / S.zoom, y: (ey - r.top) / S.zoom };
+    // r.width = PW * zoom, r.height = TH * zoom
+    // (ex - r.left) è in CSS px → divido per zoom per avere px logici
+    return {
+      x: (ex - r.left) / S.zoom,
+      y: (ey - r.top)  / S.zoom
+    };
   }
+
   function inGap(y) {
     for (let p = 0; p < S.pages - 1; p++) {
       const g = (p+1)*PH + p*PGAP;
@@ -402,39 +411,71 @@ function setupCanvas() {
     return false;
   }
 
+  // Disegna un singolo segmento dal punto pr al punto pt
+  function drawSegment(s, pr, pt) {
+    cx.save();
+    if (s.t === 'hl') {
+      cx.globalAlpha=.45; cx.strokeStyle='#ffe000'; cx.lineCap='square';
+      cx.lineWidth=(s.sz||3)*5;
+    } else if (s.t === 'eraser') {
+      cx.globalCompositeOperation='destination-out'; cx.strokeStyle='rgba(0,0,0,1)';
+      cx.lineCap='round'; cx.lineWidth=(s.sz||3)*(.5+(pt.p||.5)*.8);
+    } else {
+      cx.strokeStyle=s.c; cx.lineCap='round';
+      cx.lineWidth=(s.sz||3)*(.5+(pt.p||.5)*.8);
+    }
+    const mx=(pr.x+pt.x)/2, my=(pr.y+pt.y)/2;
+    cx.beginPath(); cx.moveTo(pr.x, pr.y);
+    cx.quadraticCurveTo(pr.x, pr.y, mx, my);
+    cx.stroke(); cx.restore();
+  }
+
   CO.addEventListener('pointerdown', e => {
     e.preventDefault();
+    // Touch con un dito → pan (scroll)
     if (e.pointerType === 'touch' && e.isPrimary) {
       S.pan = true; S.pY = e.clientY; S.pSY = CO.scrollTop; showMP('touch'); return;
     }
     if (e.pointerType === 'touch') return;
+
     CO.setPointerCapture(e.pointerId);
     const p = gP(e.clientX, e.clientY);
     if (inGap(p.y)) return;
     const t = (e.buttons === 32 || e.button === 5) ? 'eraser' : S.tool;
     const aTs = S.recOn ? (Date.now() - S.recStart) : null;
-    S.cur = SHAPES.has(t) ? { t, c: S.color, sz: S.size, pts: [p, {...p}], aTs }
-                           : { t, c: S.color, sz: S.size, pts: [{...p, p: e.pressure||.5}], aTs };
+    S.cur = SHAPES.has(t)
+      ? { t, c: S.color, sz: S.size, pts: [p, {...p}], aTs }
+      : { t, c: S.color, sz: S.size, pts: [{...p, p: e.pressure||.5}], aTs };
     showMP('pen');
   }, { passive: false });
 
   CO.addEventListener('pointermove', e => {
     e.preventDefault();
-    if (e.pointerType === 'touch' && e.isPrimary && S.pan) { CO.scrollTop = S.pSY + (S.pY - e.clientY); return; }
+    if (e.pointerType === 'touch' && e.isPrimary && S.pan) {
+      CO.scrollTop = S.pSY + (S.pY - e.clientY); return;
+    }
     if (e.pointerType === 'touch' || !S.cur) return;
-    const pos = gP(e.clientX, e.clientY);
-    if (inGap(pos.y)) return;
-    if (SHAPES.has(S.cur.t)) { S.cur.pts[1] = {...pos}; redraw(); drawSS(cx, [S.cur]); return; }
-    const pt = {...pos, p: e.pressure||.5};
-    S.cur.pts.push(pt);
-    const ps = S.cur.pts, i = ps.length - 1; if (i < 1) return;
-    const p = ps[i], pr = ps[i-1];
-    cx.save(); const s = S.cur;
-    if (s.t === 'hl') { cx.globalAlpha=.45; cx.strokeStyle='#ffe000'; cx.lineCap='square'; cx.lineWidth=(s.sz||3)*5; }
-    else if (s.t === 'eraser') { cx.globalCompositeOperation='destination-out'; cx.strokeStyle='rgba(0,0,0,1)'; cx.lineCap='round'; cx.lineWidth=(s.sz||3)*(.5+(pt.p||.5)*.8); }
-    else { cx.strokeStyle=s.c; cx.lineCap='round'; cx.lineWidth=(s.sz||3)*(.5+(pt.p||.5)*.8); }
-    const mx=(pr.x+pt.x)/2, my=(pr.y+pt.y)/2;
-    cx.beginPath(); cx.moveTo(pr.x, pr.y); cx.quadraticCurveTo(pr.x, pr.y, mx, my); cx.stroke(); cx.restore();
+
+    // getCoalescedEvents: recupera tutti i punti intermedi persi tra un evento
+    // e l'altro — fondamentale su iOS/Safari per evitare il tratto tratteggiato
+    const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+
+    for (const ce of events) {
+      const pos = gP(ce.clientX, ce.clientY);
+      if (inGap(pos.y)) continue;
+
+      if (SHAPES.has(S.cur.t)) {
+        S.cur.pts[1] = {...pos}; redraw(); drawSS(cx, [S.cur]); continue;
+      }
+
+      const pt = {...pos, p: ce.pressure||.5};
+      const ps = S.cur.pts;
+      if (ps.length > 0) {
+        const pr = ps[ps.length - 1];
+        drawSegment(S.cur, pr, pt);
+      }
+      S.cur.pts.push(pt);
+    }
   }, { passive: false });
 
   CO.addEventListener('pointerup', e => {
