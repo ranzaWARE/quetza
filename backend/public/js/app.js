@@ -437,6 +437,9 @@ function setupCanvas() {
     }
     if (e.pointerType === 'touch') return;
 
+    // setPointerCapture sul canvas direttamente (non sul wrapper)
+    // evita che il pennino perda il focus quando esce dall'area
+    try { CV.setPointerCapture(e.pointerId); } catch(e) {}
     CO.setPointerCapture(e.pointerId);
     const p = gP(e.clientX, e.clientY);
     if (inGap(p.y)) return;
@@ -634,9 +637,23 @@ function exportPDF(withGrid) {
 
 // ── Audio recording ───────────────────────────────────────
 async function startRec() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    toast('⚠ Microfono non supportato in questo browser'); return;
+  }
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+    toast('⚠ La registrazione richiede HTTPS'); return;
+  }
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    S.chunks = []; S.mr = new MediaRecorder(stream);
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : MediaRecorder.isTypeSupported('audio/mp4')
+          ? 'audio/mp4'
+          : '';
+    S.chunks = [];
+    S.mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
     S.mr.ondataavailable = e => { if (e.data.size > 0) S.chunks.push(e.data); };
     S.mr.onstop = onRecStop;
     S.recStart = Date.now(); S.recOn = true; S.mr.start(100);
@@ -648,7 +665,17 @@ async function startRec() {
       const e = Date.now() - S.recStart;
       RTM.textContent = `${Math.floor(e/60000)}:${(Math.floor(e/1000)%60).toString().padStart(2,'0')}`;
     }, 500);
-  } catch { toast('⚠ Microfono non disponibile'); }
+    toast('⏺ Registrazione avviata');
+  } catch(err) {
+    console.error('getUserMedia error:', err);
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      toast('⚠ Permesso microfono negato — controlla le impostazioni del browser');
+    } else if (err.name === 'NotFoundError') {
+      toast('⚠ Nessun microfono trovato');
+    } else {
+      toast('⚠ Errore microfono: ' + err.message);
+    }
+  }
 }
 
 function stopRec() {

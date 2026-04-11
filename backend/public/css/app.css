@@ -47,7 +47,9 @@ html,body{height:100%;overflow:hidden;font-family:'Segoe UI',system-ui,sans-seri
 #ED.on{display:flex}
 
 /* ── Toolbar ────────────────────────────────────────────── */
-.TB{background:var(--tb);border-bottom:.5px solid var(--tbr);flex-shrink:0}
+.TB{background:var(--tb);border-bottom:.5px solid var(--tbr);flex-shrink:0;user-select:none;-webkit-user-select:none}
+/* Blocca selezione testo su tutta la toolbar e audio bar durante scrittura */
+.R1,.R2,.AB{user-select:none;-webkit-user-select:none}
 .R1{display:flex;align-items:center;gap:4px;padding:5px 8px;border-bottom:.5px solid var(--tbr)}
 .tti{flex:1;border:none;outline:none;font-size:.88rem;font-weight:600;color:var(--ink);background:transparent;padding:2px 4px}
 .R2{display:flex;align-items:center;gap:2px;padding:3px 7px;overflow-x:auto;scrollbar-width:none}
