@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Quetza</title>
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div id="W">
+
+<!-- SIDEBAR -->
+<div id="SB">
+  <div class="sh">
+    <div class="logo">
+      <svg width="24" height="24" viewBox="0 0 64 64" fill="none">
+        <path d="M32 30 C22 22 6 28 2 20 C8 18 18 20 28 27Z" fill="#c0392b" opacity=".9"/>
+        <path d="M32 30 C18 26 4 32 2 26 C10 22 22 24 30 30Z" fill="#c0392b" opacity=".4"/>
+        <path d="M32 30 C42 22 58 28 62 20 C56 18 46 20 36 27Z" fill="#c0392b" opacity=".9"/>
+        <path d="M32 30 C46 26 60 32 62 26 C54 22 42 24 34 30Z" fill="#c0392b" opacity=".4"/>
+        <ellipse cx="32" cy="31" rx="5" ry="8" fill="#e8e8f0"/>
+        <path d="M32 23 L30 16 L32 19 L34 16 Z" fill="#e8e8f0"/>
+        <path d="M32 38 L30 46 L32 44 L34 46 Z" fill="#e8e8f0"/>
+        <path d="M31.2 44 L32 48 L32.8 44" fill="#c0392b"/>
+      </svg>
+      Quetza
+    </div>
+    <button class="sbb" id="sbC" title="Chiudi">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <button class="nwb" id="newB">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    Nuova nota
+  </button>
+  <div class="nl" id="NL"></div>
+  <div class="sf">
+    <span id="UNAME">—</span>
+    <button class="sbb" id="logoutB" title="Esci">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="MN">
+  <div class="emp" id="EM">Seleziona o crea una nota</div>
+  <div id="ED">
+    <!-- Toolbar row 1 -->
+    <div class="TB">
+      <div class="R1">
+        <button class="b" id="sbO" style="display:none" title="Apri sidebar">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <input class="tti" id="NTT" placeholder="Titolo nota…">
+        <button class="b bp dk" id="DKB" title="Dark mode">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          Dark
+        </button>
+        <button class="b bp a2" id="PDFB" title="Esporta PDF">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          PDF
+        </button>
+        <button class="b bp ar" id="SVB" title="Salva (Ctrl+S)">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Salva
+        </button>
+      </div>
+      <!-- Toolbar row 2: drawing tools -->
+      <div class="R2">
+        <!-- Freehand tools -->
+        <button class="b on" data-t="pen" title="Penna (P)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        </button>
+        <button class="b" data-t="hl" title="Evidenziatore (H)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l-6 6v3h9l3-3"/><path d="M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>
+        </button>
+        <button class="b" data-t="eraser" title="Gomma (E)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 20 4 20"/><path d="M6.5 12.5L10 9l7 7-3.5 3.5Z"/></svg>
+        </button>
+        <div class="sp"></div>
+        <!-- Shape tools -->
+        <button class="b" data-t="rect" title="Rettangolo (R)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="1"/></svg>
+        </button>
+        <button class="b" data-t="ellipse" title="Ellisse (O)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="10" ry="6"/></svg>
+        </button>
+        <button class="b" data-t="line" title="Linea (L)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="19" x2="19" y2="5"/></svg>
+        </button>
+        <button class="b" data-t="arrow" title="Freccia (A)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="19" x2="19" y2="5"/><polyline points="9 5 19 5 19 15"/></svg>
+        </button>
+        <div class="sp"></div>
+        <!-- Colors -->
+        <button class="sw on" data-c="#111" style="background:#111" title="Nero"></button>
+        <button class="sw" data-c="#c0392b" style="background:#c0392b" title="Rosso"></button>
+        <button class="sw" data-c="#2471a3" style="background:#2471a3" title="Blu"></button>
+        <button class="sw" data-c="#1e8449" style="background:#1e8449" title="Verde"></button>
+        <button class="sw" data-c="#e67e22" style="background:#e67e22" title="Arancione"></button>
+        <button class="sw" data-c="#8e44ad" style="background:#8e44ad" title="Viola"></button>
+        <div class="sp"></div>
+        <!-- Size -->
+        <input type="range" id="SZR" min="1" max="24" value="3" step="1" title="Spessore">
+        <span id="SZV">3</span>
+        <div class="sp"></div>
+        <!-- Grid -->
+        <select id="GSL" title="Griglia">
+          <option value="none">Niente</option>
+          <option value="lines" selected>Righe</option>
+          <option value="dots">Puntini</option>
+          <option value="grid">Quadretti</option>
+        </select>
+        <div class="sp"></div>
+        <!-- Zoom -->
+        <div class="zg">
+          <button class="zb" id="ZO" title="Zoom out">−</button>
+          <span class="zl" id="ZL">100%</span>
+          <button class="zb" id="ZI" title="Zoom in">+</button>
+          <button class="zb" id="ZF" title="Adatta larghezza">fit</button>
+        </div>
+        <div class="sp"></div>
+        <!-- Undo/Redo -->
+        <button class="b" id="UDB" title="Annulla (Ctrl+Z)">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7v6h6"/><path d="M3 13C5.5 6.5 13 4 19 8c3 2 5 5 5 9"/></svg>
+        </button>
+        <button class="b" id="RDB" title="Ripeti (Ctrl+Y)">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 7v6h-6"/><path d="M21 13C18.5 6.5 11 4 5 8c-3 2-5 5-5 9"/></svg>
+        </button>
+        <!-- Paste image -->
+        <button class="b" id="PSB" title="Incolla immagine (Ctrl+V)">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+        </button>
+        <!-- Clear -->
+        <button class="b red" id="CLB" title="Cancella tutto">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Audio bar -->
+    <div class="AB">
+      <button class="rb" id="RCB" title="Registra / Ferma">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="12" r="6"/></svg>
+      </button>
+      <div class="am">
+        <div class="ah" id="AH">Premi REC per registrare in sincronia con la scrittura</div>
+        <div class="ar2" id="ARC" style="display:none">
+          <div class="rd"></div>
+          <span class="rt" id="RTM">0:00</span>
+          <span class="rmsg">in registrazione — scrivi pure</span>
+        </div>
+        <div class="apl" id="APL" style="display:none">
+          <div class="aro">
+            <button class="pb2" id="APB" title="Play / Pausa (Spazio)">
+              <svg width="8" height="8" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
+            </button>
+            <div class="pw" id="PW">
+              <canvas id="WC"></canvas>
+              <div class="sc" id="SC" style="left:0%"></div>
+            </div>
+            <span class="at2" id="ATM">0:00 / 0:00</span>
+            <button class="b" id="DELAUD" title="Elimina audio" style="color:#c0392b;flex-shrink:0">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Canvas area -->
+    <div class="CA">
+      <div class="CO" id="CO">
+        <div class="CW" id="CW">
+          <canvas id="C"></canvas>
+        </div>
+      </div>
+      <!-- Timeline strip -->
+      <div class="TS" id="TS">
+        <canvas id="TC"></canvas>
+      </div>
+      <!-- Overlays -->
+      <div class="MP" id="MP"></div>
+      <div class="TT" id="TT"></div>
+
+      <!-- PDF Modal -->
+      <div class="MW off" id="PM">
+        <div class="MD">
+          <h3>Esporta PDF</h3>
+          <p class="ms">Includi la griglia nel PDF?</p>
+          <div class="mo"><input type="radio" name="ge" id="GN" value="no" checked><label for="GN">Solo scrittura<small>Foglio bianco pulito</small></label></div>
+          <div class="mo"><input type="radio" name="ge" id="GY" value="yes"><label for="GY">Con griglia<small>Come appare sullo schermo</small></label></div>
+          <div class="ma"><button class="mc" id="PCA">Annulla</button><button class="mk" id="POK">Esporta</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>
