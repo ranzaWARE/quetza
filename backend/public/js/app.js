@@ -122,9 +122,14 @@ async function openNote(id) {
   }
 
   EM.style.display = 'none'; ED.className = 'on';
+  // Imposta dimensioni logiche del canvas (coordinate di disegno)
   CV.width = PW; CV.height = totalH();
   renderNL();
-  requestAnimationFrame(() => requestAnimationFrame(() => { fitW(); redraw(); drawTL(0); }));
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    fitW(); // fitW chiama applyZoom che ridimensiona CV.style.width/height
+    redraw();
+    drawTL(0);
+  }));
 }
 
 async function newNote() {
@@ -373,9 +378,18 @@ function setupZoom() {
 }
 
 function applyZoom() {
-  CV.style.transform = `scale(${S.zoom})`;
-  CW.style.height = (totalH() * S.zoom + 32) + 'px';
+  // Ridimensiona il canvas fisicamente — niente transform scale
+  // Questo garantisce che il hit-testing del browser sia sempre corretto
+  const w = Math.round(PW * S.zoom);
+  const h = Math.round(totalH() * S.zoom);
+  if (CV.style.width !== w + 'px') {
+    CV.style.width  = w + 'px';
+    CV.style.height = h + 'px';
+  }
+  CW.style.height = (h + 32) + 'px';
   ZL.textContent = Math.round(S.zoom * 100) + '%';
+  // Ridisegna mantenendo le coordinate logiche
+  redraw();
 }
 function zTo(z) {
   const f = CO.scrollTop / (CW.scrollHeight || 1);
@@ -392,13 +406,12 @@ function fitW() {
 function setupCanvas() {
   function gP(ex, ey) {
     const r = CV.getBoundingClientRect();
-    // r.width è la dimensione CSS del canvas (già scalata dal transform)
-    // PW è la dimensione logica del canvas in px
-    // Il rapporto PW/r.width converte CSS px → canvas px correttamente
-    // indipendentemente da zoom, devicePixelRatio e scroll
+    // Canvas fisicamente ridimensionato (no transform scale)
+    // r.width == CV.width / dpr, coordinate dirette
+    const dpr = window.devicePixelRatio || 1;
     return {
-      x: (ex - r.left) * (PW / r.width),
-      y: (ey - r.top)  * (totalH() / r.height)
+      x: (ex - r.left) * (CV.width / r.width),
+      y: (ey - r.top)  * (CV.height / r.height)
     };
   }
 

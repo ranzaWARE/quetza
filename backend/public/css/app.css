@@ -104,7 +104,7 @@ html,body{height:100%;overflow:hidden;font-family:'Segoe UI',system-ui,sans-seri
 .CA{flex:1;display:flex;overflow:hidden;position:relative}
 .CO{flex:1;overflow-x:hidden;overflow-y:auto;touch-action:none;background:var(--bg);scrollbar-width:thin}
 .CW{display:flex;justify-content:center;padding:16px 0;min-height:100%}
-#C{display:block;background:var(--pg);cursor:crosshair;touch-action:none;transform-origin:top center;box-shadow:var(--sh);pointer-events:auto}
+#C{display:block;background:var(--pg);cursor:crosshair;touch-action:none;box-shadow:var(--sh);pointer-events:auto;image-rendering:auto}
 
 /* ── Timeline strip ─────────────────────────────────────── */
 .TS{width:0;overflow:hidden;background:var(--sb);position:relative;transition:width .2s;flex-shrink:0}
