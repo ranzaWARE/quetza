@@ -414,7 +414,7 @@ function setupCanvas() {
   function drawSegment(s, pr, pt) {
     cx.save();
     if (s.t === 'hl') {
-      cx.globalAlpha=.45; cx.strokeStyle='#ffe000'; cx.lineCap='square';
+      cx.globalAlpha=.45; cx.strokeStyle='#ffe000'; cx.lineCap='round';
       cx.lineWidth=(s.sz||3)*5;
     } else if (s.t === 'eraser') {
       cx.globalCompositeOperation='destination-out'; cx.strokeStyle='rgba(0,0,0,1)';
@@ -423,9 +423,10 @@ function setupCanvas() {
       cx.strokeStyle=s.c; cx.lineCap='round';
       cx.lineWidth=(s.sz||3)*(.5+(pt.p||.5)*.8);
     }
-    const mx=(pr.x+pt.x)/2, my=(pr.y+pt.y)/2;
-    cx.beginPath(); cx.moveTo(pr.x, pr.y);
-    cx.quadraticCurveTo(pr.x, pr.y, mx, my);
+    // Linea diretta invece di quadraticCurveTo — evita gap tra segmenti
+    cx.beginPath();
+    cx.moveTo(pr.x, pr.y);
+    cx.lineTo(pt.x, pt.y);
     cx.stroke(); cx.restore();
   }
 
@@ -451,21 +452,6 @@ function setupCanvas() {
     showMP('pen');
   }, { passive: false });
 
-  // Buffer punti per rendering asincrono — evita perdita input su Safari iOS
-  let pendingPts = [];
-  let rafPending = false;
-
-  function flushPts() {
-    rafPending = false;
-    if (!S.cur || !pendingPts.length) { pendingPts = []; return; }
-    for (const pt of pendingPts) {
-      const ps = S.cur.pts;
-      if (ps.length > 0) drawSegment(S.cur, ps[ps.length-1], pt);
-      S.cur.pts.push(pt);
-    }
-    pendingPts = [];
-  }
-
   CO.addEventListener('pointermove', e => {
     e.preventDefault();
     if (e.pointerType === 'touch' && e.isPrimary && S.pan) {
@@ -473,27 +459,22 @@ function setupCanvas() {
     }
     if (e.pointerType === 'touch' || !S.cur) return;
 
-    // Raccogli tutti i punti intermedi (coalesced) se disponibili
+    // Usa getCoalescedEvents se disponibile per punti intermedi
     const events = (e.getCoalescedEvents && e.getCoalescedEvents().length > 0)
-      ? e.getCoalescedEvents()
-      : [e];
+      ? e.getCoalescedEvents() : [e];
 
     for (const ce of events) {
       const pos = gP(ce.clientX, ce.clientY);
       if (inGap(pos.y)) continue;
 
       if (SHAPES.has(S.cur.t)) {
-        S.cur.pts[1] = {...pos}; redraw(); drawSS(cx, [S.cur]); continue;
+        S.cur.pts[1] = {...pos}; redraw(); drawSS(cx, [S.cur]); break;
       }
 
-      // Accumula nel buffer — disegna via rAF per non bloccare la raccolta eventi
-      pendingPts.push({...pos, p: ce.pressure || 0.5});
-    }
-
-    // Schedula flush se non già schedulato
-    if (!rafPending && pendingPts.length > 0) {
-      rafPending = true;
-      requestAnimationFrame(flushPts);
+      const pt = {...pos, p: ce.pressure || 0.5};
+      const ps = S.cur.pts;
+      if (ps.length > 0) drawSegment(S.cur, ps[ps.length-1], pt);
+      S.cur.pts.push(pt);
     }
   }, { passive: false });
 
@@ -501,17 +482,13 @@ function setupCanvas() {
     e.preventDefault();
     if (e.pointerType === 'touch') { S.pan = false; return; }
     if (!S.cur) return;
-    // Flush eventuali punti ancora nel buffer prima di chiudere il tratto
-    flushPts();
-    if (S.cur && S.cur.pts.length > 1) { S.strokes.push(S.cur); S.undo.push([...S.strokes]); S.redo = []; }
-    S.cur = null; pendingPts = []; rafPending = false;
+    if (S.cur.pts.length > 1) { S.strokes.push(S.cur); S.undo.push([...S.strokes]); S.redo = []; }
+    S.cur = null;
     checkExtend();
     if (S.aBuf) drawTL();
   }, { passive: false });
 
-  CO.addEventListener('pointercancel', () => {
-    S.cur = null; S.pan = false; pendingPts = []; rafPending = false;
-  });
+  CO.addEventListener('pointercancel', () => { S.cur = null; S.pan = false; });
 
   // Blocca menu contestuale Safari iOS (long press con Apple Pencil)
   CO.addEventListener('contextmenu', e => e.preventDefault(), { passive: false });
