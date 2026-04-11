@@ -40,7 +40,7 @@ services:
       apk add --no-cache openssl &&
       mkdir -p /etc/nginx/certs &&
       ([ -f /etc/nginx/certs/quetza.crt ] || openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout /etc/nginx/certs/quetza.key -out /etc/nginx/certs/quetza.crt -subj /CN=quetza/O=Graphimecc/C=IT) &&
-      echo 'server{listen 80;return 301 https://$$host$$request_uri;}server{listen 443 ssl;ssl_certificate /etc/nginx/certs/quetza.crt;ssl_certificate_key /etc/nginx/certs/quetza.key;client_max_body_size 250M;location/{proxy_pass http://quetza:3000;proxy_set_header Host $$host;proxy_set_header X-Real-IP $$remote_addr;proxy_set_header X-Forwarded-Proto https;proxy_read_timeout 300s;}}' > /etc/nginx/conf.d/default.conf &&
+      printf 'server {\n  listen 80;\n  return 301 https://$$host$$request_uri;\n}\nserver {\n  listen 443 ssl;\n  ssl_certificate /etc/nginx/certs/quetza.crt;\n  ssl_certificate_key /etc/nginx/certs/quetza.key;\n  client_max_body_size 250M;\n  location / {\n    proxy_pass http://quetza:3000;\n    proxy_set_header Host $$host;\n    proxy_set_header X-Real-IP $$remote_addr;\n    proxy_set_header X-Forwarded-Proto https;\n    proxy_read_timeout 300s;\n  }\n}\n' > /etc/nginx/conf.d/default.conf &&
       nginx -g 'daemon off;'
       "
 
