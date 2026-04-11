@@ -513,9 +513,169 @@ function setupCanvas() {
   CV.addEventListener('pointercancel', () => { S.cur = null; });
   CV.addEventListener('contextmenu', e => e.preventDefault(), { passive: false });
 
+  // ── Apple Pencil su Safari iOS: Touch Events nativi ──────
+  // I Pointer Events su Safari iOS droppano pointerdown quando
+  // si scrive velocemente. I Touch Events hanno priorità più alta
+  // e non vengono mai droppati dal sistema.
+  // touchType === 'stylus' distingue Apple Pencil dal dito.
+
+  CV.addEventListener('touchstart', e => {
+    // Cerca il tocco con stylus (Apple Pencil)
+    for (const t of e.changedTouches) {
+      if (t.touchType === 'stylus') {
+        e.preventDefault();
+        const pos = gP(t.clientX, t.clientY);
+        if (inGap(pos.y)) return;
+        const aTs = S.recOn ? (Date.now() - S.recStart) : null;
+        S.cur = SHAPES.has(S.tool)
+          ? { t: S.tool, c: S.color, sz: S.size, pts: [pos, {...pos}], aTs }
+          : { t: S.tool, c: S.color, sz: S.size, pts: [{...pos, p: t.force||0.5}], aTs };
+        S._stylusId = t.identifier;
+        // DEBUG dot
+        cx.save();cx.fillStyle='rgba(255,0,0,0.5)';cx.beginPath();cx.arc(pos.x,pos.y,8,0,Math.PI*2);cx.fill();cx.restore();
+        return;
+      }
+    }
+    // Dito → pan (se non sta già disegnando col pennino)
+    if (!S.cur && e.touches.length === 1) {
+      S.pan = true;
+      S.pY = e.touches[0].clientY;
+      S.pSY = CO.scrollTop;
+    }
+  }, { passive: false });
+
+  CV.addEventListener('touchmove', e => {
+    for (const t of e.changedTouches) {
+      if (t.touchType === 'stylus' && t.identifier === S._stylusId && S.cur) {
+        e.preventDefault();
+        const allTouches = e.touches[0]?.touchType === 'stylus'
+          ? Array.from(e.touches).filter(tt => tt.touchType === 'stylus')
+          : [t];
+        for (const ct of allTouches) {
+          const pos = gP(ct.clientX, ct.clientY);
+          if (inGap(pos.y)) continue;
+          if (SHAPES.has(S.cur.t)) {
+            S.cur.pts[1] = {...pos}; redraw(); drawSS(cx, [S.cur]); break;
+          }
+          const pt = {...pos, p: ct.force || 0.5};
+          const ps = S.cur.pts;
+          if (ps.length > 0) drawSegment(S.cur, ps[ps.length-1], pt);
+          S.cur.pts.push(pt);
+        }
+        return;
+      }
+    }
+    // Dito → scroll
+    if (S.pan && !S.cur && e.touches.length === 1) {
+      CO.scrollTop = S.pSY + (S.pY - e.touches[0].clientY);
+    }
+  }, { passive: false });
+
+  CV.addEventListener('touchend', e => {
+    for (const t of e.changedTouches) {
+      if (t.touchType === 'stylus' && t.identifier === S._stylusId) {
+        e.preventDefault();
+        if (S.cur && S.cur.pts.length > 1) {
+          S.strokes.push(S.cur);
+          S.undo.push([...S.strokes]);
+          S.redo = [];
+        }
+        S.cur = null; S._stylusId = null;
+        checkExtend();
+        if (S.aBuf) drawTL();
+        return;
+      }
+    }
+    S.pan = false;
+  }, { passive: false });
+
+  CV.addEventListener('touchcancel', () => {
+    S.cur = null; S.pan = false; S._stylusId = null;
+  }, { passive: true });
+
   // Blocca menu contestuale Safari iOS (long press con Apple Pencil)
   CO.addEventListener('contextmenu', e => e.preventDefault(), { passive: false });
   CV.addEventListener('contextmenu', e => e.preventDefault(), { passive: false });
+
+  // ── Apple Pencil su Safari iOS: Touch Events nativi ──────
+  // I Pointer Events su Safari iOS droppano pointerdown quando
+  // si scrive velocemente. I Touch Events hanno priorità più alta
+  // e non vengono mai droppati dal sistema.
+  // touchType === 'stylus' distingue Apple Pencil dal dito.
+
+  CV.addEventListener('touchstart', e => {
+    // Cerca il tocco con stylus (Apple Pencil)
+    for (const t of e.changedTouches) {
+      if (t.touchType === 'stylus') {
+        e.preventDefault();
+        const pos = gP(t.clientX, t.clientY);
+        if (inGap(pos.y)) return;
+        const aTs = S.recOn ? (Date.now() - S.recStart) : null;
+        S.cur = SHAPES.has(S.tool)
+          ? { t: S.tool, c: S.color, sz: S.size, pts: [pos, {...pos}], aTs }
+          : { t: S.tool, c: S.color, sz: S.size, pts: [{...pos, p: t.force||0.5}], aTs };
+        S._stylusId = t.identifier;
+        // DEBUG dot
+        cx.save();cx.fillStyle='rgba(255,0,0,0.5)';cx.beginPath();cx.arc(pos.x,pos.y,8,0,Math.PI*2);cx.fill();cx.restore();
+        return;
+      }
+    }
+    // Dito → pan (se non sta già disegnando col pennino)
+    if (!S.cur && e.touches.length === 1) {
+      S.pan = true;
+      S.pY = e.touches[0].clientY;
+      S.pSY = CO.scrollTop;
+    }
+  }, { passive: false });
+
+  CV.addEventListener('touchmove', e => {
+    for (const t of e.changedTouches) {
+      if (t.touchType === 'stylus' && t.identifier === S._stylusId && S.cur) {
+        e.preventDefault();
+        const allTouches = e.touches[0]?.touchType === 'stylus'
+          ? Array.from(e.touches).filter(tt => tt.touchType === 'stylus')
+          : [t];
+        for (const ct of allTouches) {
+          const pos = gP(ct.clientX, ct.clientY);
+          if (inGap(pos.y)) continue;
+          if (SHAPES.has(S.cur.t)) {
+            S.cur.pts[1] = {...pos}; redraw(); drawSS(cx, [S.cur]); break;
+          }
+          const pt = {...pos, p: ct.force || 0.5};
+          const ps = S.cur.pts;
+          if (ps.length > 0) drawSegment(S.cur, ps[ps.length-1], pt);
+          S.cur.pts.push(pt);
+        }
+        return;
+      }
+    }
+    // Dito → scroll
+    if (S.pan && !S.cur && e.touches.length === 1) {
+      CO.scrollTop = S.pSY + (S.pY - e.touches[0].clientY);
+    }
+  }, { passive: false });
+
+  CV.addEventListener('touchend', e => {
+    for (const t of e.changedTouches) {
+      if (t.touchType === 'stylus' && t.identifier === S._stylusId) {
+        e.preventDefault();
+        if (S.cur && S.cur.pts.length > 1) {
+          S.strokes.push(S.cur);
+          S.undo.push([...S.strokes]);
+          S.redo = [];
+        }
+        S.cur = null; S._stylusId = null;
+        checkExtend();
+        if (S.aBuf) drawTL();
+        return;
+      }
+    }
+    S.pan = false;
+  }, { passive: false });
+
+  CV.addEventListener('touchcancel', () => {
+    S.cur = null; S.pan = false; S._stylusId = null;
+  }, { passive: true });
 
   // Blocca selezione testo durante scrittura
   document.addEventListener('selectstart', e => {
