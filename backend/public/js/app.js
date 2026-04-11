@@ -5,13 +5,13 @@
 ═══════════════════════════════════════════════════ */
 
 // ── Config ────────────────────────────────────────────────
-// A4 a 150dpi: qualità stampa reale, ottimo su display Retina
-// 210mm × 297mm @ 150dpi = 1240 × 1754 px
-const PW = 1240;  // A4 width @ 150dpi
-const PH = 1754;  // A4 height @ 150dpi
-const PGAP = 48;  // gap between pages
-const GSP = 44;   // grid spacing (proporzionale a 150dpi)
-const ZOOM_STEPS = [.15,.2,.25,.33,.4,.5,.67,.75,.9,1,1.1,1.25,1.5,1.75,2];
+// A4 @ 96dpi — coordinate logiche fisse
+// La qualità Retina è gestita via devicePixelRatio in applyZoom
+const PW = 794;   // A4 width @ 96dpi
+const PH = 1123;  // A4 height @ 96dpi
+const PGAP = 32;  // gap between pages
+const GSP = 28;   // grid spacing
+const ZOOM_STEPS = [.25,.33,.5,.67,.75,.9,1,1.1,1.25,1.5,1.75,2,2.5,3];
 
 // ── State ─────────────────────────────────────────────────
 const S = {
