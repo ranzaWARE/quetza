@@ -390,16 +390,15 @@ function fitW() {
 
 // ── Canvas pointer events ─────────────────────────────────
 function setupCanvas() {
-  // Fix allineamento: usa la posizione reale del canvas NON scalato
-  // getBoundingClientRect() ritorna dimensioni CSS (scalate), dobbiamo
-  // dividere per zoom per tornare alle coordinate logiche del canvas
   function gP(ex, ey) {
     const r = CV.getBoundingClientRect();
-    // r.width = PW * zoom, r.height = TH * zoom
-    // (ex - r.left) è in CSS px → divido per zoom per avere px logici
+    // r.width è la dimensione CSS del canvas (già scalata dal transform)
+    // PW è la dimensione logica del canvas in px
+    // Il rapporto PW/r.width converte CSS px → canvas px correttamente
+    // indipendentemente da zoom, devicePixelRatio e scroll
     return {
-      x: (ex - r.left) / S.zoom,
-      y: (ey - r.top)  / S.zoom
+      x: (ex - r.left) * (PW / r.width),
+      y: (ey - r.top)  * (totalH() / r.height)
     };
   }
 
