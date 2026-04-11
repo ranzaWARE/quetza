@@ -454,6 +454,8 @@ function setupCanvas() {
     if (e.pointerType === 'touch') return;
     CV.setPointerCapture(e.pointerId);
     const p = gP(e.clientX, e.clientY);
+    // DEBUG: mostra il punto di contatto come dot rosso
+    cx.save();cx.fillStyle='rgba(255,0,0,0.5)';cx.beginPath();cx.arc(p.x,p.y,8,0,Math.PI*2);cx.fill();cx.restore();
     if (inGap(p.y)) return;
     const t = (e.buttons === 32 || e.button === 5) ? 'eraser' : S.tool;
     const aTs = S.recOn ? (Date.now() - S.recStart) : null;
