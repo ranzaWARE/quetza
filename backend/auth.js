@@ -5,7 +5,7 @@ const LDAP_ENABLED = process.env.LDAP_ENABLED === 'true';
 // ── Local users fallback (usare solo per testing) ────────────
 // In produzione usare LDAP. Aggiungere utenti qui solo in emergenza.
 const LOCAL_USERS = [
-  // { username: 'admin', password: 'changeme', displayName: 'Administrator' },
+  { username: 'admin', password: 'admin', displayName: 'Administrator' },
 ];
 
 async function ldapAuthenticate(username, password) {
