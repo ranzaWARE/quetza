@@ -430,18 +430,29 @@ function setupCanvas() {
     cx.stroke(); cx.restore();
   }
 
-  CO.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    // Touch con un dito → pan (scroll)
-    if (e.pointerType === 'touch' && e.isPrimary) {
-      S.pan = true; S.pY = e.clientY; S.pSY = CO.scrollTop; showMP('touch'); return;
+  // ── Touch handlers su CO (wrapper) per pan con dito ─────
+  CO.addEventListener('touchstart', e => {
+    if (e.touches.length === 1 && e.touches[0].touchType !== 'stylus') {
+      S.pan = true; S.pY = e.touches[0].clientY; S.pSY = CO.scrollTop;
+      showMP('touch');
     }
-    if (e.pointerType === 'touch') return;
+  }, { passive: true });
+  CO.addEventListener('touchmove', e => {
+    if (S.pan && e.touches.length === 1) {
+      CO.scrollTop = S.pSY + (S.pY - e.touches[0].clientY);
+    }
+  }, { passive: true });
+  CO.addEventListener('touchend', () => { S.pan = false; }, { passive: true });
 
-    // setPointerCapture sul canvas direttamente (non sul wrapper)
-    // evita che il pennino perda il focus quando esce dall'area
-    try { CV.setPointerCapture(e.pointerId); } catch(e) {}
-    CO.setPointerCapture(e.pointerId);
+  // ── Pointer handlers su CV (canvas) per disegno ──────────
+  // Registrare su CV invece che CO risolve il problema di input mancanti:
+  // il canvas riceve gli eventi direttamente senza che il wrapper
+  // possa intercettarli o perderli durante lo scroll
+  CV.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    // Ignora touch (gestito dai touch handlers sopra)
+    if (e.pointerType === 'touch') return;
+    CV.setPointerCapture(e.pointerId);
     const p = gP(e.clientX, e.clientY);
     if (inGap(p.y)) return;
     const t = (e.buttons === 32 || e.button === 5) ? 'eraser' : S.tool;
@@ -452,14 +463,10 @@ function setupCanvas() {
     showMP('pen');
   }, { passive: false });
 
-  CO.addEventListener('pointermove', e => {
+  CV.addEventListener('pointermove', e => {
     e.preventDefault();
-    if (e.pointerType === 'touch' && e.isPrimary && S.pan) {
-      CO.scrollTop = S.pSY + (S.pY - e.clientY); return;
-    }
     if (e.pointerType === 'touch' || !S.cur) return;
 
-    // Usa getCoalescedEvents se disponibile per punti intermedi
     const events = (e.getCoalescedEvents && e.getCoalescedEvents().length > 0)
       ? e.getCoalescedEvents() : [e];
 
@@ -478,9 +485,9 @@ function setupCanvas() {
     }
   }, { passive: false });
 
-  CO.addEventListener('pointerup', e => {
+  CV.addEventListener('pointerup', e => {
     e.preventDefault();
-    if (e.pointerType === 'touch') { S.pan = false; return; }
+    if (e.pointerType === 'touch') return;
     if (!S.cur) return;
     if (S.cur.pts.length > 1) { S.strokes.push(S.cur); S.undo.push([...S.strokes]); S.redo = []; }
     S.cur = null;
@@ -488,7 +495,8 @@ function setupCanvas() {
     if (S.aBuf) drawTL();
   }, { passive: false });
 
-  CO.addEventListener('pointercancel', () => { S.cur = null; S.pan = false; });
+  CV.addEventListener('pointercancel', () => { S.cur = null; });
+  CV.addEventListener('contextmenu', e => e.preventDefault(), { passive: false });
 
   // Blocca menu contestuale Safari iOS (long press con Apple Pencil)
   CO.addEventListener('contextmenu', e => e.preventDefault(), { passive: false });
