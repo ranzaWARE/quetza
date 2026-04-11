@@ -491,6 +491,15 @@ function setupCanvas() {
   }, { passive: false });
 
   CO.addEventListener('pointercancel', () => { S.cur = null; S.pan = false; });
+
+  // Blocca menu contestuale Safari iOS (long press con Apple Pencil)
+  CO.addEventListener('contextmenu', e => e.preventDefault(), { passive: false });
+  CV.addEventListener('contextmenu', e => e.preventDefault(), { passive: false });
+
+  // Blocca selezione testo durante scrittura
+  document.addEventListener('selectstart', e => {
+    if (S.cur) e.preventDefault();
+  });
 }
 
 // ── Toolbar ───────────────────────────────────────────────
