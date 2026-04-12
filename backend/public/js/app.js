@@ -32,10 +32,12 @@ const S = {
   // UI
   dark: false,
   shapeRecog: false,
-  // Selezione lasso
-  sel: null,        // {strokes:[], imgs:[], offsetX, offsetY, pts:[]}
-  selDragging: false,
-  selStart: null,
+  // Selezione
+  selectedIds: new Set(),   // set di indici strokes selezionati
+  selDrag: false,
+  selDragStart: null,
+  selDragFrom: null,        // posizioni originali degli strokes
+  lassoPath: null,          // path in corso per lasso
   // Autosave
   autoSaveTimer: null,
   dirty: false,
@@ -388,55 +390,97 @@ function redraw(hTs) {
   for (let p = 0; p < S.pages; p++) cx.fillRect(0, p*(PH+PGAP), PW, PH);
   drawGrid(cx, dk); drawSeps(cx, dk);
   S.imgs.forEach(i => cx.drawImage(i.el, i.x, i.y, i.w, i.h));
-  drawHi(cx, hTs); drawSS(cx, S.strokes);
-  // Selezione attiva
-  if (S.sel) drawSel(cx, S.sel);
+  drawHi(cx, hTs);
+  // Disegna strokes con highlight selezione
+  S.strokes.forEach((s, idx) => {
+    drawSS(cx, [s]);
+    if (S.selectedIds.has(idx)) drawStrokeHighlight(cx, s);
+  });
+  // Bounding box + handle selezione multipla
+  if (S.selectedIds.size > 0) drawSelectionBox(cx);
   // Lasso in corso
-  if (S.tool === 'lasso' && S.cur && S.cur.pts && S.cur.pts.length > 1) drawLassoPath(cx, S.cur.pts);
+  if (S.lassoPath && S.lassoPath.length > 1) drawLassoPath(cx, S.lassoPath);
+}
+
+function strokeBBox(s) {
+  if (!s.pts || !s.pts.length) return null;
+  let mx=1e9, Mx=-1e9, my=1e9, My=-1e9;
+  s.pts.forEach(p => { mx=Math.min(mx,p.x); Mx=Math.max(Mx,p.x); my=Math.min(my,p.y); My=Math.max(My,p.y); });
+  return { x: mx, y: my, x2: Mx, y2: My, w: Mx-mx, h: My-my };
+}
+
+function selBBox() {
+  let mx=1e9, Mx=-1e9, my=1e9, My=-1e9;
+  S.selectedIds.forEach(idx => {
+    const bb = strokeBBox(S.strokes[idx]);
+    if (!bb) return;
+    mx=Math.min(mx,bb.x); Mx=Math.max(Mx,bb.x2);
+    my=Math.min(my,bb.y); My=Math.max(My,bb.y2);
+  });
+  return { x:mx, y:my, x2:Mx, y2:My, w:Mx-mx, h:My-my };
+}
+
+function drawStrokeHighlight(c, s) {
+  const bb = strokeBBox(s);
+  if (!bb) return;
+  c.save();
+  c.strokeStyle = 'rgba(36,113,163,0.5)';
+  c.lineWidth = 1;
+  c.setLineDash([4, 3]);
+  c.strokeRect(bb.x - 3, bb.y - 3, bb.w + 6, bb.h + 6);
+  c.setLineDash([]);
+  c.restore();
+}
+
+function drawSelectionBox(c) {
+  const bb = selBBox();
+  if (bb.x > 1e8) return;
+  const pad = 8;
+  const x = bb.x - pad, y = bb.y - pad;
+  const w = bb.w + pad*2, h = bb.h + pad*2;
+
+  c.save();
+  // Box tratteggiato blu
+  c.strokeStyle = '#2471a3';
+  c.lineWidth = 1.5 / S.zoom;
+  c.setLineDash([6/S.zoom, 4/S.zoom]);
+  c.strokeRect(x, y, w, h);
+  c.setLineDash([]);
+
+  // Handle ELIMINA (X rossa in alto a destra)
+  const hx = x + w, hy = y;
+  const hr = 10 / S.zoom;
+  c.fillStyle = '#c0392b';
+  c.beginPath(); c.arc(hx, hy, hr, 0, Math.PI*2); c.fill();
+  c.fillStyle = '#fff';
+  c.font = `bold ${Math.round(11/S.zoom)}px system-ui`;
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText('✕', hx, hy);
+
+  // Handle SPOSTA (grip al centro basso)
+  const gx = x + w/2, gy = y + h;
+  c.fillStyle = '#2471a3';
+  c.beginPath(); c.arc(gx, gy, hr, 0, Math.PI*2); c.fill();
+  c.fillStyle = '#fff';
+  c.font = `bold ${Math.round(11/S.zoom)}px system-ui`;
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText('⠿', gx, gy);
+  c.restore();
 }
 
 function drawLassoPath(c, pts) {
   c.save();
   c.strokeStyle = '#2471a3';
-  c.lineWidth = 1.5;
-  c.setLineDash([6, 4]);
+  c.lineWidth = 1.5 / S.zoom;
+  c.setLineDash([6/S.zoom, 4/S.zoom]);
   c.beginPath();
   c.moveTo(pts[0].x, pts[0].y);
   pts.forEach(p => c.lineTo(p.x, p.y));
   c.closePath();
   c.stroke();
-  c.fillStyle = 'rgba(36,113,163,0.08)';
+  c.fillStyle = 'rgba(36,113,163,0.07)';
   c.fill();
   c.setLineDash([]);
-  c.restore();
-}
-
-function drawSel(c, sel) {
-  if (!sel || !sel.pts || sel.pts.length < 2) return;
-  // Disegna gli strokes selezionati nella posizione corrente (con offset)
-  const ox = sel.offsetX || 0, oy = sel.offsetY || 0;
-  if (ox !== 0 || oy !== 0) {
-    c.save();
-    c.translate(ox, oy);
-    drawSS(c, sel.strokes);
-    sel.imgs.forEach(i => c.drawImage(i.el, i.x, i.y, i.w, i.h));
-    c.restore();
-  }
-  // Bounding box tratteggiato
-  let mx=1e9,Mx=-1e9,my=1e9,My=-1e9;
-  sel.pts.forEach(p => { mx=Math.min(mx,p.x); Mx=Math.max(Mx,p.x); my=Math.min(my,p.y); My=Math.max(My,p.y); });
-  c.save();
-  c.strokeStyle = '#2471a3';
-  c.lineWidth = 1.5;
-  c.setLineDash([6,4]);
-  c.strokeRect(mx+ox-4, my+oy-4, Mx-mx+8, My-my+8);
-  c.setLineDash([]);
-  // Handle elimina
-  c.fillStyle = '#c0392b';
-  c.beginPath(); c.arc(Mx+ox+4, my+oy-4, 8, 0, Math.PI*2); c.fill();
-  c.fillStyle = '#fff';
-  c.font = 'bold 10px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle';
-  c.fillText('✕', Mx+ox+4, my+oy-4);
   c.restore();
 }
 
@@ -634,7 +678,6 @@ function setupCanvas() {
   CV.addEventListener('pointerdown', e => {
     e.preventDefault();
     if (e.pointerType === 'touch') return;
-    // Palm rejection: se c'è un dito sul canvas, ignora pennino
     if (S.palmActive) return;
     CV.setPointerCapture(e.pointerId);
     S.activePointers.set(e.pointerId, e.pointerType);
@@ -642,29 +685,43 @@ function setupCanvas() {
     if (inGap(p.y)) return;
     const t = (e.buttons === 32 || e.button === 5) ? 'eraser' : S.tool;
     const aTs = S.recOn ? (Date.now() - S.recStart) : null;
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
 
-    // Lasso: gestione click su selezione esistente
-    if (t === 'lasso' && S.sel) {
-      const ox = S.sel.offsetX||0, oy = S.sel.offsetY||0;
-      let mx=1e9,Mx=-1e9,my=1e9,My=-1e9;
-      S.sel.pts.forEach(q=>{mx=Math.min(mx,q.x);Mx=Math.max(Mx,q.x);my=Math.min(my,q.y);My=Math.max(My,q.y);});
-      // Click su X elimina
-      if (Math.hypot(p.x-(Mx+ox+4), p.y-(my+oy-4)) < 12) {
-        commitSel(true); return;
+    if (t === 'lasso') {
+      // Controlla se click su handle selezione
+      const handle = hitTestSelHandles(p.x, p.y);
+      if (handle === 'delete') { deleteSelected(); return; }
+      if (handle === 'move') {
+        S.selDrag = true; S.selDragStart = p;
+        S.selDragFrom = {};
+        S.selectedIds.forEach(idx => {
+          S.selDragFrom[idx] = S.strokes[idx].pts.map(q => ({...q}));
+        });
+        return;
       }
-      // Click dentro bounding box → drag
-      if (p.x >= mx+ox-8 && p.x <= Mx+ox+8 && p.y >= my+oy-8 && p.y <= My+oy+8) {
-        S.selDragging = true; S.selStart = p; return;
+      // Click su uno stroke → selezionalo
+      for (let i = S.strokes.length-1; i >= 0; i--) {
+        if (strokeHitTest(S.strokes[i], p.x, p.y)) {
+          selectStroke(i, additive);
+          S.selDrag = true; S.selDragStart = p;
+          S.selDragFrom = {};
+          S.selectedIds.forEach(idx => {
+            S.selDragFrom[idx] = S.strokes[idx].pts.map(q => ({...q}));
+          });
+          redraw(); return;
+        }
       }
-      // Click fuori → applica selezione
-      commitSel(false);
+      // Click su area vuota → deseleziona e inizia lasso
+      if (!additive) S.selectedIds.clear();
+      S.lassoPath = [p];
+      redraw(); return;
     }
 
-    S.cur = t === 'lasso'
-      ? { t, pts: [p], aTs }
-      : SHAPES.has(t)
-        ? { t, c: S.color, sz: S.size, pts: [p, {...p}], aTs }
-        : { t, c: S.color, sz: S.size, pts: [{...p, p: e.pressure||.5}], aTs };
+    // Tool non-lasso: deseleziona tutto
+    S.selectedIds.clear();
+    S.cur = SHAPES.has(t)
+      ? { t, c: S.color, sz: S.size, pts: [p, {...p}], aTs }
+      : { t, c: S.color, sz: S.size, pts: [{...p, p: e.pressure||.5}], aTs };
     showMP('pen');
   }, { passive: false });
 
@@ -675,22 +732,32 @@ function setupCanvas() {
     const events = (e.getCoalescedEvents && e.getCoalescedEvents().length > 0)
       ? e.getCoalescedEvents() : [e];
 
+    // Drag selezione (fuori dal loop coalesced per performance)
+    if (S.selDrag && S.selDragStart && S.selectedIds.size > 0) {
+      const pos = gP(e.clientX, e.clientY);
+      const dx = pos.x - S.selDragStart.x;
+      const dy = pos.y - S.selDragStart.y;
+      // Ripristina posizioni originali e applica nuovo offset
+      S.selectedIds.forEach(idx => {
+        if (S.selDragFrom[idx]) {
+          S.strokes[idx].pts = S.selDragFrom[idx].map(q => ({...q, x:q.x+dx, y:q.y+dy}));
+        }
+      });
+      redraw(); return;
+    }
+
+    // Lasso in corso
+    if (S.lassoPath) {
+      const pos = gP(e.clientX, e.clientY);
+      S.lassoPath.push(pos);
+      redraw(); return;
+    }
+
+    if (!S.cur) return;
+
     for (const ce of events) {
       const pos = gP(ce.clientX, ce.clientY);
       if (inGap(pos.y)) continue;
-
-      // Drag selezione
-      if (S.selDragging && S.sel && S.selStart) {
-        S.sel.offsetX = (S.sel.offsetX||0) + (pos.x - S.selStart.x);
-        S.sel.offsetY = (S.sel.offsetY||0) + (pos.y - S.selStart.y);
-        S.selStart = pos;
-        redraw(); break;
-      }
-
-      if (S.cur.t === 'lasso') {
-        S.cur.pts.push(pos);
-        redraw(); break;
-      }
 
       if (SHAPES.has(S.cur.t)) {
         S.cur.pts[1] = {...pos}; redraw(); drawSS(cx, [S.cur]); break;
@@ -709,16 +776,21 @@ function setupCanvas() {
     S.activePointers.delete(e.pointerId);
 
     // Fine drag selezione
-    if (S.selDragging) { S.selDragging = false; S.selStart = null; redraw(); return; }
-
-    if (!S.cur) return;
-
-    // Fine lasso: calcola selezione
-    if (S.cur.t === 'lasso' && S.cur.pts.length > 3) {
-      finalizeLasso(S.cur.pts);
-      S.cur = null; redraw(); return;
+    if (S.selDrag) {
+      S.selDrag = false; S.selDragStart = null; S.selDragFrom = null;
+      S.undo.push([...S.strokes]); S.redo = [];
+      scheduleAutoSave(); redraw(); return;
     }
 
+    // Fine lasso
+    if (S.lassoPath && S.lassoPath.length > 3) {
+      const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+      finalizeLasso(S.lassoPath, additive);
+      S.lassoPath = null; return;
+    }
+    S.lassoPath = null;
+
+    if (!S.cur) return;
     if (S.cur.pts.length > 1) {
       const recognized = S.shapeRecog ? recognizeShape(S.cur) : null;
       S.strokes.push(recognized || S.cur);
@@ -734,7 +806,7 @@ function setupCanvas() {
 
   CV.addEventListener('pointercancel', e => {
     S.activePointers.delete(e.pointerId);
-    S.cur = null;
+    S.cur = null; S.selDrag = false; S.lassoPath = null;
   });
   CV.addEventListener('contextmenu', e => e.preventDefault(), { passive: false });
 
@@ -761,6 +833,26 @@ function setupCanvas() {
         const pos = gP(t.clientX, t.clientY);
         if (inGap(pos.y)) return;
         const aTs = S.recOn ? (Date.now() - S.recStart) : null;
+        // Con pennino: se tool è lasso, fai hit test; altrimenti disegna
+        if (S.tool === 'lasso') {
+          const handle = hitTestSelHandles(pos.x, pos.y);
+          if (handle === 'delete') { deleteSelected(); return; }
+          if (handle === 'move' || S.selectedIds.size > 0) {
+            // Controlla hit su stroke esistente
+            for (let i = S.strokes.length-1; i >= 0; i--) {
+              if (strokeHitTest(S.strokes[i], pos.x, pos.y)) {
+                if (!S.selectedIds.has(i)) { S.selectedIds.clear(); S.selectedIds.add(i); }
+                S.selDrag = true; S.selDragStart = pos;
+                S.selDragFrom = {};
+                S.selectedIds.forEach(idx => { S.selDragFrom[idx] = S.strokes[idx].pts.map(q=>({...q})); });
+                S._stylusId = t.identifier; redraw(); return;
+              }
+            }
+          }
+          S.lassoPath = [pos]; S._stylusId = t.identifier; return;
+        }
+        // Tool disegno normale: deseleziona
+        S.selectedIds.clear();
         S.cur = SHAPES.has(S.tool)
           ? { t: S.tool, c: S.color, sz: S.size, pts: [pos, {...pos}], aTs }
           : { t: S.tool, c: S.color, sz: S.size, pts: [{...pos, p: t.force||0.5}], aTs };
@@ -787,6 +879,18 @@ function setupCanvas() {
         for (const ct of allTouches) {
           const pos = gP(ct.clientX, ct.clientY);
           if (inGap(pos.y)) continue;
+          // Drag selezione con pennino
+          if (S.selDrag && S.selDragStart) {
+            const dx = pos.x - S.selDragStart.x;
+            const dy = pos.y - S.selDragStart.y;
+            S.selectedIds.forEach(idx => {
+              if (S.selDragFrom[idx]) S.strokes[idx].pts = S.selDragFrom[idx].map(q=>({...q,x:q.x+dx,y:q.y+dy}));
+            });
+            redraw(); break;
+          }
+          // Lasso con pennino
+          if (S.lassoPath) { S.lassoPath.push(pos); redraw(); break; }
+          if (!S.cur) break;
           if (SHAPES.has(S.cur.t)) {
             S.cur.pts[1] = {...pos}; redraw(); drawSS(cx, [S.cur]); break;
           }
@@ -808,6 +912,18 @@ function setupCanvas() {
     for (const t of e.changedTouches) {
       if (t.touchType === 'stylus' && t.identifier === S._stylusId) {
         e.preventDefault();
+        // Fine drag selezione
+        if (S.selDrag) {
+          S.selDrag=false; S.selDragStart=null; S.selDragFrom=null;
+          S.undo.push([...S.strokes]); S.redo=[];
+          scheduleAutoSave(); S._stylusId=null; redraw(); return;
+        }
+        // Fine lasso
+        if (S.lassoPath && S.lassoPath.length > 3) {
+          finalizeLasso(S.lassoPath, false);
+          S.lassoPath=null; S._stylusId=null; return;
+        }
+        S.lassoPath=null;
         if (S.cur && S.cur.pts.length > 1) {
           const recognized = S.shapeRecog ? recognizeShape(S.cur) : null;
           S.strokes.push(recognized || S.cur);
@@ -860,6 +976,26 @@ function setupCanvas() {
         const pos = gP(t.clientX, t.clientY);
         if (inGap(pos.y)) return;
         const aTs = S.recOn ? (Date.now() - S.recStart) : null;
+        // Con pennino: se tool è lasso, fai hit test; altrimenti disegna
+        if (S.tool === 'lasso') {
+          const handle = hitTestSelHandles(pos.x, pos.y);
+          if (handle === 'delete') { deleteSelected(); return; }
+          if (handle === 'move' || S.selectedIds.size > 0) {
+            // Controlla hit su stroke esistente
+            for (let i = S.strokes.length-1; i >= 0; i--) {
+              if (strokeHitTest(S.strokes[i], pos.x, pos.y)) {
+                if (!S.selectedIds.has(i)) { S.selectedIds.clear(); S.selectedIds.add(i); }
+                S.selDrag = true; S.selDragStart = pos;
+                S.selDragFrom = {};
+                S.selectedIds.forEach(idx => { S.selDragFrom[idx] = S.strokes[idx].pts.map(q=>({...q})); });
+                S._stylusId = t.identifier; redraw(); return;
+              }
+            }
+          }
+          S.lassoPath = [pos]; S._stylusId = t.identifier; return;
+        }
+        // Tool disegno normale: deseleziona
+        S.selectedIds.clear();
         S.cur = SHAPES.has(S.tool)
           ? { t: S.tool, c: S.color, sz: S.size, pts: [pos, {...pos}], aTs }
           : { t: S.tool, c: S.color, sz: S.size, pts: [{...pos, p: t.force||0.5}], aTs };
@@ -886,6 +1022,18 @@ function setupCanvas() {
         for (const ct of allTouches) {
           const pos = gP(ct.clientX, ct.clientY);
           if (inGap(pos.y)) continue;
+          // Drag selezione con pennino
+          if (S.selDrag && S.selDragStart) {
+            const dx = pos.x - S.selDragStart.x;
+            const dy = pos.y - S.selDragStart.y;
+            S.selectedIds.forEach(idx => {
+              if (S.selDragFrom[idx]) S.strokes[idx].pts = S.selDragFrom[idx].map(q=>({...q,x:q.x+dx,y:q.y+dy}));
+            });
+            redraw(); break;
+          }
+          // Lasso con pennino
+          if (S.lassoPath) { S.lassoPath.push(pos); redraw(); break; }
+          if (!S.cur) break;
           if (SHAPES.has(S.cur.t)) {
             S.cur.pts[1] = {...pos}; redraw(); drawSS(cx, [S.cur]); break;
           }
@@ -907,6 +1055,18 @@ function setupCanvas() {
     for (const t of e.changedTouches) {
       if (t.touchType === 'stylus' && t.identifier === S._stylusId) {
         e.preventDefault();
+        // Fine drag selezione
+        if (S.selDrag) {
+          S.selDrag=false; S.selDragStart=null; S.selDragFrom=null;
+          S.undo.push([...S.strokes]); S.redo=[];
+          scheduleAutoSave(); S._stylusId=null; redraw(); return;
+        }
+        // Fine lasso
+        if (S.lassoPath && S.lassoPath.length > 3) {
+          finalizeLasso(S.lassoPath, false);
+          S.lassoPath=null; S._stylusId=null; return;
+        }
+        S.lassoPath=null;
         if (S.cur && S.cur.pts.length > 1) {
           const recognized = S.shapeRecog ? recognizeShape(S.cur) : null;
           S.strokes.push(recognized || S.cur);
@@ -1027,8 +1187,8 @@ function setupToolbar() {
       }
     }
     if (e.key===' ' && e.target===document.body) { e.preventDefault(); document.getElementById('APB').click(); }
-    if (e.key==='Escape') { if (S.sel) commitSel(false); S.cur=null; redraw(); }
-    if (e.key==='Delete'||e.key==='Backspace') { if(S.sel&&document.activeElement===document.body){commitSel(true);} }
+    if (e.key==='Escape') { S.selectedIds.clear(); S.lassoPath=null; S.selDrag=false; S.cur=null; redraw(); }
+    if ((e.key==='Delete'||e.key==='Backspace') && document.activeElement===document.body) { deleteSelected(); }
   });
 }
 
@@ -1314,47 +1474,79 @@ function toast(msg) {
   clearTimeout(tT); tT = setTimeout(()=>TT.classList.remove('on'), 2400);
 }
 
-// ── Lasso Selection ──────────────────────────────────────
+// ── Selezione ────────────────────────────────────────────
 function pointInPoly(pt, poly) {
   let inside = false;
   for (let i=0, j=poly.length-1; i<poly.length; j=i++) {
     const xi=poly[i].x,yi=poly[i].y,xj=poly[j].x,yj=poly[j].y;
-    if (((yi>pt.y)!==(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/(yj-yi)+xi)) inside=!inside;
+    if (((yi>pt.y)!==(yj>pt.y)) && (pt.x<(xj-xi)*(pt.y-yi)/(yj-yi)+xi)) inside=!inside;
   }
   return inside;
 }
 
-function strokeInPoly(stroke, poly) {
-  if (!stroke.pts || stroke.pts.length === 0) return false;
-  return stroke.pts.some(p => pointInPoly(p, poly));
-}
-
-function finalizeLasso(poly) {
-  const selected = S.strokes.filter(s => strokeInPoly(s, poly));
-  const selImgs = S.imgs.filter(i => pointInPoly({x:i.x+i.w/2, y:i.y+i.h/2}, poly));
-  if (!selected.length && !selImgs.length) { S.sel = null; return; }
-  // Rimuovi gli strokes selezionati dal canvas principale
-  S.strokes = S.strokes.filter(s => !selected.includes(s));
-  S.imgs = S.imgs.filter(i => !selImgs.includes(i));
-  S.sel = { strokes: selected, imgs: selImgs, pts: poly, offsetX: 0, offsetY: 0 };
-}
-
-function commitSel(del) {
-  if (!S.sel) return;
-  if (!del) {
-    // Rimetti gli strokes con offset applicato
-    const ox = S.sel.offsetX||0, oy = S.sel.offsetY||0;
-    const moved = S.sel.strokes.map(s => ({
-      ...s,
-      pts: s.pts.map(p => ({...p, x: p.x+ox, y: p.y+oy}))
-    }));
-    S.strokes.push(...moved);
-    S.sel.imgs.forEach(i => S.imgs.push({...i, x:i.x+ox, y:i.y+oy}));
-    S.undo.push([...S.strokes]);
-    S.redo = [];
-    scheduleAutoSave();
+function strokeHitTest(stroke, px, py) {
+  // Clicca su un tratto se il punto è entro ~8px logici
+  if (!stroke.pts || stroke.pts.length < 2) return false;
+  const THRESH = 8 / S.zoom;
+  for (let i=0; i<stroke.pts.length-1; i++) {
+    const a=stroke.pts[i], b=stroke.pts[i+1];
+    const dx=b.x-a.x, dy=b.y-a.y, len2=dx*dx+dy*dy;
+    if (len2 === 0) continue;
+    const t = Math.max(0, Math.min(1, ((px-a.x)*dx+(py-a.y)*dy)/len2));
+    const nx=a.x+t*dx-px, ny=a.y+t*dy-py;
+    if (nx*nx+ny*ny < THRESH*THRESH) return true;
   }
-  S.sel = null; S.selDragging = false; S.selStart = null;
+  // Fallback: test bounding box per shape
+  const bb = strokeBBox(stroke);
+  if (!bb) return false;
+  const pad = THRESH;
+  return px >= bb.x-pad && px <= bb.x2+pad && py >= bb.y-pad && py <= bb.y2+pad;
+}
+
+function hitTestSelHandles(px, py) {
+  // Restituisce 'delete' | 'move' | null
+  if (S.selectedIds.size === 0) return null;
+  const bb = selBBox(); if (bb.x > 1e8) return null;
+  const pad = 8, hr = 12 / S.zoom;
+  const x=bb.x-pad, y=bb.y-pad, w=bb.w+pad*2, h=bb.h+pad*2;
+  if (Math.hypot(px-(x+w), py-y) < hr) return 'delete';
+  if (Math.hypot(px-(x+w/2), py-(y+h)) < hr) return 'move';
+  // Click dentro il box = move
+  if (px>=x && px<=x+w && py>=y && py<=y+h) return 'move';
+  return null;
+}
+
+function selectStroke(idx, additive) {
+  if (!additive) S.selectedIds.clear();
+  if (S.selectedIds.has(idx)) S.selectedIds.delete(idx);
+  else S.selectedIds.add(idx);
+}
+
+function deleteSelected() {
+  if (!S.selectedIds.size) return;
+  S.strokes = S.strokes.filter((_, i) => !S.selectedIds.has(i));
+  S.selectedIds.clear();
+  S.undo.push([...S.strokes]); S.redo = [];
+  scheduleAutoSave(); redraw();
+}
+
+function moveSelected(dx, dy) {
+  S.selectedIds.forEach(idx => {
+    const s = S.strokes[idx];
+    if (!s || !s.pts) return;
+    s.pts = s.pts.map(p => ({...p, x: p.x+dx, y: p.y+dy}));
+  });
+}
+
+function finalizeLasso(poly, additive) {
+  if (!additive) S.selectedIds.clear();
+  S.strokes.forEach((s, idx) => {
+    if (!s.pts) return;
+    // Seleziona se almeno la metà dei punti è dentro il lasso
+    const inside = s.pts.filter(p => pointInPoly(p, poly)).length;
+    if (inside > s.pts.length * 0.4) S.selectedIds.add(idx);
+  });
+  S.lassoPath = null;
   redraw();
 }
 
