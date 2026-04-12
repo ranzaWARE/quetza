@@ -148,3 +148,7 @@ html,body{height:100%;overflow:hidden;font-family:'Segoe UI',system-ui,sans-seri
   -webkit-user-select: none;
   user-select: none;
 }
+
+/* Shape recognition toggle */
+#SRB.on { background: #e67e22; color: #fff; border-color: #e67e22; }
+#SRB.on:hover { background: #d35400; }

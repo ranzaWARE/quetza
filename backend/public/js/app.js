@@ -28,6 +28,7 @@ const S = {
   raf: null, peaks: null,
   // UI
   dark: false,
+  shapeRecog: false, // toggle riconoscimento forme
   // Notes
   notes: [], curId: null,
   // User
@@ -360,60 +361,111 @@ function setupZoom() {
   };
   document.getElementById('ZF').onclick = fitW;
 
-  // Ctrl+wheel
-  CO.addEventListener('wheel', e => {
-    if (e.ctrlKey || e.metaKey) { e.preventDefault(); zTo(S.zoom + (e.deltaY > 0 ? -.08 : .08)); }
-  }, { passive: false });
-
-  // Pinch
-  let lp = null;
+  // Pinch-to-zoom centrato sul punto di contatto
+  let lp = null, lpCx = 0, lpCy = 0;
   CO.addEventListener('touchstart', e => {
-    if (e.touches.length === 2) lp = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+    if (e.touches.length === 2) {
+      lp = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      // Centro del pinch in coordinate relative al viewport CO
+      const r = CO.getBoundingClientRect();
+      lpCx = ((e.touches[0].clientX + e.touches[1].clientX) / 2) - r.left;
+      lpCy = ((e.touches[0].clientY + e.touches[1].clientY) / 2) - r.top;
+    }
   }, { passive: true });
   CO.addEventListener('touchmove', e => {
     if (e.touches.length === 2 && lp) {
-      const d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
-      zTo(S.zoom * (d / lp)); lp = d;
+      const d = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const r = CO.getBoundingClientRect();
+      const cx2 = ((e.touches[0].clientX + e.touches[1].clientX) / 2) - r.left;
+      const cy2 = ((e.touches[0].clientY + e.touches[1].clientY) / 2) - r.top;
+      zTo(S.zoom * (d / lp), cx2 + CO.scrollLeft, cy2 + CO.scrollTop);
+      lp = d; lpCx = cx2; lpCy = cy2;
     }
   }, { passive: true });
-  CO.addEventListener('touchend', () => lp = null, { passive: true });
+  CO.addEventListener('touchend', () => { lp = null; }, { passive: true });
+
+  // Ctrl+wheel zoom centrato sul cursore
+  CO.addEventListener('wheel', e => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const r = CO.getBoundingClientRect();
+      const mx = (e.clientX - r.left) + CO.scrollLeft;
+      const my = (e.clientY - r.top)  + CO.scrollTop;
+      zTo(S.zoom + (e.deltaY > 0 ? -.08 : .08), mx, my);
+    }
+  }, { passive: false });
 }
 
 function applyZoom() {
-  // Ridimensiona il canvas fisicamente — niente transform scale
-  // Questo garantisce che il hit-testing del browser sia sempre corretto
-  const w = Math.round(PW * S.zoom);
-  const h = Math.round(totalH() * S.zoom);
-  if (CV.style.width !== w + 'px') {
-    CV.style.width  = w + 'px';
-    CV.style.height = h + 'px';
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = Math.round(PW * S.zoom);
+  const cssH = Math.round(totalH() * S.zoom);
+
+  // Dimensioni CSS: quello che occupa nella pagina
+  CV.style.width  = cssW + 'px';
+  CV.style.height = cssH + 'px';
+
+  // Dimensioni fisiche canvas: CSS * dpr per Retina
+  // Solo se cambiate (evita reset del canvas inutili)
+  const physW = Math.round(cssW * dpr);
+  const physH = Math.round(cssH * dpr);
+  if (CV.width !== physW || CV.height !== physH) {
+    CV.width  = physW;
+    CV.height = physH;
+    // Scala il context per le coordinate logiche
+    cx.setTransform(dpr * S.zoom, 0, 0, dpr * S.zoom, 0, 0);
   }
-  CW.style.height = (h + 32) + 'px';
+
+  CW.style.height = (cssH + 32) + 'px';
   ZL.textContent = Math.round(S.zoom * 100) + '%';
-  // Ridisegna mantenendo le coordinate logiche
   redraw();
 }
-function zTo(z) {
-  const f = CO.scrollTop / (CW.scrollHeight || 1);
+
+function zTo(z, pivotX, pivotY) {
+  // pivotX/Y: punto in CSS px attorno a cui zoomare (default: centro del viewport)
+  const oldZ = S.zoom;
   S.zoom = Math.max(.25, Math.min(3, z));
+
+  if (pivotX !== undefined && pivotY !== undefined) {
+    // Mantieni il punto sotto il pivot fermo durante lo zoom
+    const ratio = S.zoom / oldZ;
+    const scrollX = CO.scrollLeft;
+    const scrollY = CO.scrollTop;
+    CO.scrollLeft = (scrollX + pivotX) * ratio - pivotX;
+    CO.scrollTop  = (scrollY + pivotY) * ratio - pivotY;
+  } else {
+    // Zoom proporzionale allo scroll corrente
+    const f = CO.scrollTop / (CW.scrollHeight || 1);
+    applyZoom();
+    CO.scrollTop = f * CW.scrollHeight;
+    return;
+  }
   applyZoom();
-  CO.scrollTop = f * CW.scrollHeight;
 }
+
 function fitW() {
   const w = CO.clientWidth;
-  if (w > 0) zTo((w - 32) / PW);
+  if (w > 0) {
+    S.zoom = Math.max(.25, Math.min(3, (w - 32) / PW));
+    applyZoom();
+  }
 }
 
 // ── Canvas pointer events ─────────────────────────────────
 function setupCanvas() {
   function gP(ex, ey) {
     const r = CV.getBoundingClientRect();
-    // Canvas fisicamente ridimensionato (no transform scale)
-    // r.width == CV.width / dpr, coordinate dirette
-    const dpr = window.devicePixelRatio || 1;
+    // r.width = PW * zoom (CSS px)
+    // Coordinate logiche = (css_offset / zoom)
     return {
-      x: (ex - r.left) * (CV.width / r.width),
-      y: (ey - r.top)  * (CV.height / r.height)
+      x: (ex - r.left) / S.zoom,
+      y: (ey - r.top)  / S.zoom
     };
   }
 
@@ -505,9 +557,15 @@ function setupCanvas() {
     e.preventDefault();
     if (e.pointerType === 'touch') return;
     if (!S.cur) return;
-    if (S.cur.pts.length > 1) { S.strokes.push(S.cur); S.undo.push([...S.strokes]); S.redo = []; }
+    if (S.cur.pts.length > 1) {
+      const recognized = S.shapeRecog ? recognizeShape(S.cur) : null;
+      S.strokes.push(recognized || S.cur);
+      S.undo.push([...S.strokes]);
+      S.redo = [];
+    }
     S.cur = null;
     checkExtend();
+    redraw();
     if (S.aBuf) drawTL();
   }, { passive: false });
 
@@ -576,12 +634,14 @@ function setupCanvas() {
       if (t.touchType === 'stylus' && t.identifier === S._stylusId) {
         e.preventDefault();
         if (S.cur && S.cur.pts.length > 1) {
-          S.strokes.push(S.cur);
+          const recognized = S.shapeRecog ? recognizeShape(S.cur) : null;
+          S.strokes.push(recognized || S.cur);
           S.undo.push([...S.strokes]);
           S.redo = [];
         }
         S.cur = null; S._stylusId = null;
         checkExtend();
+        redraw();
         if (S.aBuf) drawTL();
         return;
       }
@@ -659,12 +719,14 @@ function setupCanvas() {
       if (t.touchType === 'stylus' && t.identifier === S._stylusId) {
         e.preventDefault();
         if (S.cur && S.cur.pts.length > 1) {
-          S.strokes.push(S.cur);
+          const recognized = S.shapeRecog ? recognizeShape(S.cur) : null;
+          S.strokes.push(recognized || S.cur);
           S.undo.push([...S.strokes]);
           S.redo = [];
         }
         S.cur = null; S._stylusId = null;
         checkExtend();
+        redraw();
         if (S.aBuf) drawTL();
         return;
       }
@@ -714,6 +776,13 @@ function setupToolbar() {
   document.getElementById('RDB').onclick = () => {
     if (!S.redo.length) return;
     S.strokes = [...S.redo.pop()]; S.undo.push([...S.strokes]); redraw(); if (S.aBuf) drawTL();
+  };
+  document.getElementById('SRB').onclick = () => {
+    S.shapeRecog = !S.shapeRecog;
+    const btn = document.getElementById('SRB');
+    btn.classList.toggle('on', S.shapeRecog);
+    btn.title = S.shapeRecog ? 'Riconoscimento forme automatico (on)' : 'Riconoscimento forme automatico (off)';
+    toast(S.shapeRecog ? '✓ Shape recognition attivo' : 'Shape recognition disattivato');
   };
   document.getElementById('CLB').onclick = () => {
     if (!confirm('Cancellare tutto il contenuto della nota?')) return;
@@ -1036,6 +1105,75 @@ let tT = null;
 function toast(msg) {
   TT.textContent = msg; TT.classList.add('on');
   clearTimeout(tT); tT = setTimeout(()=>TT.classList.remove('on'), 2400);
+}
+
+// ── Shape Recognition ────────────────────────────────────
+// Analizza un tratto freehand e lo converte in forma geometrica
+// se supera la soglia di somiglianza
+function recognizeShape(stroke) {
+  const pts = stroke.pts;
+  if (pts.length < 4) return null;
+
+  const xs = pts.map(p => p.x);
+  const ys = pts.map(p => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const w = maxX - minX, h = maxY - minY;
+  if (w < 10 && h < 10) return null; // troppo piccolo
+
+  // ── Linea retta ──────────────────────────────────────────
+  const dx = pts[pts.length-1].x - pts[0].x;
+  const dy = pts[pts.length-1].y - pts[0].y;
+  const len = Math.hypot(dx, dy);
+  if (len > 20) {
+    let maxDev = 0;
+    for (const p of pts) {
+      // Distanza punto dalla retta pts[0]→pts[last]
+      const dev = Math.abs(dy * p.x - dx * p.y + pts[pts.length-1].x * pts[0].y - pts[pts.length-1].y * pts[0].x) / len;
+      if (dev > maxDev) maxDev = dev;
+    }
+    if (maxDev / len < 0.08) {
+      return { ...stroke, t: 'line', pts: [pts[0], pts[pts.length-1]] };
+    }
+  }
+
+  // ── Rettangolo ───────────────────────────────────────────
+  // Controlla se il tratto torna vicino al punto di partenza e
+  // ha ~4 angoli con cambi di direzione bruschi
+  const startEnd = Math.hypot(pts[pts.length-1].x - pts[0].x, pts[pts.length-1].y - pts[0].y);
+  const perim = w * 2 + h * 2;
+  if (startEnd < perim * 0.15 && w > 20 && h > 20) {
+    // Conta i cambi di direzione bruschi (angoli)
+    let corners = 0;
+    for (let i = 2; i < pts.length - 2; i++) {
+      const ax = pts[i].x - pts[i-2].x, ay = pts[i].y - pts[i-2].y;
+      const bx = pts[i+2].x - pts[i].x, by = pts[i+2].y - pts[i].y;
+      const dot = ax*bx + ay*by;
+      const cross = Math.abs(ax*by - ay*bx);
+      if (cross > Math.hypot(ax,ay) * Math.hypot(bx,by) * 0.6) corners++;
+    }
+    if (corners >= 3) {
+      return { ...stroke, t: 'rect', pts: [{ x: minX, y: minY }, { x: maxX, y: maxY }] };
+    }
+  }
+
+  // ── Cerchio / Ellisse ─────────────────────────────────────
+  if (startEnd < perim * 0.15 && pts.length > 8) {
+    const cx2 = (minX + maxX) / 2, cy2 = (minY + maxY) / 2;
+    const rx = w / 2, ry = h / 2;
+    let totalDev = 0;
+    for (const p of pts) {
+      // Distanza normalizzata dall'ellisse
+      const nx = (p.x - cx2) / rx, ny = (p.y - cy2) / ry;
+      totalDev += Math.abs(Math.hypot(nx, ny) - 1);
+    }
+    const avgDev = totalDev / pts.length;
+    if (avgDev < 0.25 && w > 20 && h > 20) {
+      return { ...stroke, t: 'ellipse', pts: [{ x: minX, y: minY }, { x: maxX, y: maxY }] };
+    }
+  }
+
+  return null; // nessuna forma riconosciuta
 }
 
 // ── Start ─────────────────────────────────────────────────
