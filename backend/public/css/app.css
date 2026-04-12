@@ -152,3 +152,43 @@ html,body{height:100%;overflow:hidden;font-family:'Segoe UI',system-ui,sans-seri
 /* Shape recognition toggle */
 #SRB.on { background: #e67e22; color: #fff; border-color: #e67e22; }
 #SRB.on:hover { background: #d35400; }
+
+/* ── Search box ─────────────────────────────────────────── */
+.srch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 7px 4px;
+  padding: 5px 8px;
+  background: rgba(255,255,255,.07);
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,.08);
+}
+.srch svg { color: var(--sbm); flex-shrink: 0; }
+.srch input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: .74rem;
+  color: var(--sbfg, #e8e8f0);
+  width: 100%;
+}
+.srch input::placeholder { color: var(--sbm); }
+
+/* ── Autosave indicator ─────────────────────────────────── */
+.autosave-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--acc);
+  opacity: 0;
+  transition: opacity .3s;
+  flex-shrink: 0;
+}
+.autosave-dot.on { opacity: 1; }
+
+/* ── Palm rejection active indicator ────────────────────── */
+.MP.palm { background: #e67e22; color: #fff; opacity: .85; }
+
+/* ── Lasso tool ─────────────────────────────────────────── */
+[data-t="lasso"].on { background: #2471a3; color: #fff; border-color: #2471a3; }

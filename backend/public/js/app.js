@@ -21,6 +21,9 @@ const S = {
   grid: 'lines', pages: 3,
   // Zoom / pan
   zoom: 1, pan: false, pY: 0, pSY: 0,
+  // Palm rejection
+  palmActive: false,  // true se un dito è sul canvas mentre scriviamo
+  activePointers: new Map(), // pointerId → type
   // Audio
   aCtx: null, aBuf: null, src: null,
   playing: false, recOn: false,
@@ -28,9 +31,18 @@ const S = {
   raf: null, peaks: null,
   // UI
   dark: false,
-  shapeRecog: false, // toggle riconoscimento forme
+  shapeRecog: false,
+  // Selezione lasso
+  sel: null,        // {strokes:[], imgs:[], offsetX, offsetY, pts:[]}
+  selDragging: false,
+  selStart: null,
+  // Autosave
+  autoSaveTimer: null,
+  dirty: false,
   // Notes
   notes: [], curId: null,
+  // Search
+  searchQ: '',
   // User
   user: null,
 };
@@ -155,9 +167,23 @@ async function deleteNote(id) {
   renderNL();
 }
 
-async function saveNote() {
+function scheduleAutoSave() {
+  S.dirty = true;
+  clearTimeout(S.autoSaveTimer);
+  S.autoSaveTimer = setTimeout(() => saveNote(true), 4000); // 4s dopo l'ultimo tratto
+}
+
+async function saveNote(silent = false) {
   if (!S.curId) return;
-  const title = NTT.value.trim() || 'Senza titolo';
+  // Titolo automatico se ancora "Nuova nota"
+  let title = NTT.value.trim();
+  if (!title || title === 'Nuova nota') {
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: '2-digit' });
+    const timeStr = now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+    title = `Nota ${dateStr} ${timeStr}`;
+    NTT.value = title;
+  }
   const thumbnail = genThumb();
 
   await fetch(`/api/notes/${S.curId}/content`, {
@@ -181,7 +207,8 @@ async function saveNote() {
     S.notes.unshift(note);
   }
   renderNL();
-  toast('✓ Salvato');
+  S.dirty = false;
+  if (!silent) toast('✓ Salvato');
 }
 
 function genThumb() {
@@ -194,14 +221,16 @@ function genThumb() {
   return o.toDataURL('image/jpeg', 0.7);
 }
 
-function renderNL() {
+function renderNL(filter) {
   const el = document.getElementById('NL');
   el.innerHTML = '';
-  if (!S.notes.length) {
-    el.innerHTML = '<div style="padding:16px 8px;text-align:center;color:var(--mu);font-size:.72rem">Nessuna nota</div>';
+  const q = (filter || S.searchQ || '').toLowerCase().trim();
+  const notes = q ? S.notes.filter(n => n.title.toLowerCase().includes(q)) : S.notes;
+  if (!notes.length) {
+    el.innerHTML = `<div style="padding:16px 8px;text-align:center;color:var(--mu);font-size:.72rem">${q ? 'Nessun risultato' : 'Nessuna nota'}</div>`;
     return;
   }
-  S.notes.forEach(n => {
+  notes.forEach(n => {
     const d = document.createElement('div');
     d.className = 'ni' + (n.id === S.curId ? ' on' : '');
     const date = new Date(n.updated_at || n.created_at).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -289,6 +318,7 @@ function drawHi(c, hTs) {
 }
 
 const SHAPES = new Set(['rect','ellipse','line','arrow']);
+const LASSO_COLOR = 'rgba(36,113,163,0.5)';
 
 function drawSS(c, ss) {
   ss.forEach(s => {
@@ -320,10 +350,32 @@ function drawSS(c, ss) {
         c.closePath(); c.fillStyle = s.c; c.fill();
       }
     } else {
+      // Catmull-Rom smoothing per tratto fluido
       c.strokeStyle = s.c; c.lineCap = 'round'; c.lineJoin = 'round';
-      c.beginPath(); c.moveTo(s.pts[0].x, s.pts[0].y);
-      for (let i=1; i<s.pts.length; i++) { const p=s.pts[i], pr=s.pts[i-1]; c.lineWidth=(s.sz||3)*(.5+(p.p||.5)*.8); c.quadraticCurveTo(pr.x, pr.y, (pr.x+p.x)/2, (pr.y+p.y)/2); }
-      c.stroke();
+      const pts = s.pts;
+      if (pts.length === 2) {
+        c.lineWidth = (s.sz||3) * (.5 + (pts[0].p||.5) * .8);
+        c.beginPath(); c.moveTo(pts[0].x, pts[0].y); c.lineTo(pts[1].x, pts[1].y); c.stroke();
+      } else {
+        // Disegna con larghezza variabile per pressione
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p0 = pts[Math.max(i-1, 0)];
+          const p1 = pts[i];
+          const p2 = pts[Math.min(i+1, pts.length-1)];
+          const p3 = pts[Math.min(i+2, pts.length-1)];
+          // Punti di controllo Catmull-Rom
+          const cp1x = p1.x + (p2.x - p0.x) / 6;
+          const cp1y = p1.y + (p2.y - p0.y) / 6;
+          const cp2x = p2.x - (p3.x - p1.x) / 6;
+          const cp2y = p2.y - (p3.y - p1.y) / 6;
+          const pressure = (p1.p || .5) * .5 + (p2.p || .5) * .5;
+          c.lineWidth = (s.sz||3) * (.4 + pressure * .9);
+          c.beginPath();
+          c.moveTo(p1.x, p1.y);
+          c.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+          c.stroke();
+        }
+      }
     }
     c.restore();
   });
@@ -337,6 +389,55 @@ function redraw(hTs) {
   drawGrid(cx, dk); drawSeps(cx, dk);
   S.imgs.forEach(i => cx.drawImage(i.el, i.x, i.y, i.w, i.h));
   drawHi(cx, hTs); drawSS(cx, S.strokes);
+  // Selezione attiva
+  if (S.sel) drawSel(cx, S.sel);
+  // Lasso in corso
+  if (S.tool === 'lasso' && S.cur && S.cur.pts && S.cur.pts.length > 1) drawLassoPath(cx, S.cur.pts);
+}
+
+function drawLassoPath(c, pts) {
+  c.save();
+  c.strokeStyle = '#2471a3';
+  c.lineWidth = 1.5;
+  c.setLineDash([6, 4]);
+  c.beginPath();
+  c.moveTo(pts[0].x, pts[0].y);
+  pts.forEach(p => c.lineTo(p.x, p.y));
+  c.closePath();
+  c.stroke();
+  c.fillStyle = 'rgba(36,113,163,0.08)';
+  c.fill();
+  c.setLineDash([]);
+  c.restore();
+}
+
+function drawSel(c, sel) {
+  if (!sel || !sel.pts || sel.pts.length < 2) return;
+  // Disegna gli strokes selezionati nella posizione corrente (con offset)
+  const ox = sel.offsetX || 0, oy = sel.offsetY || 0;
+  if (ox !== 0 || oy !== 0) {
+    c.save();
+    c.translate(ox, oy);
+    drawSS(c, sel.strokes);
+    sel.imgs.forEach(i => c.drawImage(i.el, i.x, i.y, i.w, i.h));
+    c.restore();
+  }
+  // Bounding box tratteggiato
+  let mx=1e9,Mx=-1e9,my=1e9,My=-1e9;
+  sel.pts.forEach(p => { mx=Math.min(mx,p.x); Mx=Math.max(Mx,p.x); my=Math.min(my,p.y); My=Math.max(My,p.y); });
+  c.save();
+  c.strokeStyle = '#2471a3';
+  c.lineWidth = 1.5;
+  c.setLineDash([6,4]);
+  c.strokeRect(mx+ox-4, my+oy-4, Mx-mx+8, My-my+8);
+  c.setLineDash([]);
+  // Handle elimina
+  c.fillStyle = '#c0392b';
+  c.beginPath(); c.arc(Mx+ox+4, my+oy-4, 8, 0, Math.PI*2); c.fill();
+  c.fillStyle = '#fff';
+  c.font = 'bold 10px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText('✕', Mx+ox+4, my+oy-4);
+  c.restore();
 }
 
 // ── Auto-extend pages ─────────────────────────────────────
@@ -478,6 +579,16 @@ function setupCanvas() {
   }
 
   // Disegna un singolo segmento dal punto pr al punto pt
+  function calibratePressure(raw) {
+    // Apple Pencil: la pressure raw va da 0 a 1 ma la maggior parte
+    // dei tratti normali sta tra 0.1 e 0.5 — calibriamo per renderla
+    // più espressiva e lineare visivamente
+    if (raw <= 0) return 0.2;
+    // Curva di potenza: enfatizza le differenze nella zona media
+    const p = Math.pow(raw, 0.6);
+    return Math.max(0.15, Math.min(1.0, p));
+  }
+
   function drawSegment(s, pr, pt) {
     cx.save();
     if (s.t === 'hl') {
@@ -485,12 +596,17 @@ function setupCanvas() {
       cx.lineWidth=(s.sz||3)*5;
     } else if (s.t === 'eraser') {
       cx.globalCompositeOperation='destination-out'; cx.strokeStyle='rgba(0,0,0,1)';
-      cx.lineCap='round'; cx.lineWidth=(s.sz||3)*(.5+(pt.p||.5)*.8);
+      cx.lineCap='round';
+      const ep = calibratePressure(pt.p||.5);
+      cx.lineWidth=(s.sz||3)*(0.5+ep*1.2);
     } else {
       cx.strokeStyle=s.c; cx.lineCap='round';
-      cx.lineWidth=(s.sz||3)*(.5+(pt.p||.5)*.8);
+      // Interpola pressione tra punto precedente e corrente per transizioni fluide
+      const pp = calibratePressure(pr.p||.5);
+      const cp = calibratePressure(pt.p||.5);
+      const avgP = (pp + cp) / 2;
+      cx.lineWidth = (s.sz||3) * (0.3 + avgP * 1.4);
     }
-    // Linea diretta invece di quadraticCurveTo — evita gap tra segmenti
     cx.beginPath();
     cx.moveTo(pr.x, pr.y);
     cx.lineTo(pt.x, pt.y);
@@ -517,17 +633,38 @@ function setupCanvas() {
   // possa intercettarli o perderli durante lo scroll
   CV.addEventListener('pointerdown', e => {
     e.preventDefault();
-    // Ignora touch (gestito dai touch handlers sopra)
     if (e.pointerType === 'touch') return;
+    // Palm rejection: se c'è un dito sul canvas, ignora pennino
+    if (S.palmActive) return;
     CV.setPointerCapture(e.pointerId);
+    S.activePointers.set(e.pointerId, e.pointerType);
     const p = gP(e.clientX, e.clientY);
-
     if (inGap(p.y)) return;
     const t = (e.buttons === 32 || e.button === 5) ? 'eraser' : S.tool;
     const aTs = S.recOn ? (Date.now() - S.recStart) : null;
-    S.cur = SHAPES.has(t)
-      ? { t, c: S.color, sz: S.size, pts: [p, {...p}], aTs }
-      : { t, c: S.color, sz: S.size, pts: [{...p, p: e.pressure||.5}], aTs };
+
+    // Lasso: gestione click su selezione esistente
+    if (t === 'lasso' && S.sel) {
+      const ox = S.sel.offsetX||0, oy = S.sel.offsetY||0;
+      let mx=1e9,Mx=-1e9,my=1e9,My=-1e9;
+      S.sel.pts.forEach(q=>{mx=Math.min(mx,q.x);Mx=Math.max(Mx,q.x);my=Math.min(my,q.y);My=Math.max(My,q.y);});
+      // Click su X elimina
+      if (Math.hypot(p.x-(Mx+ox+4), p.y-(my+oy-4)) < 12) {
+        commitSel(true); return;
+      }
+      // Click dentro bounding box → drag
+      if (p.x >= mx+ox-8 && p.x <= Mx+ox+8 && p.y >= my+oy-8 && p.y <= My+oy+8) {
+        S.selDragging = true; S.selStart = p; return;
+      }
+      // Click fuori → applica selezione
+      commitSel(false);
+    }
+
+    S.cur = t === 'lasso'
+      ? { t, pts: [p], aTs }
+      : SHAPES.has(t)
+        ? { t, c: S.color, sz: S.size, pts: [p, {...p}], aTs }
+        : { t, c: S.color, sz: S.size, pts: [{...p, p: e.pressure||.5}], aTs };
     showMP('pen');
   }, { passive: false });
 
@@ -541,6 +678,19 @@ function setupCanvas() {
     for (const ce of events) {
       const pos = gP(ce.clientX, ce.clientY);
       if (inGap(pos.y)) continue;
+
+      // Drag selezione
+      if (S.selDragging && S.sel && S.selStart) {
+        S.sel.offsetX = (S.sel.offsetX||0) + (pos.x - S.selStart.x);
+        S.sel.offsetY = (S.sel.offsetY||0) + (pos.y - S.selStart.y);
+        S.selStart = pos;
+        redraw(); break;
+      }
+
+      if (S.cur.t === 'lasso') {
+        S.cur.pts.push(pos);
+        redraw(); break;
+      }
 
       if (SHAPES.has(S.cur.t)) {
         S.cur.pts[1] = {...pos}; redraw(); drawSS(cx, [S.cur]); break;
@@ -556,12 +706,25 @@ function setupCanvas() {
   CV.addEventListener('pointerup', e => {
     e.preventDefault();
     if (e.pointerType === 'touch') return;
+    S.activePointers.delete(e.pointerId);
+
+    // Fine drag selezione
+    if (S.selDragging) { S.selDragging = false; S.selStart = null; redraw(); return; }
+
     if (!S.cur) return;
+
+    // Fine lasso: calcola selezione
+    if (S.cur.t === 'lasso' && S.cur.pts.length > 3) {
+      finalizeLasso(S.cur.pts);
+      S.cur = null; redraw(); return;
+    }
+
     if (S.cur.pts.length > 1) {
       const recognized = S.shapeRecog ? recognizeShape(S.cur) : null;
       S.strokes.push(recognized || S.cur);
       S.undo.push([...S.strokes]);
       S.redo = [];
+      scheduleAutoSave();
     }
     S.cur = null;
     checkExtend();
@@ -569,7 +732,10 @@ function setupCanvas() {
     if (S.aBuf) drawTL();
   }, { passive: false });
 
-  CV.addEventListener('pointercancel', () => { S.cur = null; });
+  CV.addEventListener('pointercancel', e => {
+    S.activePointers.delete(e.pointerId);
+    S.cur = null;
+  });
   CV.addEventListener('contextmenu', e => e.preventDefault(), { passive: false });
 
   // ── Apple Pencil su Safari iOS: Touch Events nativi ──────
@@ -579,6 +745,15 @@ function setupCanvas() {
   // touchType === 'stylus' distingue Apple Pencil dal dito.
 
   CV.addEventListener('touchstart', e => {
+    // Palm rejection: traccia i tocchi con le dita
+    for (const t of e.changedTouches) {
+      if (t.touchType !== 'stylus') {
+        S.palmActive = true;
+        // Se stava disegnando, annulla il tratto corrente
+        if (S.cur) { S.cur = null; redraw(); }
+        showMP('palm');
+      }
+    }
     // Cerca il tocco con stylus (Apple Pencil)
     for (const t of e.changedTouches) {
       if (t.touchType === 'stylus') {
@@ -642,15 +817,20 @@ function setupCanvas() {
         S.cur = null; S._stylusId = null;
         checkExtend();
         redraw();
+        scheduleAutoSave();
         if (S.aBuf) drawTL();
         return;
       }
     }
+    // Controlla se ci sono ancora dita sul canvas
+    let hasFinger = false;
+    for (const t of e.touches) { if (t.touchType !== 'stylus') hasFinger = true; }
+    S.palmActive = hasFinger;
     S.pan = false;
   }, { passive: false });
 
   CV.addEventListener('touchcancel', () => {
-    S.cur = null; S.pan = false; S._stylusId = null;
+    S.cur = null; S.pan = false; S._stylusId = null; S.palmActive = false;
   }, { passive: true });
 
   // Blocca menu contestuale Safari iOS (long press con Apple Pencil)
@@ -664,6 +844,15 @@ function setupCanvas() {
   // touchType === 'stylus' distingue Apple Pencil dal dito.
 
   CV.addEventListener('touchstart', e => {
+    // Palm rejection: traccia i tocchi con le dita
+    for (const t of e.changedTouches) {
+      if (t.touchType !== 'stylus') {
+        S.palmActive = true;
+        // Se stava disegnando, annulla il tratto corrente
+        if (S.cur) { S.cur = null; redraw(); }
+        showMP('palm');
+      }
+    }
     // Cerca il tocco con stylus (Apple Pencil)
     for (const t of e.changedTouches) {
       if (t.touchType === 'stylus') {
@@ -727,15 +916,20 @@ function setupCanvas() {
         S.cur = null; S._stylusId = null;
         checkExtend();
         redraw();
+        scheduleAutoSave();
         if (S.aBuf) drawTL();
         return;
       }
     }
+    // Controlla se ci sono ancora dita sul canvas
+    let hasFinger = false;
+    for (const t of e.touches) { if (t.touchType !== 'stylus') hasFinger = true; }
+    S.palmActive = hasFinger;
     S.pan = false;
   }, { passive: false });
 
   CV.addEventListener('touchcancel', () => {
-    S.cur = null; S.pan = false; S._stylusId = null;
+    S.cur = null; S.pan = false; S._stylusId = null; S.palmActive = false;
   }, { passive: true });
 
   // Blocca selezione testo durante scrittura
@@ -788,7 +982,7 @@ function setupToolbar() {
     if (!confirm('Cancellare tutto il contenuto della nota?')) return;
     S.undo.push([...S.strokes]); S.strokes = []; S.imgs = []; redraw(); toast('Canvas pulita');
   };
-  document.getElementById('SVB').onclick = saveNote;
+  document.getElementById('SVB').onclick = () => saveNote(false);
 
   document.getElementById('PSB').onclick = pasteImg;
 
@@ -829,9 +1023,12 @@ function setupToolbar() {
         case 'l': document.querySelector('[data-t="line"]').click(); break;
         case 'a': document.querySelector('[data-t="arrow"]').click(); break;
         case 'o': document.querySelector('[data-t="ellipse"]').click(); break;
+        case 's': document.querySelector('[data-t="lasso"]').click(); break;
       }
     }
     if (e.key===' ' && e.target===document.body) { e.preventDefault(); document.getElementById('APB').click(); }
+    if (e.key==='Escape') { if (S.sel) commitSel(false); S.cur=null; redraw(); }
+    if (e.key==='Delete'||e.key==='Backspace') { if(S.sel&&document.activeElement===document.body){commitSel(true);} }
   });
 }
 
@@ -840,6 +1037,15 @@ function setupSidebar() {
   document.getElementById('sbC').onclick = () => { SB.classList.add('off'); document.getElementById('sbO').style.display='flex'; };
   document.getElementById('sbO').onclick = () => { SB.classList.remove('off'); document.getElementById('sbO').style.display='none'; };
   document.getElementById('newB').onclick = newNote;
+
+  // Ricerca note
+  const srch = document.getElementById('SRCH');
+  if (srch) {
+    srch.addEventListener('input', () => {
+      S.searchQ = srch.value;
+      renderNL();
+    });
+  }
   document.getElementById('logoutB').onclick = async () => {
     if (S.recOn) stopRec();
     await saveNote();
@@ -1098,13 +1304,58 @@ TC.onclick = e => {
 // ── Utils ─────────────────────────────────────────────────
 let mpT = null;
 function showMP(m) {
-  MP.className = 'MP '+m; MP.textContent = m==='touch' ? 'sposta' : 'penna';
+  const labels = { pen: 'penna', touch: 'sposta', palm: 'palmo rilevato' };
+  MP.className = 'MP '+m; MP.textContent = labels[m] || m;
   clearTimeout(mpT); mpT = setTimeout(()=>{ MP.style.opacity='0'; }, 1000);
 }
 let tT = null;
 function toast(msg) {
   TT.textContent = msg; TT.classList.add('on');
   clearTimeout(tT); tT = setTimeout(()=>TT.classList.remove('on'), 2400);
+}
+
+// ── Lasso Selection ──────────────────────────────────────
+function pointInPoly(pt, poly) {
+  let inside = false;
+  for (let i=0, j=poly.length-1; i<poly.length; j=i++) {
+    const xi=poly[i].x,yi=poly[i].y,xj=poly[j].x,yj=poly[j].y;
+    if (((yi>pt.y)!==(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/(yj-yi)+xi)) inside=!inside;
+  }
+  return inside;
+}
+
+function strokeInPoly(stroke, poly) {
+  if (!stroke.pts || stroke.pts.length === 0) return false;
+  return stroke.pts.some(p => pointInPoly(p, poly));
+}
+
+function finalizeLasso(poly) {
+  const selected = S.strokes.filter(s => strokeInPoly(s, poly));
+  const selImgs = S.imgs.filter(i => pointInPoly({x:i.x+i.w/2, y:i.y+i.h/2}, poly));
+  if (!selected.length && !selImgs.length) { S.sel = null; return; }
+  // Rimuovi gli strokes selezionati dal canvas principale
+  S.strokes = S.strokes.filter(s => !selected.includes(s));
+  S.imgs = S.imgs.filter(i => !selImgs.includes(i));
+  S.sel = { strokes: selected, imgs: selImgs, pts: poly, offsetX: 0, offsetY: 0 };
+}
+
+function commitSel(del) {
+  if (!S.sel) return;
+  if (!del) {
+    // Rimetti gli strokes con offset applicato
+    const ox = S.sel.offsetX||0, oy = S.sel.offsetY||0;
+    const moved = S.sel.strokes.map(s => ({
+      ...s,
+      pts: s.pts.map(p => ({...p, x: p.x+ox, y: p.y+oy}))
+    }));
+    S.strokes.push(...moved);
+    S.sel.imgs.forEach(i => S.imgs.push({...i, x:i.x+ox, y:i.y+oy}));
+    S.undo.push([...S.strokes]);
+    S.redo = [];
+    scheduleAutoSave();
+  }
+  S.sel = null; S.selDragging = false; S.selStart = null;
+  redraw();
 }
 
 // ── Shape Recognition ────────────────────────────────────
