@@ -18,7 +18,7 @@ const S = {
   // Drawing
   tool: 'pen', color: '#111', size: 3,
   strokes: [], undo: [], redo: [], cur: null, imgs: [],
-  grid: 'lines', pages: 3,
+  grid: 'lines', pages: 1,
   // Zoom / pan
   zoom: 1, pan: false, pY: 0, pSY: 0,
   // Palm rejection
@@ -112,7 +112,7 @@ async function openNote(id) {
   S.strokes = n.strokes || [];
   S.imgs    = n.images  || [];
   S.grid    = n.grid    || 'lines';
-  S.pages   = Math.max(3, Math.ceil(maxY() / PH) + 1);
+  S.pages   = Math.max(1, Math.ceil(maxY() / PH) + 1);
   S.undo = []; S.redo = [];
   GSL.value = S.grid;
   NTT.value = n.title;
@@ -487,9 +487,11 @@ function drawLassoPath(c, pts) {
 // ── Auto-extend pages ─────────────────────────────────────
 function checkExtend() {
   const my = maxY();
-  if (my > S.pages * (PH + PGAP) - PH * 0.3) {
+  // Aggiungi pagina quando si arriva all'80% dell'ultima pagina
+  const lastPageStart = (S.pages - 1) * (PH + PGAP);
+  if (my > lastPageStart + PH * 0.8) {
     S.pages++;
-    CV.height = totalH();
+    applyZoom(); // ridimensiona canvas fisicamente
     drawTL();
   }
 }
@@ -651,25 +653,78 @@ function setupCanvas() {
       const avgP = (pp + cp) / 2;
       cx.lineWidth = (s.sz||3) * (0.3 + avgP * 1.4);
     }
+    // quadraticCurveTo verso il punto medio: tratto smooth senza angoli
+    const mx = (pr.x + pt.x) / 2;
+    const my = (pr.y + pt.y) / 2;
     cx.beginPath();
     cx.moveTo(pr.x, pr.y);
-    cx.lineTo(pt.x, pt.y);
+    cx.quadraticCurveTo(pr.x, pr.y, mx, my);
     cx.stroke(); cx.restore();
   }
 
-  // ── Touch handlers su CO (wrapper) per pan con dito ─────
+  // ── Touch handlers su CO per pan con dito + drag selezione ──
   CO.addEventListener('touchstart', e => {
-    if (e.touches.length === 1 && e.touches[0].touchType !== 'stylus') {
-      S.pan = true; S.pY = e.touches[0].clientY; S.pSY = CO.scrollTop;
-      showMP('touch');
+    const t = e.touches[0];
+    if (!t || t.touchType === 'stylus') return;
+    const pos = gP(t.clientX, t.clientY);
+    // Controlla se il dito è sull'handle ⠿ o dentro il box di selezione
+    if (S.tool === 'lasso' && S.selectedIds.size > 0) {
+      const handle = hitTestSelHandles(pos.x, pos.y);
+      if (handle === 'delete') { e.preventDefault(); deleteSelected(); return; }
+      if (handle === 'move') {
+        e.preventDefault();
+        S.selDrag = true; S.selDragStart = pos;
+        S.selDragFrom = {};
+        S.selectedIds.forEach(idx => {
+          S.selDragFrom[idx] = S.strokes[idx].pts.map(q => ({...q}));
+        });
+        return;
+      }
+      // Click su stroke con il dito → selezione
+      for (let i = S.strokes.length-1; i >= 0; i--) {
+        if (strokeHitTest(S.strokes[i], pos.x, pos.y)) {
+          e.preventDefault();
+          selectStroke(i, false);
+          S.selDrag = true; S.selDragStart = pos;
+          S.selDragFrom = {};
+          S.selectedIds.forEach(idx => {
+            S.selDragFrom[idx] = S.strokes[idx].pts.map(q => ({...q}));
+          });
+          redraw(); return;
+        }
+      }
     }
-  }, { passive: true });
+    // Pan normale con dito
+    S.pan = true; S.pY = t.clientY; S.pSY = CO.scrollTop;
+    showMP('touch');
+  }, { passive: false });
+
   CO.addEventListener('touchmove', e => {
+    // Drag selezione con dito
+    if (S.selDrag && S.selDragStart && S.selectedIds.size > 0) {
+      e.preventDefault();
+      const t = e.touches[0];
+      const pos = gP(t.clientX, t.clientY);
+      const dx = pos.x - S.selDragStart.x;
+      const dy = pos.y - S.selDragStart.y;
+      S.selectedIds.forEach(idx => {
+        if (S.selDragFrom[idx]) S.strokes[idx].pts = S.selDragFrom[idx].map(q=>({...q,x:q.x+dx,y:q.y+dy}));
+      });
+      redraw(); return;
+    }
     if (S.pan && e.touches.length === 1) {
       CO.scrollTop = S.pSY + (S.pY - e.touches[0].clientY);
     }
+  }, { passive: false });
+
+  CO.addEventListener('touchend', e => {
+    if (S.selDrag) {
+      S.selDrag = false; S.selDragStart = null; S.selDragFrom = null;
+      S.undo.push([...S.strokes]); S.redo = [];
+      scheduleAutoSave(); redraw(); return;
+    }
+    S.pan = false;
   }, { passive: true });
-  CO.addEventListener('touchend', () => { S.pan = false; }, { passive: true });
 
   // ── Pointer handlers su CV (canvas) per disegno ──────────
   // Registrare su CV invece che CO risolve il problema di input mancanti:
