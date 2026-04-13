@@ -53,6 +53,17 @@ const S = {
 const CV   = document.getElementById('C');
 const cx   = CV.getContext('2d');
 const CO   = document.getElementById('CO');
+
+// Canvas offscreen: griglia pre-renderizzata (non cambia mai durante il disegno)
+// e strokes statici (tutto tranne il tratto corrente)
+// Questo evita di ridisegnare tutto ad ogni evento pointermove
+const _gridCanvas  = document.createElement('canvas');
+const _gridCtx     = _gridCanvas.getContext('2d');
+const _strokeCanvas = document.createElement('canvas');
+const _strokeCtx    = _strokeCanvas.getContext('2d');
+let _gridDirty   = true;  // la griglia va ridisegnata
+let _strokeDirty = true;  // gli strokes statici vanno ridisegnati
+let _rafPending  = false; // un RAF è già in coda
 const CW   = document.getElementById('CW');
 const SB   = document.getElementById('SB');
 const ED   = document.getElementById('ED');
@@ -141,7 +152,7 @@ async function openNote(id) {
 
   EM.style.display = 'none'; ED.className = 'on';
   // Imposta dimensioni logiche del canvas (coordinate di disegno)
-  CV.width = PW; CV.height = totalH();
+  CV.width = PW; CV.height = totalH(); markDirty('all');
   renderNL();
   requestAnimationFrame(() => requestAnimationFrame(() => {
     fitW(); // fitW chiama applyZoom che ridimensiona CV.style.width/height
@@ -384,23 +395,61 @@ function drawSS(c, ss) {
   });
 }
 
+// Sincronizza dimensioni canvas offscreen con CV
+function syncOffscreenSize() {
+  if (_gridCanvas.width !== CV.width || _gridCanvas.height !== CV.height) {
+    _gridCanvas.width   = CV.width;   _gridCanvas.height   = CV.height;
+    _strokeCanvas.width = CV.width;   _strokeCanvas.height = CV.height;
+    // Scala i context offscreen come il canvas principale
+    const dpr = window.devicePixelRatio || 1;
+    _gridCtx.setTransform(dpr * S.zoom, 0, 0, dpr * S.zoom, 0, 0);
+    _strokeCtx.setTransform(dpr * S.zoom, 0, 0, dpr * S.zoom, 0, 0);
+    _gridDirty = true; _strokeDirty = true;
+  }
+}
+
+// Marca griglia e strokes da ridisegnare (chiamato quando cambiano)
+function markDirty(what) {
+  if (what === 'grid' || what === 'all') _gridDirty = true;
+  if (what === 'strokes' || what === 'all') _strokeDirty = true;
+}
+
 function redraw(hTs) {
+  syncOffscreenSize();
   const dk = S.dark;
+
+  // Layer 1: griglia (offscreen, ridisegnata solo se cambia)
+  if (_gridDirty) {
+    _gridCtx.clearRect(0, 0, _gridCanvas.width, _gridCanvas.height);
+    _gridCtx.fillStyle = dk ? '#23272e' : '#fff';
+    for (let p = 0; p < S.pages; p++) _gridCtx.fillRect(0, p*(PH+PGAP), PW, PH);
+    drawGrid(_gridCtx, dk);
+    drawSeps(_gridCtx, dk);
+    _gridDirty = false;
+  }
+
+  // Layer 2: strokes statici (offscreen, ridisegnati solo se cambiano)
+  if (_strokeDirty) {
+    _strokeCtx.clearRect(0, 0, _strokeCanvas.width, _strokeCanvas.height);
+    S.imgs.forEach(i => _strokeCtx.drawImage(i.el, i.x, i.y, i.w, i.h));
+    drawSS(_strokeCtx, S.strokes);
+    _strokeDirty = false;
+  }
+
+  // Composita tutto sul canvas finale
   cx.clearRect(0, 0, CV.width, CV.height);
-  cx.fillStyle = dk ? '#23272e' : '#fff';
-  for (let p = 0; p < S.pages; p++) cx.fillRect(0, p*(PH+PGAP), PW, PH);
-  drawGrid(cx, dk); drawSeps(cx, dk);
-  S.imgs.forEach(i => cx.drawImage(i.el, i.x, i.y, i.w, i.h));
-  drawHi(cx, hTs);
-  // Disegna strokes con highlight selezione
-  S.strokes.forEach((s, idx) => {
-    drawSS(cx, [s]);
-    if (S.selectedIds.has(idx)) drawStrokeHighlight(cx, s);
-  });
-  // Bounding box + handle selezione multipla
-  if (S.selectedIds.size > 0) drawSelectionBox(cx);
-  // Lasso in corso
+  cx.drawImage(_gridCanvas, 0, 0);
+  cx.drawImage(_strokeCanvas, 0, 0);
+
+  // Layer 3: overlay dinamici (highlight audio, selezione, lasso, tratto corrente)
+  // — questi cambiano ad ogni frame durante drawing/playback
+  if (hTs != null) drawHi(cx, hTs);
+  if (S.selectedIds.size > 0) {
+    S.selectedIds.forEach(idx => { if (S.strokes[idx]) drawStrokeHighlight(cx, S.strokes[idx]); });
+    drawSelectionBox(cx);
+  }
   if (S.lassoPath && S.lassoPath.length > 1) drawLassoPath(cx, S.lassoPath);
+  if (S.cur && SHAPES.has(S.cur.t)) drawSS(cx, [S.cur]);
 }
 
 function strokeBBox(s) {
@@ -488,11 +537,12 @@ function drawLassoPath(c, pts) {
 // ── Auto-extend pages ─────────────────────────────────────
 function checkExtend() {
   const my = maxY();
-  // Aggiungi pagina quando si arriva all'80% dell'ultima pagina
   const lastPageStart = (S.pages - 1) * (PH + PGAP);
   if (my > lastPageStart + PH * 0.8) {
     S.pages++;
-    applyZoom(); // ridimensiona canvas fisicamente
+    markDirty('all');
+    applyZoom();
+    redraw();
     drawTL();
   }
 }
@@ -550,29 +600,26 @@ function applyZoom() {
 
   CW.style.height = (cssH + 32) + 'px';
   ZL.textContent = Math.round(S.zoom * 100) + '%';
-  redraw();
+  // NON chiamare redraw() qui — la chiama zTo() che conosce il contesto
 }
 
 function zTo(z, pivotX, pivotY) {
-  // pivotX/Y: punto in CSS px attorno a cui zoomare (default: centro del viewport)
   const oldZ = S.zoom;
   S.zoom = Math.max(.25, Math.min(3, z));
+  markDirty('all'); // zoom cambia le dimensioni fisiche del canvas
 
   if (pivotX !== undefined && pivotY !== undefined) {
-    // Mantieni il punto sotto il pivot fermo durante lo zoom
     const ratio = S.zoom / oldZ;
-    const scrollX = CO.scrollLeft;
-    const scrollY = CO.scrollTop;
-    CO.scrollLeft = (scrollX + pivotX) * ratio - pivotX;
-    CO.scrollTop  = (scrollY + pivotY) * ratio - pivotY;
+    CO.scrollLeft = (CO.scrollLeft + pivotX) * ratio - pivotX;
+    CO.scrollTop  = (CO.scrollTop  + pivotY) * ratio - pivotY;
   } else {
-    // Zoom proporzionale allo scroll corrente
     const f = CO.scrollTop / (CW.scrollHeight || 1);
     applyZoom();
     CO.scrollTop = f * CW.scrollHeight;
-    return;
+    redraw(); return;
   }
   applyZoom();
+  redraw();
 }
 
 function fitW() {
@@ -899,6 +946,7 @@ function setupCanvas() {
       S.strokes.push(recognized || S.cur);
       S.undo.push([...S.strokes]);
       S.redo = [];
+      markDirty('strokes');
       scheduleAutoSave();
     }
     S.cur = null;
@@ -1217,22 +1265,22 @@ function setupToolbar() {
     };
   });
   SZR.oninput = () => { S.size = parseInt(SZR.value); SZV.textContent = S.size; };
-  GSL.onchange = () => { S.grid = GSL.value; redraw(); };
+  GSL.onchange = () => { S.grid = GSL.value; markDirty('all'); redraw(); };
 
   document.getElementById('DKB').onclick = () => {
     S.dark = !S.dark;
     S.dark ? APP.setAttribute('data-dk','1') : APP.removeAttribute('data-dk');
-    redraw();
+    markDirty('all'); redraw();
   };
 
   document.getElementById('UDB').onclick = () => {
     if (S.undo.length < 2) { S.strokes = []; S.undo = []; }
     else { S.undo.pop(); S.strokes = [...S.undo[S.undo.length-1]]; }
-    redraw(); if (S.aBuf) drawTL();
+    markDirty('strokes'); redraw(); if (S.aBuf) drawTL();
   };
   document.getElementById('RDB').onclick = () => {
     if (!S.redo.length) return;
-    S.strokes = [...S.redo.pop()]; S.undo.push([...S.strokes]); redraw(); if (S.aBuf) drawTL();
+    S.strokes = [...S.redo.pop()]; S.undo.push([...S.strokes]); markDirty('strokes'); redraw(); if (S.aBuf) drawTL();
   };
   document.getElementById('SRB').onclick = () => {
     S.shapeRecog = !S.shapeRecog;
@@ -1243,7 +1291,7 @@ function setupToolbar() {
   };
   document.getElementById('CLB').onclick = () => {
     if (!confirm('Cancellare tutto il contenuto della nota?')) return;
-    S.undo.push([...S.strokes]); S.strokes = []; S.imgs = []; redraw(); toast('Canvas pulita');
+    S.undo.push([...S.strokes]); S.strokes = []; S.imgs = []; markDirty('all'); redraw(); toast('Canvas pulita');
   };
   document.getElementById('SVB').onclick = () => saveNote(false);
 
@@ -1710,7 +1758,17 @@ function tickAudio() {
   if (!S.playing) return;
   const el = S.aCtx.currentTime - S.playSt + S.playOff;
   const f = Math.min(el/S.aBuf.duration, 1); const ms = el*1000;
-  SC.style.left = (f*100)+'%'; drawWave(f); updAT(el); redraw(ms); drawTL(f); scrollToTs(ms);
+  // UI leggera ogni frame (60fps)
+  SC.style.left = (f*100)+'%';
+  updAT(el);
+  // Canvas pesante a 30fps (ogni 2 frame) — l'occhio non nota la differenza
+  if (!S._audioFrameSkip) {
+    drawWave(f);
+    redraw(ms);
+    drawTL(f);
+    scrollToTs(ms);
+  }
+  S._audioFrameSkip = !S._audioFrameSkip;
   S.raf = requestAnimationFrame(tickAudio);
 }
 
