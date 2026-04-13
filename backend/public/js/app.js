@@ -397,13 +397,15 @@ function drawSS(c, ss) {
 
 // Sincronizza dimensioni canvas offscreen con CV
 function syncOffscreenSize() {
-  if (_gridCanvas.width !== CV.width || _gridCanvas.height !== CV.height) {
-    _gridCanvas.width   = CV.width;   _gridCanvas.height   = CV.height;
-    _strokeCanvas.width = CV.width;   _strokeCanvas.height = CV.height;
-    // Scala i context offscreen come il canvas principale
-    const dpr = window.devicePixelRatio || 1;
-    _gridCtx.setTransform(dpr * S.zoom, 0, 0, dpr * S.zoom, 0, 0);
-    _strokeCtx.setTransform(dpr * S.zoom, 0, 0, dpr * S.zoom, 0, 0);
+  const dpr = window.devicePixelRatio || 1;
+  const physW = Math.round(PW * dpr);
+  const physH = Math.round(totalH() * dpr);
+  if (_gridCanvas.width !== physW || _gridCanvas.height !== physH) {
+    _gridCanvas.width    = physW; _gridCanvas.height   = physH;
+    _strokeCanvas.width  = physW; _strokeCanvas.height = physH;
+    // Stessa scala del canvas principale: dpr (non zoom, che è solo CSS)
+    _gridCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    _strokeCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     _gridDirty = true; _strokeDirty = true;
   }
 }
@@ -420,7 +422,7 @@ function redraw(hTs) {
 
   // Layer 1: griglia (offscreen, ridisegnata solo se cambia)
   if (_gridDirty) {
-    _gridCtx.clearRect(0, 0, _gridCanvas.width, _gridCanvas.height);
+    _gridCtx.clearRect(0, 0, PW, totalH());
     _gridCtx.fillStyle = dk ? '#23272e' : '#fff';
     for (let p = 0; p < S.pages; p++) _gridCtx.fillRect(0, p*(PH+PGAP), PW, PH);
     drawGrid(_gridCtx, dk);
@@ -430,16 +432,16 @@ function redraw(hTs) {
 
   // Layer 2: strokes statici (offscreen, ridisegnati solo se cambiano)
   if (_strokeDirty) {
-    _strokeCtx.clearRect(0, 0, _strokeCanvas.width, _strokeCanvas.height);
+    _strokeCtx.clearRect(0, 0, PW, totalH());
     S.imgs.forEach(i => _strokeCtx.drawImage(i.el, i.x, i.y, i.w, i.h));
     drawSS(_strokeCtx, S.strokes);
     _strokeDirty = false;
   }
 
-  // Composita tutto sul canvas finale
-  cx.clearRect(0, 0, CV.width, CV.height);
-  cx.drawImage(_gridCanvas, 0, 0);
-  cx.drawImage(_strokeCanvas, 0, 0);
+  // Composita tutto sul canvas finale (coordinate logiche — il context è scalato dpr)
+  cx.clearRect(0, 0, PW, totalH());
+  cx.drawImage(_gridCanvas, 0, 0, PW, totalH());
+  cx.drawImage(_strokeCanvas, 0, 0, PW, totalH());
 
   // Layer 3: overlay dinamici (highlight audio, selezione, lasso, tratto corrente)
   // — questi cambiano ad ogni frame durante drawing/playback
@@ -580,27 +582,31 @@ function setupZoom() {
 
 function applyZoom() {
   const dpr = window.devicePixelRatio || 1;
-  const cssW = Math.round(PW * S.zoom);
-  const cssH = Math.round(totalH() * S.zoom);
 
-  // Dimensioni CSS: quello che occupa nella pagina
-  CV.style.width  = cssW + 'px';
-  CV.style.height = cssH + 'px';
+  // Dimensioni LOGICHE del canvas (coordinate di disegno) — fisse, indipendenti da zoom
+  const logW = PW;
+  const logH = totalH();
 
-  // Dimensioni fisiche canvas: CSS * dpr per Retina
-  // Solo se cambiate (evita reset del canvas inutili)
-  const physW = Math.round(cssW * dpr);
-  const physH = Math.round(cssH * dpr);
+  // Dimensioni FISICHE del canvas: logiche * dpr per qualità Retina
+  const physW = Math.round(logW * dpr);
+  const physH = Math.round(logH * dpr);
   if (CV.width !== physW || CV.height !== physH) {
     CV.width  = physW;
     CV.height = physH;
-    // Scala il context per le coordinate logiche
-    cx.setTransform(dpr * S.zoom, 0, 0, dpr * S.zoom, 0, 0);
+    // Scale il context: 1 unità canvas = 1 pixel logico
+    // Il dpr scala per la nitidezza Retina senza toccare le coordinate
+    cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    markDirty('all');
   }
+
+  // Dimensioni CSS: quanto spazio occupa nella pagina (zoom visivo)
+  const cssW = Math.round(logW * S.zoom);
+  const cssH = Math.round(logH * S.zoom);
+  CV.style.width  = cssW + 'px';
+  CV.style.height = cssH + 'px';
 
   CW.style.height = (cssH + 32) + 'px';
   ZL.textContent = Math.round(S.zoom * 100) + '%';
-  // NON chiamare redraw() qui — la chiama zTo() che conosce il contesto
 }
 
 function zTo(z, pivotX, pivotY) {
@@ -1473,9 +1479,23 @@ function exportPDF(withGrid) {
 const uploadQueue = [];
 let uploadBusy = false;
 
+// ── Network status ───────────────────────────────────────
+function setNetStatus(state) {
+  const dot = document.getElementById('NETDOT');
+  const lbl = document.getElementById('NETLBL');
+  const ban = document.getElementById('OFFBANNER');
+  if (!dot) return;
+  dot.className = 'netdot ' + state;
+  if (state === 'online')        { lbl.textContent = 'online';  ban.classList.remove('on'); }
+  else if (state === 'offline')  { lbl.textContent = 'offline'; ban.classList.add('on'); }
+  else if (state === 'syncing')  { lbl.textContent = 'sync…';   ban.classList.remove('on'); }
+}
+
+// Upload queue resiliente — chunk audio caricati in streaming
 async function flushUploadQueue() {
   if (uploadBusy || !uploadQueue.length) return;
   uploadBusy = true;
+  setNetStatus('syncing');
   while (uploadQueue.length) {
     const item = uploadQueue[0];
     let ok = false;
@@ -1485,15 +1505,15 @@ async function flushUploadQueue() {
         fd.append('chunk', item.blob, 'chunk.' + item.ext);
         const r = await fetch(`/api/notes/${item.noteId}/audio/append`, { method: 'POST', body: fd });
         if (r.ok) { ok = true; break; }
-      } catch(e) {
-        // Rete assente — aspetta con backoff esponenziale
+      } catch {
         await new Promise(r => setTimeout(r, Math.min(1000 * Math.pow(2, attempt), 15000)));
       }
     }
     if (ok) uploadQueue.shift();
-    else break; // Riprova dopo
+    else { setNetStatus('offline'); break; }
   }
   uploadBusy = false;
+  if (!uploadQueue.length) setNetStatus('online');
 }
 
 function enqueueChunk(noteId, blob, ext) {
@@ -1501,67 +1521,23 @@ function enqueueChunk(noteId, blob, ext) {
   flushUploadQueue();
 }
 
-// ── Network status ───────────────────────────────────────
-function setNetStatus(state) {
-  // state: 'online' | 'offline' | 'syncing'
-  const dot  = document.getElementById('NETDOT');
-  const lbl  = document.getElementById('NETLBL');
-  const ban  = document.getElementById('OFFBANNER');
-  if (!dot) return;
-
-  dot.className = 'netdot ' + state;
-
-  if (state === 'online') {
-    lbl.textContent = 'online';
-    ban.classList.remove('on');
-  } else if (state === 'offline') {
-    lbl.textContent = 'offline';
-    ban.classList.add('on');
-  } else if (state === 'syncing') {
-    lbl.textContent = 'sync…';
-    ban.classList.remove('on');
-  }
-}
-
-// Controlla connessione anche verso il server (non solo navigator.onLine
-// che è inaffidabile — controlla solo la scheda di rete locale)
-let _netCheckTimer = null;
 async function checkServerReach() {
   try {
     const r = await fetch('/api/me', { method: 'GET', cache: 'no-store' });
     if (r.ok || r.status === 401) {
-      // Server raggiungibile
-      if (uploadQueue.length > 0) {
-        setNetStatus('syncing');
-        flushUploadQueue();
-      } else {
-        setNetStatus('online');
-      }
-    } else {
-      setNetStatus('offline');
-    }
-  } catch {
-    setNetStatus('offline');
-  }
+      if (uploadQueue.length > 0) { setNetStatus('syncing'); flushUploadQueue(); }
+      else setNetStatus('online');
+    } else { setNetStatus('offline'); }
+  } catch { setNetStatus('offline'); }
 }
 
-// Controlla ogni 15s
 function startNetMonitor() {
   checkServerReach();
-  _netCheckTimer = setInterval(checkServerReach, 15000);
+  setInterval(checkServerReach, 15000);
 }
 
-window.addEventListener('online',  () => { checkServerReach(); });
-window.addEventListener('offline', () => { setNetStatus('offline'); });
-
-// Aggiorna stato sync quando la queue cambia
-const _origFlush = flushUploadQueue;
-async function flushUploadQueue() {
-  if (uploadQueue.length > 0) setNetStatus('syncing');
-  await _origFlush();
-  if (uploadQueue.length === 0) setNetStatus('online');
-  else setNetStatus('offline'); // Upload falliti = ancora offline
-}
+window.addEventListener('online',  () => checkServerReach());
+window.addEventListener('offline', () => setNetStatus('offline'));
 
 async function startRec() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
