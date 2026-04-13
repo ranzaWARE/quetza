@@ -7,6 +7,32 @@ const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+// Migrazione: aggiunge colonna 'session' se tabella audio esiste senza di essa
+try {
+  db.exec(`ALTER TABLE audio ADD COLUMN session INTEGER NOT NULL DEFAULT 0`);
+} catch(e) { /* colonna già presente */ }
+// Migrazione: aggiunge colonna 'id' autoincrement se necessario (più complessa — ricrea tabella)
+try {
+  const cols = db.prepare(`PRAGMA table_info(audio)`).all().map(c => c.name);
+  if (!cols.includes('id')) {
+    db.exec(`
+      ALTER TABLE audio RENAME TO audio_old;
+      CREATE TABLE audio (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        note_id  TEXT NOT NULL,
+        username TEXT NOT NULL,
+        session  INTEGER NOT NULL DEFAULT 0,
+        data     BLOB NOT NULL,
+        mime     TEXT DEFAULT 'audio/webm',
+        FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
+      );
+      INSERT INTO audio (note_id, username, session, data, mime)
+        SELECT note_id, username, 0, data, mime FROM audio_old;
+      DROP TABLE audio_old;
+    `);
+  }
+} catch(e) { console.log('Migration note:', e.message); }
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS notes (
     id           TEXT PRIMARY KEY,
@@ -29,6 +55,14 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_notes_user ON notes(username);
   CREATE INDEX IF NOT EXISTS idx_audio_note ON audio(note_id);
+  CREATE TABLE IF NOT EXISTS shares (
+    token      TEXT PRIMARY KEY,
+    note_id    TEXT NOT NULL,
+    username   TEXT NOT NULL,
+    expires_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
+  );
 `);
 
 function getNotesByUser(username) {
@@ -92,22 +126,25 @@ function deleteNote(id, username) {
 }
 
 function saveAudio(noteId, username, buffer, mime) {
-  // Verify note belongs to user
   const note = db.prepare(`SELECT id FROM notes WHERE id = ? AND username = ?`).get(noteId, username);
   if (!note) return false;
+  // Calcola il numero di sessione successivo
+  const row = db.prepare(`SELECT MAX(session) as m FROM audio WHERE note_id = ?`).get(noteId);
+  const session = row && row.m !== null ? row.m + 1 : 0;
   db.prepare(`
-    INSERT INTO audio (note_id, username, data, mime)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(note_id) DO UPDATE SET data = excluded.data, mime = excluded.mime
-  `).run(noteId, username, buffer, mime);
+    INSERT INTO audio (note_id, username, session, data, mime) VALUES (?, ?, ?, ?, ?)
+  `).run(noteId, username, session, buffer, mime);
   db.prepare(`UPDATE notes SET has_audio = 1, updated_at = datetime('now') WHERE id = ?`).run(noteId);
   return true;
 }
 
 function getAudio(noteId, username) {
+  // Restituisce tutte le sessioni in ordine
   return db.prepare(`
-    SELECT data, mime FROM audio WHERE note_id = ? AND username = ?
-  `).get(noteId, username);
+    SELECT data, mime, session FROM audio
+    WHERE note_id = ? AND username = ?
+    ORDER BY session ASC
+  `).all(noteId, username);
 }
 
 function deleteAudio(noteId, username) {
@@ -135,6 +172,26 @@ function appendAudioChunk(noteId, username, chunk, mime) {
     db.prepare(`UPDATE notes SET has_audio = 1, updated_at = datetime('now') WHERE id = ?`).run(noteId);
   }
   return true;
+}
+
+function createShare(token, noteId, username, expiresAt) {
+  db.prepare(`INSERT INTO shares (token, note_id, username, expires_at) VALUES (?, ?, ?, ?)`
+  ).run(token, noteId, username, expiresAt || null);
+}
+
+function getShare(token) {
+  const s = db.prepare(`SELECT * FROM shares WHERE token = ?`).get(token);
+  if (!s) return null;
+  if (s.expires_at && new Date(s.expires_at) < new Date()) return null; // scaduto
+  return s;
+}
+
+function deleteShare(token, username) {
+  db.prepare(`DELETE FROM shares WHERE token = ? AND username = ?`).run(token, username);
+}
+
+function getSharesForNote(noteId, username) {
+  return db.prepare(`SELECT token, expires_at, created_at FROM shares WHERE note_id = ? AND username = ? ORDER BY created_at DESC`).all(noteId, username);
 }
 
 function getAllNotesForExport(username) {
@@ -169,4 +226,4 @@ function upsertNoteFromImport(id, username, note) {
   );
 }
 
-module.exports = { getNotesByUser, getNoteById, createNote, updateNoteMeta, saveContent, deleteNote, saveAudio, getAudio, deleteAudio, getAllNotesForExport, upsertNoteFromImport, appendAudioChunk };
+module.exports = { getNotesByUser, getNoteById, createNote, updateNoteMeta, saveContent, deleteNote, saveAudio, getAudio, deleteAudio, getAllNotesForExport, upsertNoteFromImport, appendAudioChunk, createShare, getShare, deleteShare, getSharesForNote };

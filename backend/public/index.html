@@ -225,6 +225,28 @@
       <div class="MP" id="MP"></div>
       <div class="TT" id="TT"></div>
 
+      <!-- Share Modal -->
+      <div class="MW off" id="SHAREM">
+        <div class="MD" style="width:320px">
+          <h3>Condividi nota</h3>
+          <p class="ms">Genera un link di sola lettura — chi lo riceve vede la nota senza bisogno di account.</p>
+          <div style="margin-bottom:10px">
+            <label style="font-size:.76rem;color:var(--ink);font-weight:500;display:block;margin-bottom:5px">Scadenza link</label>
+            <select id="SHAREEXP" style="width:100%;padding:6px 8px;border:.5px solid var(--tbr);border-radius:5px;background:var(--tb);color:var(--ink);font-size:.8rem">
+              <option value="">Nessuna scadenza</option>
+              <option value="1">1 giorno</option>
+              <option value="7">7 giorni</option>
+              <option value="30">30 giorni</option>
+            </select>
+          </div>
+          <div class="ma" style="margin-top:0;margin-bottom:12px">
+            <button class="mc" id="SHARECANCB">Annulla</button>
+            <button class="mk" id="SHARECREB">Genera link</button>
+          </div>
+          <div id="SHARELIST"></div>
+        </div>
+      </div>
+
       <!-- PDF Modal -->
       <div class="MW off" id="PM">
         <div class="MD">

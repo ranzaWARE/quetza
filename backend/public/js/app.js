@@ -114,6 +114,40 @@ async function loadNotes() {
   renderNL();
 }
 
+// Carica tutte le sessioni audio di una nota e le concatena in un unico AudioBuffer
+async function loadAllAudioSessions(noteId) {
+  if (!S.aCtx) S.aCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const r = await fetch(`/api/notes/${noteId}/audio`);
+  if (!r.ok) return null;
+
+  const ct = r.headers.get('Content-Type') || '';
+  if (ct.includes('application/json')) {
+    // Sessioni multiple: scarica ognuna e concatena
+    const { sessions } = await r.json();
+    const buffers = [];
+    for (const s of sessions) {
+      const sr = await fetch(`/api/notes/${noteId}/audio/${s.index}`);
+      if (!sr.ok) continue;
+      const ab = await sr.arrayBuffer();
+      try {
+        const buf = await S.aCtx.decodeAudioData(ab);
+        buffers.push(buf);
+      } catch(e) { console.warn(`Session ${s.index} decode failed:`, e); }
+    }
+    if (!buffers.length) return null;
+    // Concatena tutti i buffer in ordine
+    let result = buffers[0];
+    for (let i = 1; i < buffers.length; i++) {
+      result = concatAudioBuffers(S.aCtx, result, buffers[i]);
+    }
+    return result;
+  } else {
+    // Sessione singola: decodifica direttamente
+    const ab = await r.arrayBuffer();
+    return await S.aCtx.decodeAudioData(ab);
+  }
+}
+
 async function openNote(id) {
   if (S.recOn) stopRec();
   if (S.playing) stopAudio();
@@ -135,14 +169,12 @@ async function openNote(id) {
   wx.clearRect(0, 0, WC.width, WC.height);
   TSel.classList.remove('on');
 
-  // Load audio if exists
+  // Carica audio (singola sessione o multi-sessione concatenata)
   if (n.has_audio) {
     try {
-      const ar = await fetch(`/api/notes/${id}/audio`);
-      if (ar.ok) {
-        const ab = await ar.arrayBuffer();
-        if (!S.aCtx) S.aCtx = new (window.AudioContext || window.webkitAudioContext)();
-        S.aBuf = await S.aCtx.decodeAudioData(ab);
+      if (!S.aCtx) S.aCtx = new (window.AudioContext || window.webkitAudioContext)();
+      S.aBuf = await loadAllAudioSessions(id);
+      if (S.aBuf) {
         buildPeaks();
         AH.style.display = 'none'; APL.style.display = 'flex';
         drawWave(0); updAT(0); TSel.classList.add('on');
@@ -1303,6 +1335,25 @@ function setupToolbar() {
 
   document.getElementById('PSB').onclick = pasteImg;
 
+  // Condivisione
+  document.getElementById('SHAREB').onclick = () => {
+    if (!S.curId) return;
+    loadShares();
+    document.getElementById('SHAREM').classList.remove('off');
+  };
+  document.getElementById('SHARECANCB').onclick = () => document.getElementById('SHAREM').classList.add('off');
+  document.getElementById('SHARECREB').onclick = async () => {
+    const exp = document.getElementById('SHAREEXP').value;
+    const r = await fetch(`/api/notes/${S.curId}/share`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expires: exp || null })
+    });
+    const d = await r.json();
+    if (r.ok) { await loadShares(); toast('✓ Link creato'); }
+    else toast('⚠ ' + d.error);
+  };
+
   document.getElementById('PDFB').onclick = () => document.getElementById('PM').classList.remove('off');
   document.getElementById('PCA').onclick  = () => document.getElementById('PM').classList.add('off');
   document.getElementById('POK').onclick  = () => {
@@ -1556,18 +1607,19 @@ async function startRec() {
     S.mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
     S.recOffset = S.aBuf ? Math.round(S.aBuf.duration * 1000) : 0;
     S.recPaused = false;
-    S._pausedMs = 0; // ms totali in pausa
+    S._pausedMs = 0;
     S._pauseStart = null;
+    S._recChunks = []; // accumula chunk in memoria — unione corretta a fine sessione
+    S._recMime = mimeType || 'audio/webm';
 
-    // Ogni chunk viene caricato subito sul server — resiliente a disconnessioni
     S.mr.ondataavailable = e => {
-      if (e.data.size > 0 && S.curId) enqueueChunk(S.curId, e.data, ext);
+      if (e.data.size > 0) S._recChunks.push(e.data);
     };
 
     S.mr.onstop = onRecStop;
     S.recStart = Date.now();
     S.recOn = true;
-    S.mr.start(2000); // chunk ogni 2s → upload frequente
+    S.mr.start(100); // chunk frequenti per risposta UI fluida
 
     updateRecBtn('rec');
     AH.style.display = 'none'; ARC.style.display = 'flex';
@@ -1635,34 +1687,79 @@ function stopRec() {
 }
 
 async function onRecStop() {
-  // I chunk sono già stati caricati in streaming durante la registrazione.
-  // Qui ricarichiamo l'audio completo dal server per aggiornare il player.
-  toast('⏳ Finalizzazione audio…');
-  // Aspetta che la queue di upload si svuoti
-  let wait = 0;
-  while (uploadQueue.length > 0 && wait < 15000) {
-    await new Promise(r => setTimeout(r, 300));
-    wait += 300;
-  }
+  toast('⏳ Salvataggio audio…');
   if (!S.aCtx) S.aCtx = new (window.AudioContext || window.webkitAudioContext)();
-  // Ricarica dal server
+
   try {
-    const r = await fetch(`/api/notes/${S.curId}/audio`);
-    if (r.ok) {
-      const ab = await r.arrayBuffer();
-      S.aBuf = await S.aCtx.decodeAudioData(ab);
+    // Crea il blob della nuova sessione nel formato nativo del browser
+    const newBlob = new Blob(S._recChunks, { type: S._recMime });
+    const ext = S._recMime.includes('mp4') ? 'mp4' : 'webm';
+
+    // Carica sul server come nuova sessione (non sovrascrive le precedenti)
+    if (S.curId) {
+      const fd = new FormData();
+      fd.append('audio', newBlob, `session.${ext}`);
+      await fetch(`/api/notes/${S.curId}/audio`, { method: 'POST', body: fd });
       const idx = S.notes.findIndex(n => n.id === S.curId);
       if (idx >= 0) S.notes[idx].has_audio = 1;
       renderNL();
-      buildPeaks();
-      AH.style.display = 'none'; APL.style.display = 'flex';
-      drawWave(0); updAT(0);
-      TSel.classList.add('on'); drawTL(0);
-      toast('✓ Registrazione salvata');
     }
+
+    // Decodifica la nuova sessione e aggiorna il player con tutte le sessioni concatenate
+    const newAb  = await newBlob.arrayBuffer();
+    const newBuf = await S.aCtx.decodeAudioData(newAb);
+    S.aBuf = S.aBuf ? concatAudioBuffers(S.aCtx, S.aBuf, newBuf) : newBuf;
+
+    buildPeaks();
+    AH.style.display = 'none'; APL.style.display = 'flex';
+    drawWave(0); updAT(0);
+    TSel.classList.add('on'); drawTL(0);
+    toast('✓ Registrazione salvata');
   } catch(e) {
-    toast('⚠ Errore caricamento audio: ' + e.message);
+    console.error('onRecStop error:', e);
+    toast('⚠ Errore: ' + e.message);
   }
+}
+
+// Concatena due AudioBuffer mantenendo il PCM intatto
+function concatAudioBuffers(ctx, a, b) {
+  const ch  = Math.max(a.numberOfChannels, b.numberOfChannels);
+  const sr  = a.sampleRate;
+  const out = ctx.createBuffer(ch, a.length + b.length, sr);
+  for (let c = 0; c < ch; c++) {
+    const od = out.getChannelData(c);
+    od.set(c < a.numberOfChannels ? a.getChannelData(c) : new Float32Array(a.length), 0);
+    // Piccolo crossfade 20ms per evitare click di giunzione
+    const bd = c < b.numberOfChannels ? b.getChannelData(c) : new Float32Array(b.length);
+    const fade = Math.min(Math.floor(sr * 0.02), bd.length);
+    for (let i = 0; i < bd.length; i++) {
+      od[a.length + i] = bd[i] * (i < fade ? i / fade : 1);
+    }
+  }
+  return out;
+}
+
+// Converte AudioBuffer → Blob WAV (16-bit PCM, universale)
+function audioBufferToWav(buf) {
+  const numCh = buf.numberOfChannels;
+  const sr    = buf.sampleRate;
+  const len   = buf.length;
+  const ab    = new ArrayBuffer(44 + len * numCh * 2);
+  const v     = new DataView(ab);
+  const w     = (off, s) => { for (let i=0; i<s.length; i++) v.setUint8(off+i, s.charCodeAt(i)); };
+  w(0,'RIFF'); v.setUint32(4, 36+len*numCh*2, true);
+  w(8,'WAVE'); w(12,'fmt '); v.setUint32(16,16,true);
+  v.setUint16(20,1,true); v.setUint16(22,numCh,true);
+  v.setUint32(24,sr,true); v.setUint32(28,sr*numCh*2,true);
+  v.setUint16(32,numCh*2,true); v.setUint16(34,16,true);
+  w(36,'data'); v.setUint32(40,len*numCh*2,true);
+  const ch = Array.from({length:numCh},(_,c)=>buf.getChannelData(c));
+  let off = 44;
+  for (let i=0; i<len; i++) for (let c=0; c<numCh; c++) {
+    const s = Math.max(-1,Math.min(1,ch[c][i]));
+    v.setInt16(off, s<0?s*0x8000:s*0x7FFF, true); off+=2;
+  }
+  return new Blob([ab], { type: 'audio/wav' });
 }
 
 async function deleteAudio() {
@@ -1955,6 +2052,62 @@ function recognizeShape(stroke) {
   }
 
   return null; // nessuna forma riconosciuta
+}
+
+// ── Share helpers ─────────────────────────────────────────
+async function loadShares() {
+  if (!S.curId) return;
+  const r = await fetch(`/api/notes/${S.curId}/shares`);
+  const shares = await r.json();
+  const el = document.getElementById('SHARELIST');
+  if (!shares.length) { el.innerHTML = '<p style="font-size:.74rem;color:var(--mu);text-align:center;padding:8px">Nessun link attivo</p>'; return; }
+  el.innerHTML = shares.map(s => {
+    const url = `${location.origin}/share/${s.token}`;
+    const exp = s.expires_at ? `Scade ${new Date(s.expires_at).toLocaleDateString('it-IT')}` : 'Nessuna scadenza';
+    return `<div style="background:var(--bh);border-radius:6px;padding:8px 10px;margin-bottom:6px;font-size:.74rem">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mu)">${s.token.slice(0,12)}…</span>
+        <span style="color:var(--mu);font-size:.68rem">${exp}</span>
+      </div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        <button onclick="copyShareLink('${url}')" style="flex:1;padding:4px 8px;border:.5px solid var(--tbr);border-radius:4px;background:transparent;cursor:pointer;font-size:.7rem;color:var(--ink)">📋 Copia</button>
+        <button onclick="shareNative('${url}','${document.getElementById('NTT').value}')" style="flex:1;padding:4px 8px;border:.5px solid var(--tbr);border-radius:4px;background:transparent;cursor:pointer;font-size:.7rem;color:var(--ink)">📤 Condividi</button>
+        <button onclick="mailShare('${url}','${document.getElementById('NTT').value}')" style="flex:1;padding:4px 8px;border:.5px solid var(--tbr);border-radius:4px;background:transparent;cursor:pointer;font-size:.7rem;color:var(--ink)">✉️ Mail</button>
+        <button onclick="deleteShare('${s.token}')" style="padding:4px 8px;border:.5px solid var(--acc);border-radius:4px;background:transparent;cursor:pointer;font-size:.7rem;color:var(--acc)">Revoca</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function deleteShare(token) {
+  await fetch(`/api/shares/${token}`, { method: 'DELETE' });
+  await loadShares();
+  toast('Link revocato');
+}
+
+function copyShareLink(url) {
+  navigator.clipboard.writeText(url).then(() => toast('✓ Link copiato')).catch(() => {
+    prompt('Copia questo link:', url);
+  });
+}
+
+function shareNative(url, title) {
+  if (navigator.share) {
+    navigator.share({ title: `Nota: ${title}`, url }).catch(() => {});
+  } else {
+    copyShareLink(url);
+  }
+}
+
+function mailShare(url, title) {
+  const sub = encodeURIComponent(`Nota Quetza: ${title}`);
+  const body = encodeURIComponent(`Ciao,
+
+ti condivido questa nota:
+${url}
+
+— inviato da Quetza`);
+  window.open(`mailto:?subject=${sub}&body=${body}`);
 }
 
 // ── Start ─────────────────────────────────────────────────

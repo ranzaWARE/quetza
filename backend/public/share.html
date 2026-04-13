@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Quetza — Nota condivisa</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#e8eaed;min-height:100vh}
+.hdr{background:#0f1923;color:#e8e8f0;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.logo{display:flex;align-items:center;gap:8px;font-size:.9rem;font-weight:800;color:#fff}
+.meta{font-size:.72rem;color:#6a7a8a;text-align:right}
+.meta strong{color:#e8e8f0;display:block;font-size:.82rem}
+.abar{background:#1a2a3a;padding:5px 12px;display:flex;align-items:center;gap:8px}
+.apb{width:28px;height:28px;border-radius:50%;border:none;background:#c0392b;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.apb:hover{background:#a93226}
+.pw{flex:1;height:22px;border-radius:3px;background:rgba(255,255,255,.08);position:relative;cursor:pointer;overflow:hidden}
+#WC{width:100%;height:100%;display:block}
+.sc{position:absolute;top:0;width:2px;height:100%;background:#c0392b;pointer-events:none}
+.at{font-size:.65rem;color:#6a7a8a;white-space:nowrap;font-variant-numeric:tabular-nums}
+.wrap{display:flex;justify-content:center;padding:20px;background:#e8eaed;min-height:calc(100vh - 100px)}
+#C{display:block;background:#fff;box-shadow:0 2px 16px rgba(0,0,0,.18)}
+.err{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:12px;color:#6a7a8a;font-size:.9rem}
+.err svg{opacity:.2}
+.badge{font-size:.68rem;padding:2px 8px;border-radius:20px;background:rgba(255,255,255,.1);color:#6a7a8a}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="logo">
+    <svg width="22" height="22" viewBox="0 0 64 64" fill="none">
+      <path d="M32 30 C22 22 6 28 2 20 C8 18 18 20 28 27Z" fill="#c0392b" opacity=".9"/>
+      <path d="M32 30 C18 26 4 32 2 26 C10 22 22 24 30 30Z" fill="#c0392b" opacity=".4"/>
+      <path d="M32 30 C42 22 58 28 62 20 C56 18 46 20 36 27Z" fill="#c0392b" opacity=".9"/>
+      <path d="M32 30 C46 26 60 32 62 26 C54 22 42 24 34 30Z" fill="#c0392b" opacity=".4"/>
+      <ellipse cx="32" cy="31" rx="5" ry="8" fill="#e8e8f0"/>
+      <path d="M32 23 L30 16 L32 19 L34 16 Z" fill="#e8e8f0"/>
+      <path d="M32 38 L30 46 L32 44 L34 46 Z" fill="#e8e8f0"/>
+    </svg>
+    Quetza
+  </div>
+  <div class="meta">
+    <strong id="TITLE">Caricamento…</strong>
+    <span id="META"></span>
+  </div>
+</div>
+
+<div id="ABAR" style="display:none" class="abar">
+  <button class="apb" id="APB">
+    <svg width="8" height="8" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
+  </button>
+  <div class="pw" id="PW"><canvas id="WC"></canvas><div class="sc" id="SC" style="left:0%"></div></div>
+  <span class="at" id="ATM">0:00 / 0:00</span>
+</div>
+
+<div class="wrap" id="WRAP">
+  <div class="err" id="ERR" style="display:none">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    <span id="ERRMSG">Link non valido o scaduto</span>
+  </div>
+  <canvas id="C" style="display:none"></canvas>
+</div>
+
+<script>
+const PW_L=794,PH_L=1123,PGAP=32,GSP=28;
+const CV=document.getElementById('C'),cx=CV.getContext('2d');
+const token=location.pathname.split('/').pop();
+let aCtx=null,aBuf=null,src=null,playing=false,playOff=0,playSt=0,raf=null,peaks=null;
+let zoom=1,pages=1;
+
+function totalH(){return pages*PH_L+(pages-1)*PGAP;}
+function applyZoom(){
+  CV.style.width=Math.round(PW_L*zoom)+'px';
+  CV.style.height=Math.round(totalH()*zoom)+'px';
+}
+function fitW(){
+  zoom=Math.max(.25,Math.min(2,(document.getElementById('WRAP').clientWidth-40)/PW_L));
+  applyZoom();
+}
+
+// Drawing helpers (read-only, same as app.js)
+const SHAPES=new Set(['rect','ellipse','line','arrow']);
+function drawGrid(c,grid){
+  if(grid==='none')return;c.save();c.lineWidth=.5;
+  const lc='rgba(0,0,0,.06)',dc='rgba(0,0,0,.18)';
+  for(let p=0;p<pages;p++){const py=p*(PH_L+PGAP);
+    if(grid==='lines'||grid==='grid'){c.strokeStyle=lc;for(let y=GSP;y<PH_L;y+=GSP){c.beginPath();c.moveTo(0,py+y);c.lineTo(PW_L,py+y);c.stroke();}if(grid==='grid')for(let x=GSP;x<PW_L;x+=GSP){c.beginPath();c.moveTo(x,py);c.lineTo(x,py+PH_L);c.stroke();}}
+    else{c.fillStyle=dc;for(let y=GSP;y<PH_L;y+=GSP)for(let x=GSP;x<PW_L;x+=GSP){c.beginPath();c.arc(x,py+y,1.2,0,Math.PI*2);c.fill();}}
+  }c.restore();
+}
+function drawSeps(c){
+  c.save();
+  for(let p=0;p<pages-1;p++){const sy=(p+1)*PH_L+p*PGAP;c.fillStyle='rgba(0,0,0,.07)';c.fillRect(0,sy,PW_L,PGAP);c.setLineDash([8,6]);c.strokeStyle='rgba(0,0,0,.2)';c.lineWidth=1;c.beginPath();c.moveTo(0,sy+PGAP);c.lineTo(PW_L,sy+PGAP);c.stroke();c.setLineDash([]);c.fillStyle='rgba(0,0,0,.18)';c.font='11px system-ui';c.textAlign='right';c.fillText(`${p+1}/${pages}`,PW_L-10,sy-6);}
+  c.fillStyle='rgba(0,0,0,.18)';c.font='11px system-ui';c.textAlign='right';c.fillText(`${pages}/${pages}`,PW_L-10,totalH()-6);c.restore();
+}
+function drawSS(c,ss){
+  ss.forEach(s=>{if(!s.pts||s.pts.length<2)return;c.save();
+    if(s.t==='hl'){c.globalAlpha=.45;c.strokeStyle='#ffe000';c.lineCap='round';c.lineWidth=(s.sz||3)*5;c.beginPath();c.moveTo(s.pts[0].x,s.pts[0].y);for(let i=1;i<s.pts.length;i++){const p=s.pts[i],pr=s.pts[i-1];c.quadraticCurveTo(pr.x,pr.y,(pr.x+p.x)/2,(pr.y+p.y)/2);}c.stroke();}
+    else if(SHAPES.has(s.t)){c.strokeStyle=s.c;c.lineWidth=s.sz||2;c.lineCap='round';c.lineJoin='round';const x0=s.pts[0].x,y0=s.pts[0].y,x1=s.pts[s.pts.length-1].x,y1=s.pts[s.pts.length-1].y;c.beginPath();if(s.t==='rect'){c.strokeRect(x0,y0,x1-x0,y1-y0);}else if(s.t==='ellipse'){c.ellipse((x0+x1)/2,(y0+y1)/2,Math.abs(x1-x0)/2,Math.abs(y1-y0)/2,0,0,Math.PI*2);c.stroke();}else if(s.t==='line'){c.moveTo(x0,y0);c.lineTo(x1,y1);c.stroke();}else{c.moveTo(x0,y0);c.lineTo(x1,y1);c.stroke();const a=Math.atan2(y1-y0,x1-x0),hl=13;c.beginPath();c.moveTo(x1,y1);c.lineTo(x1-hl*Math.cos(a-.4),y1-hl*Math.sin(a-.4));c.lineTo(x1-hl*Math.cos(a+.4),y1-hl*Math.sin(a+.4));c.closePath();c.fillStyle=s.c;c.fill();}}
+    else{c.strokeStyle=s.c;c.lineCap='round';c.lineJoin='round';c.beginPath();c.moveTo(s.pts[0].x,s.pts[0].y);for(let i=1;i<s.pts.length;i++){const p=s.pts[i],pr=s.pts[i-1];const lw=(s.sz||3)*(.5+(p.p||.5)*.8);const mx=(pr.x+p.x)/2,my=(pr.y+p.y)/2;c.lineWidth=lw;c.quadraticCurveTo(pr.x,pr.y,mx,my);}c.stroke();}
+  c.restore();});
+}
+function redraw(){
+  cx.clearRect(0,0,PW_L,totalH());cx.fillStyle='#fff';
+  for(let p=0;p<pages;p++)cx.fillRect(0,p*(PH_L+PGAP),PW_L,PH_L);
+  drawGrid(cx,window._grid||'lines');drawSeps(cx);drawSS(cx,window._strokes||[]);
+}
+
+// Audio
+const WC2=document.getElementById('WC'),wx=WC2.getContext('2d');
+const PW2=document.getElementById('PW'),SC=document.getElementById('SC'),ATM=document.getElementById('ATM');
+function bldPeaks(){const data=aBuf.getChannelData(0);const N=240;const pk=new Float32Array(N);const step=Math.floor(data.length/N);for(let i=0;i<N;i++){let m=0;for(let j=0;j<step;j++){const v=Math.abs(data[i*step+j]||0);if(v>m)m=v;}pk[i]=m;}peaks=pk;}
+function drawW(f){const W=WC2.width=PW2.clientWidth||200;const H=WC2.height=22;wx.clearRect(0,0,W,H);if(!peaks)return;const n=peaks.length,bw=W/n;for(let i=0;i<n;i++){const h=Math.max(2,peaks[i]*H*2.5);wx.fillStyle=(i/n)<f?'rgba(192,57,43,.9)':'rgba(255,255,255,.22)';wx.fillRect(i*bw,H/2-h/2,Math.max(1,bw-.5),Math.min(h,H));}}
+function updAT(s){if(!aBuf)return;const si=Math.floor(s),di=Math.floor(aBuf.duration);ATM.textContent=`${Math.floor(si/60)}:${(si%60).toString().padStart(2,'0')} / ${Math.floor(di/60)}:${(di%60).toString().padStart(2,'0')}`;}
+function startAudio(off){
+  if(src){try{src.stop();}catch(e){}}
+  if(aCtx.state==='suspended')aCtx.resume();
+  src=aCtx.createBufferSource();src.buffer=aBuf;src.connect(aCtx.destination);
+  playOff=off||0;playSt=aCtx.currentTime;src.start(0,playOff);playing=true;
+  src.onended=()=>{if(playing)stopAudio(true);};
+  document.getElementById('APB').innerHTML='<svg width="8" height="8" viewBox="0 0 24 24" fill="white"><rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/></svg>';
+  tick();
+}
+function stopAudio(ended){if(src){try{src.stop();}catch(e){} src=null;}playing=false;cancelAnimationFrame(raf);document.getElementById('APB').innerHTML='<svg width="8" height="8" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>';if(ended){playOff=0;SC.style.left='0%';drawW(0);updAT(0);}}
+function tick(){if(!playing)return;const el=aCtx.currentTime-playSt+playOff;const f=Math.min(el/aBuf.duration,1);SC.style.left=(f*100)+'%';drawW(f);updAT(el);raf=requestAnimationFrame(tick);}
+PW2.addEventListener('click',e=>{if(!aBuf)return;const r=PW2.getBoundingClientRect();const f=(e.clientX-r.left)/r.width;playOff=f*aBuf.duration;SC.style.left=(f*100)+'%';drawW(f);updAT(playOff);if(playing)startAudio(playOff);});
+document.getElementById('APB').addEventListener('click',()=>{if(playing)stopAudio();else startAudio(playOff);});
+
+function concatBufs(ctx,a,b){const ch=Math.max(a.numberOfChannels,b.numberOfChannels);const out=ctx.createBuffer(ch,a.length+b.length,a.sampleRate);for(let c=0;c<ch;c++){const od=out.getChannelData(c);od.set(c<a.numberOfChannels?a.getChannelData(c):new Float32Array(a.length),0);const bd=c<b.numberOfChannels?b.getChannelData(c):new Float32Array(b.length);const fade=Math.min(Math.floor(a.sampleRate*.02),bd.length);for(let i=0;i<bd.length;i++)od[a.length+i]=bd[i]*(i<fade?i/fade:1);}return out;}
+
+async function loadAudio(token){
+  aCtx=new(window.AudioContext||window.webkitAudioContext)();
+  const r=await fetch(`/api/shared/${token}/audio`);
+  if(!r.ok)return;
+  const ct=r.headers.get('Content-Type')||'';
+  if(ct.includes('application/json')){
+    const{sessions}=await r.json();
+    let buf=null;
+    for(const s of sessions){const sr=await fetch(`/api/shared/${token}/audio/${s.index}`);if(!sr.ok)continue;const ab=await sr.arrayBuffer();try{const b=await aCtx.decodeAudioData(ab);buf=buf?concatBufs(aCtx,buf,b):b;}catch(e){}}
+    if(buf)aBuf=buf;
+  }else{const ab=await r.arrayBuffer();aBuf=await aCtx.decodeAudioData(ab);}
+  if(aBuf){bldPeaks();document.getElementById('ABAR').style.display='flex';drawW(0);updAT(0);}
+}
+
+async function init(){
+  try{
+    const r=await fetch(`/api/shared/${token}`);
+    if(!r.ok){document.getElementById('ERR').style.display='flex';document.getElementById('ERRMSG').textContent='Link non valido o scaduto';return;}
+    const note=await r.json();
+    document.title=`Quetza — ${note.title}`;
+    document.getElementById('TITLE').textContent=note.title;
+    const exp=note.expires_at?`Scade ${new Date(note.expires_at).toLocaleDateString('it-IT')}`:'Nessuna scadenza';
+    document.getElementById('META').textContent=`Condiviso da ${note.shared_by} · ${exp}`;
+    window._strokes=note.strokes||[];
+    window._grid=note.grid||'lines';
+    pages=Math.max(1,Math.ceil(window._strokes.reduce((m,s)=>Math.max(m,...(s.pts||[]).map(p=>p.y)),0)/PH_L)+1);
+    CV.width=PW_L;CV.height=totalH();
+    CV.style.display='block';
+    requestAnimationFrame(()=>{fitW();redraw();});
+    window.addEventListener('resize',()=>{fitW();redraw();});
+    if(note.has_audio)loadAudio(token);
+  }catch(e){document.getElementById('ERR').style.display='flex';}
+}
+init();
+</script>
+</body>
+</html>

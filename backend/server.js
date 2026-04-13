@@ -126,12 +126,30 @@ app.post('/api/notes/:id/audio/append', requireAuth, upload.single('chunk'), (re
 });
 
 app.get('/api/notes/:id/audio', requireAuth, (req, res) => {
-  const audio = db.getAudio(req.params.id, req.session.user.username);
-  if (!audio) return res.status(404).json({ error: 'Audio non trovato' });
-  res.set('Content-Type', audio.mime || 'audio/webm');
-  res.set('Content-Length', audio.data.length);
-  res.set('Accept-Ranges', 'bytes');
-  res.send(audio.data);
+  const sessions = db.getAudio(req.params.id, req.session.user.username);
+  if (!sessions || !sessions.length) return res.status(404).json({ error: 'Audio non trovato' });
+  // Sessione singola → invia direttamente il file originale
+  if (sessions.length === 1) {
+    const a = sessions[0];
+    res.set('Content-Type', a.mime || 'audio/webm');
+    res.set('Content-Length', a.data.length);
+    res.set('X-Audio-Sessions', '1');
+    return res.send(a.data);
+  }
+  // Sessioni multiple → invia JSON con lista sessioni
+  // Il client le scarica separatamente e le concatena via Web Audio
+  res.json({ sessions: sessions.map((s, i) => ({ index: i, mime: s.mime, size: s.data.length })) });
+});
+
+// Endpoint per scaricare una singola sessione audio
+app.get('/api/notes/:id/audio/:session', requireAuth, (req, res) => {
+  const sessions = db.getAudio(req.params.id, req.session.user.username);
+  const idx = parseInt(req.params.session);
+  if (!sessions || idx >= sessions.length) return res.status(404).json({ error: 'Sessione non trovata' });
+  const a = sessions[idx];
+  res.set('Content-Type', a.mime || 'audio/webm');
+  res.set('Content-Length', a.data.length);
+  res.send(a.data);
 });
 
 app.delete('/api/notes/:id/audio', requireAuth, (req, res) => {
@@ -206,6 +224,80 @@ app.post('/api/import', requireAuth,
     }
   }
 );
+
+// ── Share API ─────────────────────────────────────────────────
+const crypto = require('crypto');
+
+// Crea link di condivisione
+app.post('/api/notes/:id/share', requireAuth, (req, res) => {
+  const note = db.getNoteById(req.params.id, req.session.user.username);
+  if (!note) return res.status(404).json({ error: 'Nota non trovata' });
+  const token = crypto.randomBytes(20).toString('hex');
+  const { expires } = req.body; // '1d' | '7d' | '30d' | null (mai)
+  let expiresAt = null;
+  if (expires) {
+    const days = parseInt(expires);
+    const d = new Date(); d.setDate(d.getDate() + days);
+    expiresAt = d.toISOString();
+  }
+  db.createShare(token, req.params.id, req.session.user.username, expiresAt);
+  res.json({ token, expiresAt });
+});
+
+// Lista link condivisione per una nota
+app.get('/api/notes/:id/shares', requireAuth, (req, res) => {
+  const shares = db.getSharesForNote(req.params.id, req.session.user.username);
+  res.json(shares);
+});
+
+// Elimina link condivisione
+app.delete('/api/shares/:token', requireAuth, (req, res) => {
+  db.deleteShare(req.params.token, req.session.user.username);
+  res.json({ ok: true });
+});
+
+// Visualizzazione pubblica (no auth) — solo dati nota, no audio
+app.get('/api/shared/:token', (req, res) => {
+  const share = db.getShare(req.params.token);
+  if (!share) return res.status(404).json({ error: 'Link non valido o scaduto' });
+  const note = db.getNoteById(share.note_id, share.username);
+  if (!note) return res.status(404).json({ error: 'Nota non trovata' });
+  res.json({
+    title:     note.title,
+    strokes:   note.strokes,
+    images:    note.images,
+    grid:      note.grid,
+    has_audio: note.has_audio,
+    shared_by: share.username,
+    expires_at: share.expires_at,
+  });
+});
+
+// Audio pubblico per nota condivisa
+app.get('/api/shared/:token/audio/:session?', (req, res) => {
+  const share = db.getShare(req.params.token);
+  if (!share) return res.status(404).json({ error: 'Link non valido' });
+  const sessions = db.getAudio(share.note_id, share.username);
+  if (!sessions || !sessions.length) return res.status(404).json({ error: 'Audio non trovato' });
+  if (req.params.session !== undefined) {
+    const idx = parseInt(req.params.session);
+    if (idx >= sessions.length) return res.status(404).json({ error: 'Sessione non trovata' });
+    const a = sessions[idx];
+    res.set('Content-Type', a.mime || 'audio/webm');
+    res.send(a.data);
+  } else {
+    if (sessions.length === 1) {
+      res.set('Content-Type', sessions[0].mime || 'audio/webm');
+      return res.send(sessions[0].data);
+    }
+    res.json({ sessions: sessions.map((s, i) => ({ index: i, mime: s.mime })) });
+  }
+});
+
+// Pagina visualizzazione pubblica
+app.get('/share/:token', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'share.html'));
+});
 
 // ── Catch-all → index ─────────────────────────────────────────
 app.get('*', (req, res) => {
