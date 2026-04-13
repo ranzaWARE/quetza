@@ -2,13 +2,23 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Quetza</title>
 <link rel="stylesheet" href="/css/app.css">
+  <!-- Blocca zoom browser su iOS Safari (ignora user-scalable in alcuni casi) -->
+  <meta name="HandheldFriendly" content="true">
+  <style>
+    /* Blocco zoom CSS — impedisce pinch-zoom sulla UI anche quando Safari ignora il viewport meta */
+    html { touch-action: pan-x pan-y; }
+    body { touch-action: pan-x pan-y; overflow: hidden; }
+    /* Solo il canvas area può ricevere gesture di zoom */
+    .CO  { touch-action: none; }
+  </style>
 </head>
 <body>
+<div id="OFFBANNER">⚠ Connessione assente — le modifiche vengono salvate in locale e sincronizzate al ripristino</div>
 <div id="W">
 
 <!-- SIDEBAR -->
@@ -52,6 +62,10 @@
     </label>
   </div>
   <div class="sf">
+    <div class="netst" id="NETST" title="Stato connessione">
+      <div class="netdot" id="NETDOT"></div>
+      <span id="NETLBL">online</span>
+    </div>
     <span id="UNAME">—</span>
     <button class="sbb" id="logoutB" title="Esci">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -174,6 +188,9 @@
           <div class="rd"></div>
           <span class="rt" id="RTM">0:00</span>
           <span class="rmsg">in registrazione — scrivi pure</span>
+          <button class="pb2" id="PAUSEB" title="Pausa / Riprendi" style="display:none;margin-left:6px;background:rgba(255,255,255,.2)">
+            <svg width="8" height="8" viewBox="0 0 24 24" fill="white"><rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/></svg>
+          </button>
         </div>
         <div class="apl" id="APL" style="display:none">
           <div class="aro">

@@ -27,7 +27,7 @@ const S = {
   // Audio
   aCtx: null, aBuf: null, src: null,
   playing: false, recOn: false,
-  recStart: 0, playOff: 0, playSt: 0,
+  recStart: 0, recOffset: 0, recPaused: false, playOff: 0, playSt: 0,
   raf: null, peaks: null,
   // UI
   dark: false,
@@ -93,6 +93,7 @@ async function init() {
   setupSidebar();
   setupZoom();
   setupCanvas();
+  startNetMonitor();
 }
 
 // ── Notes API ─────────────────────────────────────────────
@@ -508,44 +509,22 @@ function setupZoom() {
   };
   document.getElementById('ZF').onclick = fitW;
 
-  // Pinch-to-zoom centrato sul punto di contatto
-  let lp = null, lpCx = 0, lpCy = 0;
-  CO.addEventListener('touchstart', e => {
-    if (e.touches.length === 2) {
-      lp = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      // Centro del pinch in coordinate relative al viewport CO
-      const r = CO.getBoundingClientRect();
-      lpCx = ((e.touches[0].clientX + e.touches[1].clientX) / 2) - r.left;
-      lpCy = ((e.touches[0].clientY + e.touches[1].clientY) / 2) - r.top;
-    }
-  }, { passive: true });
-  CO.addEventListener('touchmove', e => {
-    if (e.touches.length === 2 && lp) {
-      const d = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      const r = CO.getBoundingClientRect();
-      const cx2 = ((e.touches[0].clientX + e.touches[1].clientX) / 2) - r.left;
-      const cy2 = ((e.touches[0].clientY + e.touches[1].clientY) / 2) - r.top;
-      zTo(S.zoom * (d / lp), cx2 + CO.scrollLeft, cy2 + CO.scrollTop);
-      lp = d; lpCx = cx2; lpCy = cy2;
-    }
-  }, { passive: true });
-  CO.addEventListener('touchend', () => { lp = null; }, { passive: true });
-
-  // Ctrl+wheel zoom centrato sul cursore
+  // Wheel zoom (desktop) — centrato sul cursore
   CO.addEventListener('wheel', e => {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
+    // Blocca SEMPRE il default (impedisce zoom browser su Ctrl+scroll)
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey || Math.abs(e.deltaY) > 0) {
       const r = CO.getBoundingClientRect();
       const mx = (e.clientX - r.left) + CO.scrollLeft;
       const my = (e.clientY - r.top)  + CO.scrollTop;
-      zTo(S.zoom + (e.deltaY > 0 ? -.08 : .08), mx, my);
+      const delta = e.ctrlKey || e.metaKey ? e.deltaY : e.deltaY * 0.003;
+      zTo(S.zoom * (1 - delta * 0.01), mx, my);
     }
+  }, { passive: false });
+
+  // Blocca zoom browser da trackpad (pinch su desktop)
+  document.addEventListener('wheel', e => {
+    if (e.ctrlKey || e.metaKey) e.preventDefault();
   }, { passive: false });
 }
 
@@ -662,49 +641,78 @@ function setupCanvas() {
     cx.stroke(); cx.restore();
   }
 
-  // ── Touch handlers su CO per pan con dito + drag selezione ──
+  // ── Touch handlers su CO: pan 1 dito, pinch-zoom+pan 2 dita ──
+  // Stato gesture
+  let _pinchDist = null;   // distanza iniziale pinch
+  let _pinchMidX = null;   // centro pinch X (scroll coords)
+  let _pinchMidY = null;   // centro pinch Y (scroll coords)
+  let _panStartX = null;
+  let _panStartY = null;
+  let _panScrollX = null;
+  let _panScrollY = null;
+
+  function midpoint(t0, t1) {
+    return { x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 };
+  }
+
   CO.addEventListener('touchstart', e => {
-    const t = e.touches[0];
-    if (!t || t.touchType === 'stylus') return;
-    const pos = gP(t.clientX, t.clientY);
-    // Controlla se il dito è sull'handle ⠿ o dentro il box di selezione
-    if (S.tool === 'lasso' && S.selectedIds.size > 0) {
-      const handle = hitTestSelHandles(pos.x, pos.y);
-      if (handle === 'delete') { e.preventDefault(); deleteSelected(); return; }
-      if (handle === 'move') {
-        e.preventDefault();
-        S.selDrag = true; S.selDragStart = pos;
-        S.selDragFrom = {};
-        S.selectedIds.forEach(idx => {
-          S.selDragFrom[idx] = S.strokes[idx].pts.map(q => ({...q}));
-        });
-        return;
-      }
-      // Click su stroke con il dito → selezione
-      for (let i = S.strokes.length-1; i >= 0; i--) {
-        if (strokeHitTest(S.strokes[i], pos.x, pos.y)) {
-          e.preventDefault();
-          selectStroke(i, false);
-          S.selDrag = true; S.selDragStart = pos;
-          S.selDragFrom = {};
-          S.selectedIds.forEach(idx => {
-            S.selDragFrom[idx] = S.strokes[idx].pts.map(q => ({...q}));
-          });
-          redraw(); return;
+    // Ignora stylus — gestito da CV
+    const fingers = Array.from(e.touches).filter(t => t.touchType !== 'stylus');
+    if (!fingers.length) return;
+
+    e.preventDefault(); // blocca zoom browser
+
+    if (fingers.length === 1) {
+      const t = fingers[0];
+      const pos = gP(t.clientX, t.clientY);
+
+      // Lasso: controlla handle selezione
+      if (S.tool === 'lasso' && S.selectedIds.size > 0) {
+        const handle = hitTestSelHandles(pos.x, pos.y);
+        if (handle === 'delete') { deleteSelected(); return; }
+        if (handle === 'move') {
+          S.selDrag = true; S.selDragStart = pos; S.selDragFrom = {};
+          S.selectedIds.forEach(idx => { S.selDragFrom[idx] = S.strokes[idx].pts.map(q=>({...q})); });
+          return;
+        }
+        for (let i = S.strokes.length-1; i >= 0; i--) {
+          if (strokeHitTest(S.strokes[i], pos.x, pos.y)) {
+            selectStroke(i, false);
+            S.selDrag = true; S.selDragStart = pos; S.selDragFrom = {};
+            S.selectedIds.forEach(idx => { S.selDragFrom[idx] = S.strokes[idx].pts.map(q=>({...q})); });
+            redraw(); return;
+          }
         }
       }
+
+      // Pan con un dito
+      S.pan = true;
+      _panStartX = t.clientX; _panStartY = t.clientY;
+      _panScrollX = CO.scrollLeft; _panScrollY = CO.scrollTop;
+      showMP('touch');
+
+    } else if (fingers.length >= 2) {
+      // Pinch-to-zoom — inizializza
+      S.pan = false;
+      const mid = midpoint(fingers[0], fingers[1]);
+      const r = CO.getBoundingClientRect();
+      _pinchDist = Math.hypot(fingers[0].clientX-fingers[1].clientX, fingers[0].clientY-fingers[1].clientY);
+      // Centro in coordinate scroll (canvas logiche * zoom + scroll)
+      _pinchMidX = (mid.x - r.left) + CO.scrollLeft;
+      _pinchMidY = (mid.y - r.top)  + CO.scrollTop;
+      _panStartX = mid.x; _panStartY = mid.y;
+      _panScrollX = CO.scrollLeft; _panScrollY = CO.scrollTop;
     }
-    // Pan normale con dito
-    S.pan = true; S.pY = t.clientY; S.pSY = CO.scrollTop;
-    showMP('touch');
   }, { passive: false });
 
   CO.addEventListener('touchmove', e => {
-    // Drag selezione con dito
+    const fingers = Array.from(e.touches).filter(t => t.touchType !== 'stylus');
+    if (!fingers.length) return;
+    e.preventDefault();
+
+    // Drag selezione
     if (S.selDrag && S.selDragStart && S.selectedIds.size > 0) {
-      e.preventDefault();
-      const t = e.touches[0];
-      const pos = gP(t.clientX, t.clientY);
+      const pos = gP(fingers[0].clientX, fingers[0].clientY);
       const dx = pos.x - S.selDragStart.x;
       const dy = pos.y - S.selDragStart.y;
       S.selectedIds.forEach(idx => {
@@ -712,19 +720,59 @@ function setupCanvas() {
       });
       redraw(); return;
     }
-    if (S.pan && e.touches.length === 1) {
-      CO.scrollTop = S.pSY + (S.pY - e.touches[0].clientY);
+
+    if (fingers.length === 1 && S.pan) {
+      // Pan con un dito: scrolla il canvas
+      const dx = fingers[0].clientX - _panStartX;
+      const dy = fingers[0].clientY - _panStartY;
+      CO.scrollLeft = _panScrollX - dx;
+      CO.scrollTop  = _panScrollY - dy;
+
+    } else if (fingers.length >= 2 && _pinchDist !== null) {
+      // Pinch: zoom centrato sul punto di contatto + pan simultaneo
+      const mid = midpoint(fingers[0], fingers[1]);
+      const newDist = Math.hypot(fingers[0].clientX-fingers[1].clientX, fingers[0].clientY-fingers[1].clientY);
+      const scale = newDist / _pinchDist;
+
+      // Zoom centrato sul midpoint originale
+      zTo(S.zoom * scale, _pinchMidX, _pinchMidY);
+
+      // Pan: segui il movimento del centro del pinch
+      const r = CO.getBoundingClientRect();
+      const panDx = mid.x - _panStartX;
+      const panDy = mid.y - _panStartY;
+      CO.scrollLeft = _panScrollX - panDx;
+      CO.scrollTop  = _panScrollY - panDy;
+
+      // Aggiorna riferimento per il prossimo frame
+      _pinchDist = newDist;
+      _panStartX = mid.x; _panStartY = mid.y;
+      _panScrollX = CO.scrollLeft; _panScrollY = CO.scrollTop;
     }
   }, { passive: false });
 
   CO.addEventListener('touchend', e => {
+    const fingers = Array.from(e.touches).filter(t => t.touchType !== 'stylus');
+
     if (S.selDrag) {
       S.selDrag = false; S.selDragStart = null; S.selDragFrom = null;
       S.undo.push([...S.strokes]); S.redo = [];
-      scheduleAutoSave(); redraw(); return;
+      scheduleAutoSave(); redraw();
     }
-    S.pan = false;
-  }, { passive: true });
+
+    if (fingers.length === 0) {
+      // Tutte le dita alzate
+      S.pan = false;
+      _pinchDist = null;
+      _pinchMidX = _pinchMidY = null;
+    } else if (fingers.length === 1) {
+      // Da pinch torno a un dito → ripristina pan
+      _pinchDist = null;
+      S.pan = true;
+      _panStartX = fingers[0].clientX; _panStartY = fingers[0].clientY;
+      _panScrollX = CO.scrollLeft; _panScrollY = CO.scrollTop;
+    }
+  }, { passive: false });
 
   // ── Pointer handlers su CV (canvas) per disegno ──────────
   // Registrare su CV invece che CO risolve il problema di input mancanti:
@@ -739,7 +787,7 @@ function setupCanvas() {
     const p = gP(e.clientX, e.clientY);
     if (inGap(p.y)) return;
     const t = (e.buttons === 32 || e.button === 5) ? 'eraser' : S.tool;
-    const aTs = S.recOn ? (Date.now() - S.recStart) : null;
+    const aTs = S.recOn ? (Date.now() - S.recStart + S.recOffset) : null;
     const additive = e.shiftKey || e.ctrlKey || e.metaKey;
 
     if (t === 'lasso') {
@@ -887,7 +935,7 @@ function setupCanvas() {
         e.preventDefault();
         const pos = gP(t.clientX, t.clientY);
         if (inGap(pos.y)) return;
-        const aTs = S.recOn ? (Date.now() - S.recStart) : null;
+        const aTs = S.recOn ? (Date.now() - S.recStart + S.recOffset) : null;
         // Con pennino: se tool è lasso, fai hit test; altrimenti disegna
         if (S.tool === 'lasso') {
           const handle = hitTestSelHandles(pos.x, pos.y);
@@ -1030,7 +1078,7 @@ function setupCanvas() {
         e.preventDefault();
         const pos = gP(t.clientX, t.clientY);
         if (inGap(pos.y)) return;
-        const aTs = S.recOn ? (Date.now() - S.recStart) : null;
+        const aTs = S.recOn ? (Date.now() - S.recStart + S.recOffset) : null;
         // Con pennino: se tool è lasso, fai hit test; altrimenti disegna
         if (S.tool === 'lasso') {
           const handle = hitTestSelHandles(pos.x, pos.y);
@@ -1210,7 +1258,26 @@ function setupToolbar() {
   };
 
   // Audio
-  document.getElementById('RCB').onclick = () => { if (S.recOn) stopRec(); else startRec(); };
+  document.getElementById('RCB').onclick = () => {
+    if (S.recOn) {
+      if (S.recPaused) resumeRec();
+      else stopRec();
+    } else {
+      startRec();
+    }
+  };
+  // Bottone pausa separato
+  const pauseBtn = document.getElementById('PAUSEB');
+  if (pauseBtn) {
+    pauseBtn.onclick = () => {
+      if (S.recPaused) resumeRec();
+      else pauseRec();
+      // Aggiorna icona
+      pauseBtn.innerHTML = S.recPaused
+        ? '<svg width="8" height="8" viewBox="0 0 24 24" fill="white"><rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/></svg>'
+        : '<svg width="8" height="8" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>';
+    };
+  }
   document.getElementById('APB').onclick = () => { if (S.playing) stopAudio(); else startAudio(S.playOff); };
   document.getElementById('DELAUD').onclick = deleteAudio;
   PW2.onclick = e => {
@@ -1225,9 +1292,12 @@ function setupToolbar() {
     if (m && e.key==='s')  { e.preventDefault(); saveNote(); }
     if (m && e.key==='z')  { e.preventDefault(); document.getElementById('UDB').click(); }
     if (m && (e.key==='y'||(e.shiftKey&&e.key==='Z'))) { e.preventDefault(); document.getElementById('RDB').click(); }
-    if (m && e.key==='=')  { e.preventDefault(); document.getElementById('ZI').click(); }
+    if (m && (e.key==='=' || e.key==='+')) { e.preventDefault(); document.getElementById('ZI').click(); }
     if (m && e.key==='-')  { e.preventDefault(); document.getElementById('ZO').click(); }
-    if (m && e.key==='0')  { e.preventDefault(); zTo(1); }
+    if (m && e.key==='0')  { e.preventDefault(); fitW(); }
+    // Blocca zoom browser anche con Ctrl+scroll (già gestito nel wheel handler)
+    // ma alcuni browser usano anche questi tasti
+    if (m && (e.key==='ArrowUp'||e.key==='ArrowDown')) e.preventDefault();
     if (m && e.key==='v')  { pasteImg(); }
     if (!m) {
       switch(e.key) {
@@ -1349,81 +1419,226 @@ function exportPDF(withGrid) {
 }
 
 // ── Audio recording ───────────────────────────────────────
+// ── Upload queue resiliente ──────────────────────────────
+// I chunk vengono caricati in background; se la connessione cade
+// vengono ritentati automaticamente fino a 5 volte con backoff
+const uploadQueue = [];
+let uploadBusy = false;
+
+async function flushUploadQueue() {
+  if (uploadBusy || !uploadQueue.length) return;
+  uploadBusy = true;
+  while (uploadQueue.length) {
+    const item = uploadQueue[0];
+    let ok = false;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const fd = new FormData();
+        fd.append('chunk', item.blob, 'chunk.' + item.ext);
+        const r = await fetch(`/api/notes/${item.noteId}/audio/append`, { method: 'POST', body: fd });
+        if (r.ok) { ok = true; break; }
+      } catch(e) {
+        // Rete assente — aspetta con backoff esponenziale
+        await new Promise(r => setTimeout(r, Math.min(1000 * Math.pow(2, attempt), 15000)));
+      }
+    }
+    if (ok) uploadQueue.shift();
+    else break; // Riprova dopo
+  }
+  uploadBusy = false;
+}
+
+function enqueueChunk(noteId, blob, ext) {
+  uploadQueue.push({ noteId, blob, ext });
+  flushUploadQueue();
+}
+
+// ── Network status ───────────────────────────────────────
+function setNetStatus(state) {
+  // state: 'online' | 'offline' | 'syncing'
+  const dot  = document.getElementById('NETDOT');
+  const lbl  = document.getElementById('NETLBL');
+  const ban  = document.getElementById('OFFBANNER');
+  if (!dot) return;
+
+  dot.className = 'netdot ' + state;
+
+  if (state === 'online') {
+    lbl.textContent = 'online';
+    ban.classList.remove('on');
+  } else if (state === 'offline') {
+    lbl.textContent = 'offline';
+    ban.classList.add('on');
+  } else if (state === 'syncing') {
+    lbl.textContent = 'sync…';
+    ban.classList.remove('on');
+  }
+}
+
+// Controlla connessione anche verso il server (non solo navigator.onLine
+// che è inaffidabile — controlla solo la scheda di rete locale)
+let _netCheckTimer = null;
+async function checkServerReach() {
+  try {
+    const r = await fetch('/api/me', { method: 'GET', cache: 'no-store' });
+    if (r.ok || r.status === 401) {
+      // Server raggiungibile
+      if (uploadQueue.length > 0) {
+        setNetStatus('syncing');
+        flushUploadQueue();
+      } else {
+        setNetStatus('online');
+      }
+    } else {
+      setNetStatus('offline');
+    }
+  } catch {
+    setNetStatus('offline');
+  }
+}
+
+// Controlla ogni 15s
+function startNetMonitor() {
+  checkServerReach();
+  _netCheckTimer = setInterval(checkServerReach, 15000);
+}
+
+window.addEventListener('online',  () => { checkServerReach(); });
+window.addEventListener('offline', () => { setNetStatus('offline'); });
+
+// Aggiorna stato sync quando la queue cambia
+const _origFlush = flushUploadQueue;
+async function flushUploadQueue() {
+  if (uploadQueue.length > 0) setNetStatus('syncing');
+  await _origFlush();
+  if (uploadQueue.length === 0) setNetStatus('online');
+  else setNetStatus('offline'); // Upload falliti = ancora offline
+}
+
 async function startRec() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    toast('⚠ Microfono non supportato in questo browser'); return;
+    toast('⚠ Microfono non supportato'); return;
   }
   if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
     toast('⚠ La registrazione richiede HTTPS'); return;
   }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus'
-      : MediaRecorder.isTypeSupported('audio/webm')
-        ? 'audio/webm'
-        : MediaRecorder.isTypeSupported('audio/mp4')
-          ? 'audio/mp4'
-          : '';
-    S.chunks = [];
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
+      : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+      : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
+    const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+
     S.mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-    S.mr.ondataavailable = e => { if (e.data.size > 0) S.chunks.push(e.data); };
+    S.recOffset = S.aBuf ? Math.round(S.aBuf.duration * 1000) : 0;
+    S.recPaused = false;
+    S._pausedMs = 0; // ms totali in pausa
+    S._pauseStart = null;
+
+    // Ogni chunk viene caricato subito sul server — resiliente a disconnessioni
+    S.mr.ondataavailable = e => {
+      if (e.data.size > 0 && S.curId) enqueueChunk(S.curId, e.data, ext);
+    };
+
     S.mr.onstop = onRecStop;
-    S.recStart = Date.now(); S.recOn = true; S.mr.start(100);
-    const btn = document.getElementById('RCB');
+    S.recStart = Date.now();
+    S.recOn = true;
+    S.mr.start(2000); // chunk ogni 2s → upload frequente
+
+    updateRecBtn('rec');
+    AH.style.display = 'none'; ARC.style.display = 'flex';
+
+    const prevDur = S.aBuf ? S.aBuf.duration : 0;
+    S._ri = setInterval(() => {
+      if (S.recPaused) return;
+      const elapsed = (Date.now() - S.recStart - S._pausedMs) / 1000;
+      const total = prevDur + elapsed;
+      const m = Math.floor(total / 60);
+      const s2 = Math.floor(total % 60);
+      RTM.textContent = `${m}:${s2.toString().padStart(2,'0')}`;
+    }, 500);
+
+    toast(S.aBuf ? '⏺ Continua registrazione' : '⏺ Registrazione avviata');
+  } catch(err) {
+    if (err.name === 'NotAllowedError') toast('⚠ Permesso microfono negato');
+    else if (err.name === 'NotFoundError') toast('⚠ Nessun microfono trovato');
+    else toast('⚠ Errore microfono: ' + err.message);
+  }
+}
+
+function pauseRec() {
+  if (!S.mr || S.mr.state !== 'recording') return;
+  S.mr.pause();
+  S.recPaused = true;
+  S._pauseStart = Date.now();
+  updateRecBtn('pause');
+  toast('⏸ Pausa');
+}
+
+function resumeRec() {
+  if (!S.mr || S.mr.state !== 'paused') return;
+  S.mr.resume();
+  S.recPaused = false;
+  if (S._pauseStart) { S._pausedMs += Date.now() - S._pauseStart; S._pauseStart = null; }
+  updateRecBtn('rec');
+  toast('⏺ Ripresa');
+}
+
+function updateRecBtn(mode) {
+  const btn = document.getElementById('RCB');
+  const pauseBtn = document.getElementById('PAUSEB');
+  if (mode === 'rec') {
     btn.classList.add('rec');
     btn.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="white"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>';
-    AH.style.display = 'none'; ARC.style.display = 'flex';
-    S._ri = setInterval(() => {
-      const e = Date.now() - S.recStart;
-      RTM.textContent = `${Math.floor(e/60000)}:${(Math.floor(e/1000)%60).toString().padStart(2,'0')}`;
-    }, 500);
-    toast('⏺ Registrazione avviata');
-  } catch(err) {
-    console.error('getUserMedia error:', err);
-    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-      toast('⚠ Permesso microfono negato — controlla le impostazioni del browser');
-    } else if (err.name === 'NotFoundError') {
-      toast('⚠ Nessun microfono trovato');
-    } else {
-      toast('⚠ Errore microfono: ' + err.message);
-    }
+    if (pauseBtn) pauseBtn.style.display = 'flex';
+  } else if (mode === 'pause') {
+    btn.classList.add('rec'); // mantieni animazione
+    btn.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>';
+    if (pauseBtn) pauseBtn.style.display = 'flex';
+  } else {
+    btn.classList.remove('rec');
+    btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="12" r="6"/></svg>';
+    if (pauseBtn) pauseBtn.style.display = 'none';
   }
 }
 
 function stopRec() {
   if (!S.mr) return;
-  S.recOn = false; S.mr.stop(); S.mr.stream.getTracks().forEach(t => t.stop());
+  S.recOn = false; S.recPaused = false;
+  S.mr.stop(); S.mr.stream.getTracks().forEach(t => t.stop());
   clearInterval(S._ri); ARC.style.display = 'none';
-  const btn = document.getElementById('RCB');
-  btn.classList.remove('rec');
-  btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="12" r="6"/></svg>';
+  updateRecBtn('stop');
 }
 
 async function onRecStop() {
-  const blob = new Blob(S.chunks, { type: 'audio/webm' });
-
-  // Decode for playback
-  if (!S.aCtx) S.aCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const ab = await blob.arrayBuffer();
-  S.aBuf = await S.aCtx.decodeAudioData(ab.slice(0));
-
-  // Upload to server
-  if (S.curId) {
-    const fd = new FormData();
-    fd.append('audio', blob, 'recording.webm');
-    await fetch(`/api/notes/${S.curId}/audio`, { method: 'POST', body: fd });
-    // Update note has_audio flag
-    const idx = S.notes.findIndex(n => n.id === S.curId);
-    if (idx >= 0) S.notes[idx].has_audio = 1;
-    renderNL();
+  // I chunk sono già stati caricati in streaming durante la registrazione.
+  // Qui ricarichiamo l'audio completo dal server per aggiornare il player.
+  toast('⏳ Finalizzazione audio…');
+  // Aspetta che la queue di upload si svuoti
+  let wait = 0;
+  while (uploadQueue.length > 0 && wait < 15000) {
+    await new Promise(r => setTimeout(r, 300));
+    wait += 300;
   }
-
-  buildPeaks();
-  AH.style.display = 'none'; APL.style.display = 'flex';
-  drawWave(0); updAT(0);
-  TSel.classList.add('on'); drawTL(0);
-  toast('✓ Registrazione salvata');
+  if (!S.aCtx) S.aCtx = new (window.AudioContext || window.webkitAudioContext)();
+  // Ricarica dal server
+  try {
+    const r = await fetch(`/api/notes/${S.curId}/audio`);
+    if (r.ok) {
+      const ab = await r.arrayBuffer();
+      S.aBuf = await S.aCtx.decodeAudioData(ab);
+      const idx = S.notes.findIndex(n => n.id === S.curId);
+      if (idx >= 0) S.notes[idx].has_audio = 1;
+      renderNL();
+      buildPeaks();
+      AH.style.display = 'none'; APL.style.display = 'flex';
+      drawWave(0); updAT(0);
+      TSel.classList.add('on'); drawTL(0);
+      toast('✓ Registrazione salvata');
+    }
+  } catch(e) {
+    toast('⚠ Errore caricamento audio: ' + e.message);
+  }
 }
 
 async function deleteAudio() {

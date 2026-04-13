@@ -104,9 +104,23 @@ app.delete('/api/notes/:id', requireAuth, (req, res) => {
 });
 
 // ── Audio API ─────────────────────────────────────────────────
+// Salva audio completo (sostituisce)
 app.post('/api/notes/:id/audio', requireAuth, upload.single('audio'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Nessun file audio' });
   const ok = db.saveAudio(req.params.id, req.session.user.username, req.file.buffer, req.file.mimetype);
+  if (!ok) return res.status(404).json({ error: 'Nota non trovata' });
+  res.json({ ok: true });
+});
+
+// Appendi chunk audio (durante registrazione — per resilienza e concatenazione)
+app.post('/api/notes/:id/audio/append', requireAuth, upload.single('chunk'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Nessun chunk' });
+  const ok = db.appendAudioChunk(
+    req.params.id,
+    req.session.user.username,
+    req.file.buffer,
+    req.file.mimetype
+  );
   if (!ok) return res.status(404).json({ error: 'Nota non trovata' });
   res.json({ ok: true });
 });

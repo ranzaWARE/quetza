@@ -216,3 +216,50 @@ html,body{height:100%;overflow:hidden;font-family:'Segoe UI',system-ui,sans-seri
   transition: background .12s;
 }
 .sfbtn:hover { background: rgba(255,255,255,.14); }
+
+/* ── Network status indicator ────────────────────────────── */
+.netst {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: .65rem;
+  color: var(--mu);
+  flex-shrink: 0;
+}
+.netdot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #1e8449;
+  transition: background .4s, box-shadow .4s;
+  flex-shrink: 0;
+}
+/* Online */
+.netdot.online  { background: #27ae60; box-shadow: 0 0 0 0 rgba(39,174,96,0); }
+/* Offline */
+.netdot.offline { background: #c0392b; box-shadow: 0 0 0 3px rgba(192,57,43,.25); animation: netpulse 1.5s infinite; }
+/* Upload in coda */
+.netdot.syncing { background: #e67e22; animation: netpulse 1s infinite; }
+@keyframes netpulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(192,57,43,.4); }
+  50%      { box-shadow: 0 0 0 4px rgba(192,57,43,0); }
+}
+/* Banner rosso quando offline */
+#OFFBANNER {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  background: #c0392b;
+  color: #fff;
+  font-size: .74rem;
+  font-weight: 600;
+  text-align: center;
+  padding: 5px;
+  z-index: 9999;
+  animation: slidedown .25s ease;
+}
+#OFFBANNER.on { display: block; }
+@keyframes slidedown {
+  from { transform: translateY(-100%); }
+  to   { transform: translateY(0); }
+}

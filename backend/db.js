@@ -115,6 +115,28 @@ function deleteAudio(noteId, username) {
   db.prepare(`UPDATE notes SET has_audio = 0 WHERE id = ?`).run(noteId);
 }
 
+// Appendi chunk audio al blob esistente (concatenazione binaria)
+// Mantiene la compressione originale senza ricodificare
+function appendAudioChunk(noteId, username, chunk, mime) {
+  const note = db.prepare(`SELECT id FROM notes WHERE id = ? AND username = ?`).get(noteId, username);
+  if (!note) return false;
+
+  const existing = db.prepare(`SELECT data, mime FROM audio WHERE note_id = ?`).get(noteId);
+  if (existing) {
+    // Concatena i buffer binari
+    const combined = Buffer.concat([existing.data, chunk]);
+    db.prepare(`
+      UPDATE audio SET data = ?, mime = ? WHERE note_id = ?
+    `).run(combined, mime || existing.mime, noteId);
+  } else {
+    db.prepare(`
+      INSERT INTO audio (note_id, username, data, mime) VALUES (?, ?, ?, ?)
+    `).run(noteId, username, chunk, mime || 'audio/webm');
+    db.prepare(`UPDATE notes SET has_audio = 1, updated_at = datetime('now') WHERE id = ?`).run(noteId);
+  }
+  return true;
+}
+
 function getAllNotesForExport(username) {
   return db.prepare(`
     SELECT id, title, grid, strokes, images, thumbnail, has_audio, created_at, updated_at
@@ -147,4 +169,4 @@ function upsertNoteFromImport(id, username, note) {
   );
 }
 
-module.exports = { getNotesByUser, getNoteById, createNote, updateNoteMeta, saveContent, deleteNote, saveAudio, getAudio, deleteAudio, getAllNotesForExport, upsertNoteFromImport };
+module.exports = { getNotesByUser, getNoteById, createNote, updateNoteMeta, saveContent, deleteNote, saveAudio, getAudio, deleteAudio, getAllNotesForExport, upsertNoteFromImport, appendAudioChunk };
