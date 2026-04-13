@@ -192,3 +192,27 @@ html,body{height:100%;overflow:hidden;font-family:'Segoe UI',system-ui,sans-seri
 
 /* ── Lasso tool ─────────────────────────────────────────── */
 [data-t="lasso"].on { background: #2471a3; color: #fff; border-color: #2471a3; }
+
+/* ── Export/Import buttons ──────────────────────────────── */
+.sf2 {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px 0;
+}
+.sfbtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 6px;
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 5px;
+  color: var(--sbfg, #e8e8f0);
+  font-size: .68rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .12s;
+}
+.sfbtn:hover { background: rgba(255,255,255,.14); }

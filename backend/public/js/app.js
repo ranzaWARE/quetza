@@ -1261,6 +1261,40 @@ function setupSidebar() {
       renderNL();
     });
   }
+  // Export
+  document.getElementById('exportB').onclick = async () => {
+    toast('⏳ Preparazione archivio…');
+    try {
+      const r = await fetch('/api/export');
+      if (!r.ok) throw new Error(await r.text());
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const cd = r.headers.get('Content-Disposition') || '';
+      a.download = cd.match(/filename="([^"]+)"/)?.[1] || 'quetza-export.zip';
+      a.click();
+      URL.revokeObjectURL(url);
+      toast('✓ Archivio scaricato');
+    } catch(e) { toast('⚠ Errore export: ' + e.message); }
+  };
+
+  // Import
+  document.getElementById('importFile').onchange = async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    if (!confirm(`Importare "${file.name}"? Le note con lo stesso ID verranno sovrascritte.`)) return;
+    toast('⏳ Importazione in corso…');
+    try {
+      const fd = new FormData(); fd.append('archive', file);
+      const r = await fetch('/api/import', { method: 'POST', body: fd });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error);
+      await loadNotes();
+      toast(`✓ Importate ${d.imported} note${d.skipped ? ', ' + d.skipped + ' saltate' : ''}`);
+    } catch(e) { toast('⚠ Errore import: ' + e.message); }
+    e.target.value = '';
+  };
+
   document.getElementById('logoutB').onclick = async () => {
     if (S.recOn) stopRec();
     await saveNote();

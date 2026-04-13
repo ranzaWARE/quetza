@@ -125,6 +125,74 @@ app.delete('/api/notes/:id/audio', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Export / Import ──────────────────────────────────────────
+const archiver = require('archiver');
+const AdmZip   = require('adm-zip');
+
+// GET /api/export → ZIP con tutte le note dell'utente
+app.get('/api/export', requireAuth, async (req, res) => {
+  const username = req.session.user.username;
+  const notes = db.getAllNotesForExport(username);
+
+  res.set('Content-Type', 'application/zip');
+  res.set('Content-Disposition',
+    `attachment; filename="quetza-${username}-${new Date().toISOString().slice(0,10)}.zip"`);
+
+  const archive = archiver('zip', { zlib: { level: 6 } });
+  archive.pipe(res);
+
+  const manifest = notes.map(n => ({
+    id: n.id, title: n.title, grid: n.grid,
+    created_at: n.created_at, updated_at: n.updated_at,
+    has_audio: !!n.has_audio,
+    strokes:   n.strokes   ? JSON.parse(n.strokes)   : [],
+    images:    n.images    ? JSON.parse(n.images)     : [],
+    thumbnail: n.thumbnail || null,
+  }));
+  archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });
+
+  for (const note of notes) {
+    if (!note.has_audio) continue;
+    const audio = db.getAudio(note.id, username);
+    if (!audio || !audio.data) continue;
+    const ext = (audio.mime || '').includes('mp4') ? 'mp4' : 'webm';
+    archive.append(audio.data, { name: `audio/${note.id}.${ext}` });
+  }
+
+  archive.finalize();
+});
+
+// POST /api/import → carica ZIP esportato
+app.post('/api/import', requireAuth,
+  multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 * 1024 } }).single('archive'),
+  async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'Nessun file' });
+    const username = req.session.user.username;
+    try {
+      const zip = new AdmZip(req.file.buffer);
+      const manifestEntry = zip.getEntry('manifest.json');
+      if (!manifestEntry) return res.status(400).json({ error: 'ZIP non valido' });
+
+      const manifest = JSON.parse(manifestEntry.getData().toString('utf8'));
+      let imported = 0, skipped = 0;
+
+      for (const note of manifest) {
+        if (!note.id || !note.title) { skipped++; continue; }
+        db.upsertNoteFromImport(note.id, username, note);
+        const aw = zip.getEntry(`audio/${note.id}.webm`);
+        const am = zip.getEntry(`audio/${note.id}.mp4`);
+        const ae = aw || am;
+        if (ae) db.saveAudio(note.id, username, ae.getData(), am ? 'audio/mp4' : 'audio/webm');
+        imported++;
+      }
+      res.json({ ok: true, imported, skipped });
+    } catch(e) {
+      console.error('Import error:', e);
+      res.status(500).json({ error: e.message });
+    }
+  }
+);
+
 // ── Catch-all → index ─────────────────────────────────────────
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

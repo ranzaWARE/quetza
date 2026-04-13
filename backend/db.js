@@ -115,4 +115,36 @@ function deleteAudio(noteId, username) {
   db.prepare(`UPDATE notes SET has_audio = 0 WHERE id = ?`).run(noteId);
 }
 
-module.exports = { getNotesByUser, getNoteById, createNote, updateNoteMeta, saveContent, deleteNote, saveAudio, getAudio, deleteAudio };
+function getAllNotesForExport(username) {
+  return db.prepare(`
+    SELECT id, title, grid, strokes, images, thumbnail, has_audio, created_at, updated_at
+    FROM notes WHERE username = ? ORDER BY updated_at DESC
+  `).all(username);
+}
+
+function upsertNoteFromImport(id, username, note) {
+  db.prepare(`
+    INSERT INTO notes (id, username, title, strokes, images, thumbnail, grid, has_audio, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      title      = excluded.title,
+      strokes    = excluded.strokes,
+      images     = excluded.images,
+      thumbnail  = excluded.thumbnail,
+      grid       = excluded.grid,
+      has_audio  = excluded.has_audio,
+      updated_at = excluded.updated_at
+  `).run(
+    id, username,
+    note.title || 'Senza titolo',
+    JSON.stringify(note.strokes || []),
+    JSON.stringify(note.images  || []),
+    note.thumbnail || null,
+    note.grid || 'lines',
+    note.has_audio ? 1 : 0,
+    note.created_at || new Date().toISOString(),
+    note.updated_at || new Date().toISOString()
+  );
+}
+
+module.exports = { getNotesByUser, getNoteById, createNote, updateNoteMeta, saveContent, deleteNote, saveAudio, getAudio, deleteAudio, getAllNotesForExport, upsertNoteFromImport };
