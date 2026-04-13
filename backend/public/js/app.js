@@ -1335,14 +1335,19 @@ function setupToolbar() {
 
   document.getElementById('PSB').onclick = pasteImg;
 
-  // Condivisione
-  document.getElementById('SHAREB').onclick = () => {
-    if (!S.curId) return;
-    loadShares();
-    document.getElementById('SHAREM').classList.remove('off');
-  };
-  document.getElementById('SHARECANCB').onclick = () => document.getElementById('SHAREM').classList.add('off');
-  document.getElementById('SHARECREB').onclick = async () => {
+  // Condivisione — check difensivo se i bottoni esistono nell'HTML
+  const shareB = document.getElementById('SHAREB');
+  if (shareB) {
+    shareB.onclick = () => {
+      if (!S.curId) return;
+      loadShares();
+      document.getElementById('SHAREM').classList.remove('off');
+    };
+  }
+  const shareCancB = document.getElementById('SHARECANCB');
+  if (shareCancB) shareCancB.onclick = () => document.getElementById('SHAREM').classList.add('off');
+  const shareCreB = document.getElementById('SHARECREB');
+  if (shareCreB) shareCreB.onclick = async () => {
     const exp = document.getElementById('SHAREEXP').value;
     const r = await fetch(`/api/notes/${S.curId}/share`, {
       method: 'POST',
