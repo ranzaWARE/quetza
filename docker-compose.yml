@@ -6,14 +6,17 @@ services:
     build: https://github.com/ranzaWARE/quetza.git#main:backend
     container_name: quetza
     restart: unless-stopped
-    expose:
-      - "3000"
+    ports:
+      - "8080:3000"
+      - "8443:3443"
     volumes:
       - quetza_data:/app/data
+      - quetza_certs:/app/certs
     environment:
       - NODE_ENV=production
       - DB_PATH=/app/data/quetza.db
       - SESSION_SECRET=${SESSION_SECRET}
+      - SERVER_IP=${SERVER_IP:-127.0.0.1}
       - LDAP_ENABLED=${LDAP_ENABLED:-false}
       - LDAP_URL=${LDAP_URL:-ldap://192.168.1.10:389}
       - LDAP_BIND_DN=${LDAP_BIND_DN}
@@ -21,20 +24,6 @@ services:
       - LDAP_SEARCH_BASE=${LDAP_SEARCH_BASE:-DC=graphimecc,DC=local}
       - LDAP_SEARCH_FILTER=${LDAP_SEARCH_FILTER:-(sAMAccountName={{username}})}
       - LDAP_TLS_REJECT_UNAUTHORIZED=${LDAP_TLS_REJECT_UNAUTHORIZED:-false}
-
-  nginx:
-    build: https://github.com/ranzaWARE/quetza.git#main:nginx
-    container_name: quetza-nginx
-    restart: unless-stopped
-    ports:
-      - "8080:80"
-      - "8443:443"
-    volumes:
-      - quetza_certs:/etc/nginx/certs
-    depends_on:
-      - quetza
-    environment:
-      - SERVER_IP=${SERVER_IP:-127.0.0.1}
 
 volumes:
   quetza_data:

@@ -4,6 +4,9 @@ const SQLiteStore = require('connect-sqlite3')(session);
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
+const https = require('https');
+const http = require('http');
+const fs = require('fs');
 const db = require('./db');
 const auth = require('./auth');
 
@@ -304,7 +307,24 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Quetza running on http://localhost:${PORT}`);
-  console.log(`LDAP: ${process.env.LDAP_ENABLED === 'true' ? 'enabled → ' + process.env.LDAP_URL : 'disabled (local users only)'}`);
-});
+const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
+
+// HTTP → redirect to HTTPS
+http.createServer((req, res) => {
+  const host = (req.headers.host || 'localhost').replace(String(PORT), String(HTTPS_PORT));
+  res.writeHead(301, { Location: `https://${host}${req.url}` });
+  res.end();
+}).listen(PORT);
+
+// HTTPS
+const certPath = '/app/certs/server.crt';
+const keyPath  = '/app/certs/server.key';
+if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+  https.createServer({ cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) }, app)
+    .listen(HTTPS_PORT, () => {
+      console.log(`Quetza HTTPS on port ${HTTPS_PORT}`);
+      console.log(`LDAP: ${process.env.LDAP_ENABLED === 'true' ? 'enabled → ' + process.env.LDAP_URL : 'disabled (local users only)'}`);
+    });
+} else {
+  app.listen(PORT, () => console.log(`Quetza HTTP on port ${PORT} (no certs found)`));
+}
