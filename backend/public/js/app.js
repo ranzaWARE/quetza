@@ -740,13 +740,13 @@ function setupCanvas() {
   // Tutto il lavoro pesante (zoom/scroll) viene schedulato via RAF
   // per garantire 60fps anche su dispositivi lenti.
 
-  let _pinchDist  = null;
-  let _pinchMidX  = null, _pinchMidY  = null; // pivot in coord scroll
+  let _pinchDist      = null; // distanza iniziale (fissa per tutta la durata del gesture)
+  let _pinchStartZoom = null; // zoom al momento del touchstart
+  let _pinchMidX  = null, _pinchMidY  = null; // pivot in coord contenuto (fisso)
   let _panStartX  = null, _panStartY  = null;
   let _panScrollX = null, _panScrollY = null;
-  let _touchRaf   = null; // RAF in attesa
-  // Stato corrente del gesture (aggiornato da ogni touchmove)
-  let _gs = null; // { type:'pan'|'pinch', data:{} }
+  let _touchRaf   = null;
+  let _gs = null;
 
   function midpoint(t0, t1) {
     return { x: (t0.clientX+t1.clientX)/2, y: (t0.clientY+t1.clientY)/2 };
@@ -766,10 +766,11 @@ function setupCanvas() {
 
     } else if (_gs.type === 'pinch') {
       const { dist, mx, my } = _gs;
-      const scale   = dist / _pinchDist;
-      const newZoom = Math.max(.25, Math.min(3, S.zoom * scale));
+      // Scale totale dall'inizio del gesture (non incrementale)
+      const totalScale = dist / _pinchDist;
+      const newZoom    = Math.max(.25, Math.min(3, _pinchStartZoom * totalScale));
+      const zoomRatio  = newZoom / _pinchStartZoom;
 
-      // Aggiorna solo CSS durante il gesture — nessun ridisegno canvas
       const cssW = Math.round(PW * newZoom);
       const cssH = Math.round(totalH() * newZoom);
       CV.style.width  = cssW + 'px';
@@ -777,17 +778,14 @@ function setupCanvas() {
       CW.style.height = (cssH + 32) + 'px';
       ZL.textContent  = Math.round(newZoom * 100) + '%';
 
-      // Scroll: mantieni _pinchMid fisso sul viewport
-      // _pinchMidX era (mid.x - r.left) + scrollLeft al momento del touchstart
-      // Dopo lo scale, il pivot si trova a _pinchMidX * scale nella nuova dimensione
+      // Mantieni il pivot fisso: _pinchMidX è la coord contenuto al touchstart
+      // Dopo zoom: new_scroll = pivot_iniziale * zoomRatio - posizione_viewport
       const r = CO.getBoundingClientRect();
-      CO.scrollLeft = _pinchMidX * scale - (mx - r.left);
-      CO.scrollTop  = _pinchMidY * scale - (my - r.top);
+      CO.scrollLeft = _pinchMidX * zoomRatio - (mx - r.left);
+      CO.scrollTop  = _pinchMidY * zoomRatio - (my - r.top);
 
       S.zoom = newZoom;
-      _pinchDist  = dist;
-      _panStartX  = mx; _panStartY  = my;
-      _panScrollX = CO.scrollLeft; _panScrollY = CO.scrollTop;
+      // _pinchDist e _pinchMidX/Y NON vengono aggiornati: usiamo sempre i valori iniziali
     }
     _gs = null;
   }
@@ -837,9 +835,10 @@ function setupCanvas() {
       S.pan = false;
       const mid = midpoint(fingers[0], fingers[1]);
       const r   = CO.getBoundingClientRect();
-      _pinchDist  = Math.hypot(fingers[0].clientX-fingers[1].clientX, fingers[0].clientY-fingers[1].clientY);
-      _pinchMidX  = (mid.x - r.left) + CO.scrollLeft;
-      _pinchMidY  = (mid.y - r.top)  + CO.scrollTop;
+      _pinchDist      = Math.hypot(fingers[0].clientX-fingers[1].clientX, fingers[0].clientY-fingers[1].clientY);
+      _pinchStartZoom = S.zoom;
+      _pinchMidX      = (mid.x - r.left) + CO.scrollLeft;
+      _pinchMidY      = (mid.y - r.top)  + CO.scrollTop;
       _panStartX  = mid.x; _panStartY  = mid.y;
       _panScrollX = CO.scrollLeft; _panScrollY = CO.scrollTop;
     }
