@@ -105,6 +105,18 @@ async function init() {
   setupZoom();
   setupCanvas();
   startNetMonitor();
+  // Auto-detect logo (come Stego) — cerca assets/logo.*
+  (async () => {
+    const hdr = document.getElementById('APPHDR');
+    const logo = document.getElementById('brandLogo');
+    if (!hdr || !logo) return;
+    for (const src of ['assets/logo.svg','assets/logo.png','assets/logo.webp','assets/logo.jpg']) {
+      try {
+        const r = await fetch(src, { method: 'HEAD' });
+        if (r.ok) { logo.src = src; logo.hidden = false; hdr.classList.add('hasCustomLogo'); break; }
+      } catch {}
+    }
+  })();
 }
 
 // ── Notes API ─────────────────────────────────────────────
@@ -232,21 +244,16 @@ async function saveNote(silent = false) {
   }
   const thumbnail = genThumb();
 
-  try {
-    await fetch(`/api/notes/${S.curId}/content`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ strokes: S.strokes, images: S.imgs, thumbnail, grid: S.grid })
-    });
-    await fetch(`/api/notes/${S.curId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, grid: S.grid })
-    });
-  } catch(e) {
-    if (!silent) toast('⚠ Errore salvataggio');
-    return;
-  }
+  await fetch(`/api/notes/${S.curId}/content`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ strokes: S.strokes, images: S.imgs, thumbnail, grid: S.grid })
+  });
+  await fetch(`/api/notes/${S.curId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, grid: S.grid })
+  });
 
   const idx = S.notes.findIndex(n => n.id === S.curId);
   if (idx >= 0) {
@@ -846,7 +853,7 @@ function setupCanvas() {
 
     if (S.selDrag) {
       S.selDrag = false; S.selDragStart = null; S.selDragFrom = null;
-      pushUndo();
+      S.undo.push([...S.strokes]); S.redo = [];
       scheduleAutoSave(); redraw();
     }
 
@@ -971,7 +978,7 @@ function setupCanvas() {
     // Fine drag selezione
     if (S.selDrag) {
       S.selDrag = false; S.selDragStart = null; S.selDragFrom = null;
-      pushUndo();
+      S.undo.push([...S.strokes]); S.redo = [];
       scheduleAutoSave(); redraw(); return;
     }
 
@@ -987,7 +994,8 @@ function setupCanvas() {
     if (S.cur.pts.length > 1) {
       const recognized = S.shapeRecog ? recognizeShape(S.cur) : null;
       S.strokes.push(recognized || S.cur);
-      pushUndo();
+      S.undo.push([...S.strokes]);
+      S.redo = [];
       markDirty('strokes');
       scheduleAutoSave();
     }
@@ -1108,7 +1116,7 @@ function setupCanvas() {
         // Fine drag selezione
         if (S.selDrag) {
           S.selDrag=false; S.selDragStart=null; S.selDragFrom=null;
-          pushUndo();
+          S.undo.push([...S.strokes]); S.redo=[];
           scheduleAutoSave(); S._stylusId=null; redraw(); return;
         }
         // Fine lasso
@@ -1120,7 +1128,8 @@ function setupCanvas() {
         if (S.cur && S.cur.pts.length > 1) {
           const recognized = S.shapeRecog ? recognizeShape(S.cur) : null;
           S.strokes.push(recognized || S.cur);
-          pushUndo();
+          S.undo.push([...S.strokes]);
+          S.redo = [];
         }
         S.cur = null; S._stylusId = null;
         checkExtend();
@@ -1143,18 +1152,151 @@ function setupCanvas() {
 
   // Blocca menu contestuale Safari iOS (long press con Apple Pencil)
   CO.addEventListener('contextmenu', e => e.preventDefault(), { passive: false });
+  CV.addEventListener('contextmenu', e => e.preventDefault(), { passive: false });
+
+  // ── Apple Pencil su Safari iOS: Touch Events nativi ──────
+  // I Pointer Events su Safari iOS droppano pointerdown quando
+  // si scrive velocemente. I Touch Events hanno priorità più alta
+  // e non vengono mai droppati dal sistema.
+  // touchType === 'stylus' distingue Apple Pencil dal dito.
+
+  CV.addEventListener('touchstart', e => {
+    // Palm rejection: traccia i tocchi con le dita
+    for (const t of e.changedTouches) {
+      if (t.touchType !== 'stylus') {
+        S.palmActive = true;
+        // Se stava disegnando, annulla il tratto corrente
+        if (S.cur) { S.cur = null; redraw(); }
+        showMP('palm');
+      }
+    }
+    // Cerca il tocco con stylus (Apple Pencil)
+    for (const t of e.changedTouches) {
+      if (t.touchType === 'stylus') {
+        e.preventDefault();
+        const pos = gP(t.clientX, t.clientY);
+        if (inGap(pos.y)) return;
+        const aTs = S.recOn ? (Date.now() - S.recStart + S.recOffset) : null;
+        // Con pennino: se tool è lasso, fai hit test; altrimenti disegna
+        if (S.tool === 'lasso') {
+          const handle = hitTestSelHandles(pos.x, pos.y);
+          if (handle === 'delete') { deleteSelected(); return; }
+          if (handle === 'move' || S.selectedIds.size > 0) {
+            // Controlla hit su stroke esistente
+            for (let i = S.strokes.length-1; i >= 0; i--) {
+              if (strokeHitTest(S.strokes[i], pos.x, pos.y)) {
+                if (!S.selectedIds.has(i)) { S.selectedIds.clear(); S.selectedIds.add(i); }
+                S.selDrag = true; S.selDragStart = pos;
+                S.selDragFrom = {};
+                S.selectedIds.forEach(idx => { S.selDragFrom[idx] = S.strokes[idx].pts.map(q=>({...q})); });
+                S._stylusId = t.identifier; redraw(); return;
+              }
+            }
+          }
+          S.lassoPath = [pos]; S._stylusId = t.identifier; return;
+        }
+        // Tool disegno normale: deseleziona
+        S.selectedIds.clear();
+        S.cur = SHAPES.has(S.tool)
+          ? { t: S.tool, c: S.color, sz: S.size, pts: [pos, {...pos}], aTs }
+          : { t: S.tool, c: S.color, sz: S.size, pts: [{...pos, p: t.force||0.5}], aTs };
+        S._stylusId = t.identifier;
+
+        return;
+      }
+    }
+    // Dito → pan (se non sta già disegnando col pennino)
+    if (!S.cur && e.touches.length === 1) {
+      S.pan = true;
+      S.pY = e.touches[0].clientY;
+      S.pSY = CO.scrollTop;
+    }
+  }, { passive: false });
+
+  CV.addEventListener('touchmove', e => {
+    for (const t of e.changedTouches) {
+      if (t.touchType === 'stylus' && t.identifier === S._stylusId && S.cur) {
+        e.preventDefault();
+        const allTouches = e.touches[0]?.touchType === 'stylus'
+          ? Array.from(e.touches).filter(tt => tt.touchType === 'stylus')
+          : [t];
+        for (const ct of allTouches) {
+          const pos = gP(ct.clientX, ct.clientY);
+          if (inGap(pos.y)) continue;
+          // Drag selezione con pennino
+          if (S.selDrag && S.selDragStart) {
+            const dx = pos.x - S.selDragStart.x;
+            const dy = pos.y - S.selDragStart.y;
+            S.selectedIds.forEach(idx => {
+              if (S.selDragFrom[idx]) S.strokes[idx].pts = S.selDragFrom[idx].map(q=>({...q,x:q.x+dx,y:q.y+dy}));
+            });
+            redraw(); break;
+          }
+          // Lasso con pennino
+          if (S.lassoPath) { S.lassoPath.push(pos); redraw(); break; }
+          if (!S.cur) break;
+          if (SHAPES.has(S.cur.t)) {
+            S.cur.pts[1] = {...pos}; redraw(); drawSS(cx, [S.cur]); break;
+          }
+          const pt = {...pos, p: ct.force || 0.5};
+          const ps = S.cur.pts;
+          if (ps.length > 0) drawSegment(S.cur, ps[ps.length-1], pt);
+          S.cur.pts.push(pt);
+        }
+        return;
+      }
+    }
+    // Dito → scroll
+    if (S.pan && !S.cur && e.touches.length === 1) {
+      CO.scrollTop = S.pSY + (S.pY - e.touches[0].clientY);
+    }
+  }, { passive: false });
+
+  CV.addEventListener('touchend', e => {
+    for (const t of e.changedTouches) {
+      if (t.touchType === 'stylus' && t.identifier === S._stylusId) {
+        e.preventDefault();
+        // Fine drag selezione
+        if (S.selDrag) {
+          S.selDrag=false; S.selDragStart=null; S.selDragFrom=null;
+          S.undo.push([...S.strokes]); S.redo=[];
+          scheduleAutoSave(); S._stylusId=null; redraw(); return;
+        }
+        // Fine lasso
+        if (S.lassoPath && S.lassoPath.length > 3) {
+          finalizeLasso(S.lassoPath, false);
+          S.lassoPath=null; S._stylusId=null; return;
+        }
+        S.lassoPath=null;
+        if (S.cur && S.cur.pts.length > 1) {
+          const recognized = S.shapeRecog ? recognizeShape(S.cur) : null;
+          S.strokes.push(recognized || S.cur);
+          S.undo.push([...S.strokes]);
+          S.redo = [];
+        }
+        S.cur = null; S._stylusId = null;
+        checkExtend();
+        redraw();
+        scheduleAutoSave();
+        if (S.aBuf) drawTL();
+        return;
+      }
+    }
+    // Controlla se ci sono ancora dita sul canvas
+    let hasFinger = false;
+    for (const t of e.touches) { if (t.touchType !== 'stylus') hasFinger = true; }
+    S.palmActive = hasFinger;
+    S.pan = false;
+  }, { passive: false });
+
+  CV.addEventListener('touchcancel', () => {
+    S.cur = null; S.pan = false; S._stylusId = null; S.palmActive = false;
+  }, { passive: true });
 
   // Blocca selezione testo durante scrittura
   document.addEventListener('selectstart', e => {
     if (S.cur) e.preventDefault();
   });
-}
-
-const MAX_UNDO = 50;
-function pushUndo() {
-  S.undo.push([...S.strokes]);
-  if (S.undo.length > MAX_UNDO) S.undo.shift();
-  S.redo = [];
 }
 
 // ── Toolbar ───────────────────────────────────────────────
@@ -1188,9 +1330,7 @@ function setupToolbar() {
   };
   document.getElementById('RDB').onclick = () => {
     if (!S.redo.length) return;
-    S.strokes = [...S.redo.pop()];
-    S.undo.push([...S.strokes]); if (S.undo.length > MAX_UNDO) S.undo.shift();
-    markDirty('strokes'); redraw(); if (S.aBuf) drawTL();
+    S.strokes = [...S.redo.pop()]; S.undo.push([...S.strokes]); markDirty('strokes'); redraw(); if (S.aBuf) drawTL();
   };
   document.getElementById('SRB').onclick = () => {
     S.shapeRecog = !S.shapeRecog;
@@ -1201,7 +1341,7 @@ function setupToolbar() {
   };
   document.getElementById('CLB').onclick = () => {
     if (!confirm('Cancellare tutto il contenuto della nota?')) return;
-    pushUndo(); S.strokes = []; S.imgs = []; markDirty('all'); redraw(); toast('Canvas pulita');
+    S.undo.push([...S.strokes]); S.strokes = []; S.imgs = []; markDirty('all'); redraw(); toast('Canvas pulita');
   };
   document.getElementById('SVB').onclick = () => saveNote(false);
 
@@ -1308,11 +1448,9 @@ function setupSidebar() {
   // Ricerca note
   const srch = document.getElementById('SRCH');
   if (srch) {
-    let _srchTimer;
     srch.addEventListener('input', () => {
       S.searchQ = srch.value;
-      clearTimeout(_srchTimer);
-      _srchTimer = setTimeout(renderNL, 150);
+      renderNL();
     });
   }
   // Export
@@ -1349,6 +1487,12 @@ function setupSidebar() {
     e.target.value = '';
   };
 
+  // Logout dall'header (stile Stego)
+  const logoutB2 = document.getElementById('logoutB2');
+  if (logoutB2) logoutB2.onclick = async () => {
+    await fetch('/api/logout', { method: 'POST' });
+    location.reload();
+  };
   document.getElementById('logoutB').onclick = async () => {
     if (S.recOn) stopRec();
     await saveNote();
@@ -1503,7 +1647,6 @@ async function startRec() {
     updateRecBtn('rec');
     AH.style.display = 'none'; ARC.style.display = 'flex';
 
-    clearInterval(S._ri);
     const prevDur = S.aBuf ? S.aBuf.duration : 0;
     S._ri = setInterval(() => {
       if (S.recPaused) return;
@@ -1841,7 +1984,7 @@ function deleteSelected() {
   if (!S.selectedIds.size) return;
   S.strokes = S.strokes.filter((_, i) => !S.selectedIds.has(i));
   S.selectedIds.clear();
-  pushUndo();
+  S.undo.push([...S.strokes]); S.redo = [];
   scheduleAutoSave(); redraw();
 }
 

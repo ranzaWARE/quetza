@@ -21,6 +21,26 @@
 <div id="OFFBANNER">⚠ Connessione assente — le modifiche vengono salvate in locale e sincronizzate al ripristino</div>
 <div id="W">
 
+<!-- APP HEADER (stile Stego) -->
+<header class="appHeader" id="APPHDR">
+  <div class="brand">
+    <span class="brandFallback">
+      <span class="brandMark" aria-hidden="true"></span>
+      <span>Quetza</span>
+    </span>
+    <img id="brandLogo" class="brandLogo" alt="" hidden>
+  </div>
+  <div class="headerRight">
+    <span class="hpill" id="UNAME2">—</span>
+    <button class="sbb" id="logoutB2" title="Esci" style="background:none;border:1px solid var(--line);border-radius:999px;width:auto;padding:4px 10px;color:var(--muted);font-size:.72rem">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      Esci
+    </button>
+  </div>
+</header>
+<!-- BODY ROW (sidebar + main) -->
+<div id="BODY" style="gap:8px;min-height:0">
+
 <!-- SIDEBAR -->
 <div id="SB">
   <div class="sh">
@@ -263,8 +283,8 @@
       </div>
     </div>
   </div>
-</div>
-</div>
+</div><!-- /#BODY -->
+</div><!-- /#W -->
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="/js/app.js"></script>
