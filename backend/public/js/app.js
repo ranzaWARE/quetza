@@ -70,9 +70,12 @@ const ED   = document.getElementById('ED');
 const EM   = document.getElementById('EM');
 const NTT  = document.getElementById('NTT');
 const APP  = document.getElementById('W');
+// Stub per compatibilità con eventuali riferimenti residui a TC/TSel
+const TC = document.createElement('canvas'), tx = TC.getContext('2d');
+const TSel = { classList: { add:()=>{}, remove:()=>{} }, clientHeight: 0 };
 const MP   = document.getElementById('MP');
 const TT   = document.getElementById('TT');
-const TSel = document.getElementById('TS');
+// Timeline strip rimossa — punti sulla waveform
 const TC   = document.getElementById('TC');
 const tx   = TC.getContext('2d');
 const WC   = document.getElementById('WC');
@@ -739,31 +742,79 @@ function setupCanvas() {
   }
 
   // ── Touch handlers su CO: pan 1 dito, pinch-zoom+pan 2 dita ──
-  // Stato gesture
-  let _pinchDist = null;   // distanza iniziale pinch
-  let _pinchMidX = null;   // centro pinch X (scroll coords)
-  let _pinchMidY = null;   // centro pinch Y (scroll coords)
-  let _panStartX = null;
-  let _panStartY = null;
-  let _panScrollX = null;
-  let _panScrollY = null;
+  // Tutto il lavoro pesante (zoom/scroll) viene schedulato via RAF
+  // per garantire 60fps anche su dispositivi lenti.
+
+  let _pinchDist  = null;
+  let _pinchMidX  = null, _pinchMidY  = null; // pivot in coord scroll
+  let _panStartX  = null, _panStartY  = null;
+  let _panScrollX = null, _panScrollY = null;
+  let _touchRaf   = null; // RAF in attesa
+  // Stato corrente del gesture (aggiornato da ogni touchmove)
+  let _gs = null; // { type:'pan'|'pinch', data:{} }
 
   function midpoint(t0, t1) {
-    return { x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 };
+    return { x: (t0.clientX+t1.clientX)/2, y: (t0.clientY+t1.clientY)/2 };
+  }
+
+  // Applica lo stato gesture — chiamato dal RAF, mai direttamente dal touchmove
+  function flushGesture() {
+    _touchRaf = null;
+    if (!_gs) return;
+
+    if (_gs.type === 'pan') {
+      const { cx, cy } = _gs;
+      const dx = cx - _panStartX;
+      const dy = cy - _panStartY;
+      CO.scrollLeft = _panScrollX - dx;
+      CO.scrollTop  = _panScrollY - dy;
+
+    } else if (_gs.type === 'pinch') {
+      const { dist, mx, my } = _gs;
+      const scale   = dist / _pinchDist;
+      const newZoom = Math.max(.25, Math.min(3, S.zoom * scale));
+
+      // Aggiorna solo CSS durante il gesture — nessun ridisegno canvas
+      const cssW = Math.round(PW * newZoom);
+      const cssH = Math.round(totalH() * newZoom);
+      CV.style.width  = cssW + 'px';
+      CV.style.height = cssH + 'px';
+      CW.style.height = (cssH + 32) + 'px';
+      ZL.textContent  = Math.round(newZoom * 100) + '%';
+
+      // Scroll: mantieni _pinchMid fisso sul viewport
+      // _pinchMidX era (mid.x - r.left) + scrollLeft al momento del touchstart
+      // Dopo lo scale, il pivot si trova a _pinchMidX * scale nella nuova dimensione
+      const r = CO.getBoundingClientRect();
+      CO.scrollLeft = _pinchMidX * scale - (mx - r.left);
+      CO.scrollTop  = _pinchMidY * scale - (my - r.top);
+
+      S.zoom = newZoom;
+      _pinchDist  = dist;
+      _panStartX  = mx; _panStartY  = my;
+      _panScrollX = CO.scrollLeft; _panScrollY = CO.scrollTop;
+    }
+    _gs = null;
+  }
+
+  function scheduleGesture(gs) {
+    _gs = gs;
+    if (!_touchRaf) _touchRaf = requestAnimationFrame(flushGesture);
   }
 
   CO.addEventListener('touchstart', e => {
-    // Ignora stylus — gestito da CV
     const fingers = Array.from(e.touches).filter(t => t.touchType !== 'stylus');
     if (!fingers.length) return;
+    e.preventDefault();
 
-    e.preventDefault(); // blocca zoom browser
+    // Cancella RAF pendente
+    if (_touchRaf) { cancelAnimationFrame(_touchRaf); _touchRaf = null; _gs = null; }
 
     if (fingers.length === 1) {
       const t = fingers[0];
       const pos = gP(t.clientX, t.clientY);
 
-      // Lasso: controlla handle selezione
+      // Lasso selezione con dito
       if (S.tool === 'lasso' && S.selectedIds.size > 0) {
         const handle = hitTestSelHandles(pos.x, pos.y);
         if (handle === 'delete') { deleteSelected(); return; }
@@ -782,22 +833,19 @@ function setupCanvas() {
         }
       }
 
-      // Pan con un dito
       S.pan = true;
       _panStartX = t.clientX; _panStartY = t.clientY;
       _panScrollX = CO.scrollLeft; _panScrollY = CO.scrollTop;
       showMP('touch');
 
     } else if (fingers.length >= 2) {
-      // Pinch-to-zoom — inizializza
       S.pan = false;
       const mid = midpoint(fingers[0], fingers[1]);
-      const r = CO.getBoundingClientRect();
-      _pinchDist = Math.hypot(fingers[0].clientX-fingers[1].clientX, fingers[0].clientY-fingers[1].clientY);
-      // Centro in coordinate scroll (canvas logiche * zoom + scroll)
-      _pinchMidX = (mid.x - r.left) + CO.scrollLeft;
-      _pinchMidY = (mid.y - r.top)  + CO.scrollTop;
-      _panStartX = mid.x; _panStartY = mid.y;
+      const r   = CO.getBoundingClientRect();
+      _pinchDist  = Math.hypot(fingers[0].clientX-fingers[1].clientX, fingers[0].clientY-fingers[1].clientY);
+      _pinchMidX  = (mid.x - r.left) + CO.scrollLeft;
+      _pinchMidY  = (mid.y - r.top)  + CO.scrollTop;
+      _panStartX  = mid.x; _panStartY  = mid.y;
       _panScrollX = CO.scrollLeft; _panScrollY = CO.scrollTop;
     }
   }, { passive: false });
@@ -807,7 +855,7 @@ function setupCanvas() {
     if (!fingers.length) return;
     e.preventDefault();
 
-    // Drag selezione
+    // Drag selezione — diretto, nessun RAF (leggero)
     if (S.selDrag && S.selDragStart && S.selectedIds.size > 0) {
       const pos = gP(fingers[0].clientX, fingers[0].clientY);
       const dx = pos.x - S.selDragStart.x;
@@ -819,32 +867,14 @@ function setupCanvas() {
     }
 
     if (fingers.length === 1 && S.pan) {
-      // Pan con un dito: scrolla il canvas
-      const dx = fingers[0].clientX - _panStartX;
-      const dy = fingers[0].clientY - _panStartY;
-      CO.scrollLeft = _panScrollX - dx;
-      CO.scrollTop  = _panScrollY - dy;
+      // Pan: accumula stato, RAF applica
+      scheduleGesture({ type:'pan', cx: fingers[0].clientX, cy: fingers[0].clientY });
 
     } else if (fingers.length >= 2 && _pinchDist !== null) {
-      // Pinch: zoom centrato sul punto di contatto + pan simultaneo
-      const mid = midpoint(fingers[0], fingers[1]);
-      const newDist = Math.hypot(fingers[0].clientX-fingers[1].clientX, fingers[0].clientY-fingers[1].clientY);
-      const scale = newDist / _pinchDist;
-
-      // Zoom centrato sul midpoint originale
-      zTo(S.zoom * scale, _pinchMidX, _pinchMidY);
-
-      // Pan: segui il movimento del centro del pinch
-      const r = CO.getBoundingClientRect();
-      const panDx = mid.x - _panStartX;
-      const panDy = mid.y - _panStartY;
-      CO.scrollLeft = _panScrollX - panDx;
-      CO.scrollTop  = _panScrollY - panDy;
-
-      // Aggiorna riferimento per il prossimo frame
-      _pinchDist = newDist;
-      _panStartX = mid.x; _panStartY = mid.y;
-      _panScrollX = CO.scrollLeft; _panScrollY = CO.scrollTop;
+      // Pinch: accumula distanza e midpoint correnti
+      const mid  = midpoint(fingers[0], fingers[1]);
+      const dist = Math.hypot(fingers[0].clientX-fingers[1].clientX, fingers[0].clientY-fingers[1].clientY);
+      scheduleGesture({ type:'pinch', dist, mx: mid.x, my: mid.y });
     }
   }, { passive: false });
 
@@ -858,12 +888,11 @@ function setupCanvas() {
     }
 
     if (fingers.length === 0) {
-      // Tutte le dita alzate
-      S.pan = false;
-      _pinchDist = null;
-      _pinchMidX = _pinchMidY = null;
+      // Tutte le dita alzate — ridisegna canvas a zoom finale
+      S.pan = false; _pinchDist = null; _pinchMidX = _pinchMidY = null;
+      if (_touchRaf) { cancelAnimationFrame(_touchRaf); _touchRaf = null; _gs = null; }
+      markDirty('all'); redraw();
     } else if (fingers.length === 1) {
-      // Da pinch torno a un dito → ripristina pan
       _pinchDist = null;
       S.pan = true;
       _panStartX = fingers[0].clientX; _panStartY = fingers[0].clientY;
@@ -1810,14 +1839,19 @@ function buildPeaks() {
 }
 
 function drawWave(f) {
-  const W = WC.width = PW2.clientWidth || 170; const H = WC.height = 20;
-  wx.clearRect(0, 0, W, H); if (!S.peaks) return;
-  const n = S.peaks.length, bw = W/n;
-  for (let i=0; i<n; i++) {
-    const h = Math.max(2, S.peaks[i]*H*2.5);
-    wx.fillStyle = (i/n)<f ? 'rgba(192,57,43,.9)' : 'rgba(255,255,255,.22)';
-    wx.fillRect(i*bw, H/2-h/2, Math.max(1,bw-.5), Math.min(h,H));
+  const W = WC.width  = PW2.clientWidth  || 170;
+  const H = WC.height = PW2.clientHeight || 22;
+  wx.clearRect(0, 0, W, H);
+  if (!S.peaks) return;
+  // Disegna waveform
+  const n = S.peaks.length, bw = W / n;
+  for (let i = 0; i < n; i++) {
+    const h = Math.max(2, S.peaks[i] * H * 2.5);
+    wx.fillStyle = (i/n) < f ? 'rgba(192,57,43,.85)' : 'rgba(255,255,255,.2)';
+    wx.fillRect(i*bw, H/2-h/2, Math.max(1, bw-.5), Math.min(h, H));
   }
+  // Sovrapponi punti di scrittura (drawTL ora usa WC direttamente)
+  if (S.aBuf) drawTL(f);
 }
 
 function updAT(s) {
@@ -1876,48 +1910,26 @@ function scrollToTs(ms) {
 }
 
 // ── Timeline ──────────────────────────────────────────────
+// drawTL: disegna i punti di scrittura direttamente sulla waveform (WC)
+// chiamata dopo drawWave() — sovrappone i punti sulla traccia orizzontale
 function drawTL(frac) {
-  const H = TSel.clientHeight || 400; const W = 34;
-  TC.width = W; TC.height = H; tx.clearRect(0,0,W,H);
-  const dH = totalH(); const pad = 12;
-  for (let p=0; p<S.pages; p++) {
-    const y1=pad+(p*(PH+PGAP)/dH)*(H-pad*2);
-    const y2=pad+((p*(PH+PGAP)+PH)/dH)*(H-pad*2);
-    tx.fillStyle='rgba(255,255,255,.07)'; tx.fillRect(3,y1,W-6,y2-y1);
-    tx.strokeStyle='rgba(255,255,255,.13)'; tx.lineWidth=.5; tx.strokeRect(3,y1,W-6,y2-y1);
-    tx.fillStyle='rgba(255,255,255,.2)'; tx.font='7px system-ui'; tx.textAlign='center';
-    tx.fillText(p+1, W/2, y1+9);
-  }
-  if (S.aBuf) {
-    const dur = S.aBuf.duration*1000;
-    S.strokes.forEach(s => {
-      if (s.aTs==null) return;
-      const avgY = s.pts.reduce((a,b)=>a+b.y,0)/s.pts.length;
-      const ty = pad+(avgY/dH)*(H-pad*2);
-      const hue = 200-(s.aTs/dur)*160;
-      tx.fillStyle = `hsla(${Math.round(hue)},80%,65%,.75)`;
-      tx.beginPath(); tx.arc(W/2, ty, 2.5, 0, Math.PI*2); tx.fill();
-    });
-  }
-  if (frac != null) {
-    const ms = frac*(S.aBuf?S.aBuf.duration*1000:1);
-    const nb = S.strokes.filter(s=>s.aTs!=null&&Math.abs(s.aTs-ms)<2000);
-    let ty;
-    if (nb.length) {
-      const avgY = nb.reduce((a,s)=>a+s.pts.reduce((b,p)=>b+p.y,0)/s.pts.length,0)/nb.length;
-      ty = pad+(avgY/dH)*(H-pad*2);
-    } else ty = pad+frac*(H-pad*2);
-    tx.strokeStyle='#c0392b'; tx.lineWidth=1.5;
-    tx.beginPath(); tx.moveTo(2,ty); tx.lineTo(W-2,ty); tx.stroke();
-    tx.fillStyle='#c0392b';
-    tx.beginPath(); tx.moveTo(2,ty); tx.lineTo(7,ty-3); tx.lineTo(7,ty+3); tx.closePath(); tx.fill();
-  }
-}
-TC.onclick = e => {
   if (!S.aBuf) return;
-  const r = TC.getBoundingClientRect(); const pad=12;
-  seekAudio(Math.max(0,Math.min(1,(e.clientY-r.top-pad)/(r.height-pad*2)))*S.aBuf.duration);
-};
+  const W = WC.width || WC.clientWidth || 200;
+  const H = WC.height || 22;
+  const dur = S.aBuf.duration * 1000;
+  const curMs = (frac || 0) * dur;
+
+  S.strokes.forEach(s => {
+    if (s.aTs == null) return;
+    const x = (s.aTs / dur) * W;
+    if (x < 0 || x > W) return;
+    const active = Math.abs(s.aTs - curMs) < 2000;
+    wx.beginPath();
+    wx.arc(x, H / 2, active ? 3.5 : 2, 0, Math.PI * 2);
+    wx.fillStyle = active ? 'rgba(255,255,255,1)' : 'rgba(255,255,255,.65)';
+    wx.fill();
+  });
+}
 
 // ── Utils ─────────────────────────────────────────────────
 let mpT = null;
