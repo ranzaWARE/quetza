@@ -70,14 +70,9 @@ const ED   = document.getElementById('ED');
 const EM   = document.getElementById('EM');
 const NTT  = document.getElementById('NTT');
 const APP  = document.getElementById('W');
-// Stub per compatibilità con eventuali riferimenti residui a TC/TSel
-const TC = document.createElement('canvas'), tx = TC.getContext('2d');
 const TSel = { classList: { add:()=>{}, remove:()=>{} }, clientHeight: 0 };
 const MP   = document.getElementById('MP');
 const TT   = document.getElementById('TT');
-// Timeline strip rimossa — punti sulla waveform
-const TC   = document.getElementById('TC');
-const tx   = TC.getContext('2d');
 const WC   = document.getElementById('WC');
 const wx   = WC.getContext('2d');
 const PW2  = document.getElementById('PW');
