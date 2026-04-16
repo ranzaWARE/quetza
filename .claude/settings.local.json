@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(python3 -c ':*)",
-      "Bash(git fetch:*)"
+      "Bash(git fetch:*)",
+      "Bash(docker-compose ps *)",
+      "Bash(docker compose *)"
     ]
   }
 }
