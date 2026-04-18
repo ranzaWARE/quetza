@@ -61,10 +61,17 @@
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
   </div>
-  <button class="nwb" id="newB">
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-    Nuova nota
-  </button>
+  <div style="display:flex;gap:4px;padding:6px 7px 0">
+    <button class="nwb" id="newB" style="flex:1;margin:0">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Nuova
+    </button>
+    <select id="SORT" title="Ordina note" style="padding:4px 5px;border:1px solid rgba(255,255,255,.1);border-radius:6px;background:rgba(255,255,255,.07);color:var(--sb-fg);font-size:.68rem;font-family:inherit;cursor:pointer;flex-shrink:0">
+      <option value="updated">Modifica</option>
+      <option value="created">Creazione</option>
+      <option value="alpha">A-Z</option>
+    </select>
+  </div>
   <div class="srch">
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     <input type="search" id="SRCH" placeholder="Cerca note…" autocomplete="off">
@@ -80,6 +87,12 @@
       Importa
       <input type="file" id="importFile" accept=".zip" style="display:none">
     </label>
+  </div>
+  <div class="sf" id="adminLink" style="display:none;padding:4px 8px 0">
+    <a href="/admin" style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:var(--brand);text-decoration:none;padding:4px 6px;border-radius:6px;background:rgba(245,160,0,.12);width:100%">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
+      Amministrazione
+    </a>
   </div>
   <div class="sf">
     <div class="netst" id="NETST" title="Stato connessione">
@@ -195,6 +208,9 @@
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
         </button>
         <!-- Clear -->
+        <button class="b" id="TXTB" title="Inserisci testo (T)">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+        </button>
         <button class="b red" id="CLB" title="Cancella tutto">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>
         </button>
@@ -265,6 +281,21 @@
             <button class="mk" id="SHARECREB">Genera link</button>
           </div>
           <div id="SHARELIST"></div>
+        </div>
+      </div>
+
+      <!-- Testo modal -->
+      <div class="MW off" id="TXTM">
+        <div class="MD" style="width:340px">
+          <h3>Testo sulla nota</h3>
+          <p class="ms">Il testo verrà posizionato sul canvas dove clicchi. Sarà anche cercabile.</p>
+          <input type="text" id="TXTI" placeholder="Scrivi qui…" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:.9rem;font-family:inherit;margin-bottom:8px">
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
+            <label style="font-size:.74rem;color:var(--muted)">Dimensione</label>
+            <input type="range" id="TXTSZ" min="10" max="72" value="18" style="flex:1;accent-color:var(--brand)">
+            <span id="TXTSZV" style="font-size:.7rem;color:var(--muted);min-width:24px">18</span>
+          </div>
+          <div class="ma"><button class="mc" id="TXTCANC">Annulla</button><button class="mk" id="TXTOK">Posiziona</button></div>
         </div>
       </div>
 

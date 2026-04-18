@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quetza — Amministrazione</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;background:#f3f5f7;color:#111827;min-height:100vh}
+.hdr{background:#fff;border-bottom:1px solid #e5e7eb;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;position:sticky;top:0;z-index:50;box-shadow:0 2px 8px rgba(17,24,39,.06)}
+.hdr-brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:.95rem}
+.brand-mark{width:26px;height:9px;border-radius:999px;background:linear-gradient(90deg,#f5a000,rgba(245,160,0,.12));transform:skewX(-18deg)}
+.hdr-right{display:flex;align-items:center;gap:8px}
+.accent{height:3px;background:linear-gradient(90deg,#f5a000 0%,#f5a000 55%,rgba(245,160,0,.08) 55%)}
+.wrap{max-width:1000px;margin:0 auto;padding:20px 16px;display:flex;flex-direction:column;gap:16px}
+.card{background:#fff;border-radius:12px;border:1px solid #e5e7eb;box-shadow:0 4px 12px rgba(17,24,39,.06);overflow:hidden}
+.card-hdr{padding:14px 18px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between}
+.card-hdr h2{font-size:.9rem;font-weight:600;color:#111827}
+.card-body{padding:18px}
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.stat{background:#f9fafb;border-radius:8px;padding:12px 14px;border:1px solid #e5e7eb}
+.stat-lbl{font-size:.72rem;color:#6b7280;font-weight:500;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.stat-val{font-size:1.5rem;font-weight:600;color:#111827}
+table{width:100%;border-collapse:collapse;font-size:.82rem}
+th{text-align:left;padding:8px 10px;border-bottom:1px solid #e5e7eb;font-weight:600;font-size:.75rem;color:#6b7280;text-transform:uppercase;letter-spacing:.04em}
+td{padding:9px 10px;border-bottom:1px solid #f3f5f7;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#fafafa}
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:.68rem;font-weight:600}
+.badge-admin{background:#fef3c7;color:#92400e}
+.badge-user{background:#f3f4f6;color:#6b7280}
+.badge-active{background:#d1fae5;color:#065f46}
+.badge-inactive{background:#fee2e2;color:#991b1b}
+.badge-local{background:#ede9fe;color:#5b21b6}
+.badge-ldap{background:#dbeafe;color:#1e40af}
+.badge-oidc{background:#d1fae5;color:#065f46}
+button{font-family:inherit;cursor:pointer;transition:all .12s}
+.btn{padding:6px 12px;border-radius:8px;font-size:.78rem;font-weight:600;border:1px solid;display:inline-flex;align-items:center;gap:5px}
+.btn-primary{background:#f5a000;border-color:#d98c00;color:#111827}
+.btn-primary:hover{background:#d98c00}
+.btn-outline{background:transparent;border-color:#e5e7eb;color:#374151}
+.btn-outline:hover{background:#f9fafb}
+.btn-danger{background:transparent;border-color:#fecaca;color:#b91c1c}
+.btn-danger:hover{background:#fee2e2}
+.btn-sm{padding:3px 8px;font-size:.72rem;border-radius:6px}
+.btn-xs{padding:2px 6px;font-size:.68rem;border-radius:5px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.form-group{display:flex;flex-direction:column;gap:4px}
+label{font-size:.76rem;font-weight:500;color:#374151}
+input[type=text],input[type=password],input[type=url],select{padding:7px 10px;border:1px solid #e5e7eb;border-radius:8px;font-size:.82rem;font-family:inherit;color:#111827;background:#fff;outline:none;transition:border-color .12s}
+input:focus,select:focus{border-color:#f5a000;box-shadow:0 0 0 3px rgba(245,160,0,.15)}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f3f5f7}
+.toggle-row:last-child{border-bottom:none}
+.toggle-info{display:flex;flex-direction:column;gap:2px}
+.toggle-lbl{font-size:.82rem;font-weight:500;color:#111827}
+.toggle-desc{font-size:.72rem;color:#6b7280}
+.toggle{position:relative;width:38px;height:20px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;inset:0;background:#e5e7eb;border-radius:999px;cursor:pointer;transition:.2s}
+.toggle-slider:before{content:'';position:absolute;width:16px;height:16px;left:2px;bottom:2px;background:#fff;border-radius:50%;transition:.2s}
+.toggle input:checked+.toggle-slider{background:#f5a000}
+.toggle input:checked+.toggle-slider:before{transform:translateX(18px)}
+.section-sep{border:none;border-top:1px solid #f3f5f7;margin:14px 0}
+.nav{display:flex;gap:4px;border-bottom:1px solid #e5e7eb;margin-bottom:18px}
+.nav-tab{padding:8px 14px;font-size:.82rem;font-weight:500;color:#6b7280;border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .12s}
+.nav-tab.active{color:#f5a000;border-bottom-color:#f5a000}
+.tab-content{display:none}
+.tab-content.active{display:block}
+.alert{padding:10px 14px;border-radius:8px;font-size:.8rem;margin-bottom:10px}
+.alert-success{background:#d1fae5;color:#065f46;border:1px solid #6ee7b7}
+.alert-error{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(17,24,39,.45);z-index:200;align-items:center;justify-content:center}
+.modal-bg.open{display:flex}
+.modal{background:#fff;border-radius:14px;padding:22px;width:380px;max-width:90vw;border:1px solid #e5e7eb;box-shadow:0 20px 40px rgba(17,24,39,.18)}
+.modal h3{font-size:.9rem;font-weight:700;margin-bottom:14px}
+.modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.back-link{display:inline-flex;align-items:center;gap:5px;font-size:.8rem;color:#6b7280;text-decoration:none;padding:4px 8px;border-radius:6px;transition:background .12s}
+.back-link:hover{background:#f3f5f7;color:#111827}
+.sz{font-size:.72rem;color:#6b7280}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-brand">
+    <div class="brand-mark"></div>
+    <span>Quetza</span>
+    <span style="font-size:.72rem;padding:2px 8px;border-radius:999px;background:#fef3c7;color:#92400e;font-weight:600">Admin</span>
+  </div>
+  <div class="hdr-right">
+    <a href="/" class="back-link">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h18M3 12l6-6M3 12l6 6"/></svg>
+      Torna all'app
+    </a>
+    <span style="font-size:.72rem;padding:4px 10px;border:1px solid #e5e7eb;border-radius:999px;color:#6b7280" id="adminName">—</span>
+  </div>
+</div>
+<div class="accent"></div>
+
+<div class="wrap">
+
+  <!-- Statistiche -->
+  <div class="card">
+    <div class="card-hdr"><h2>Panoramica</h2></div>
+    <div class="card-body">
+      <div class="stats-grid">
+        <div class="stat"><div class="stat-lbl">Utenti</div><div class="stat-val" id="statUsers">—</div></div>
+        <div class="stat"><div class="stat-lbl">Note totali</div><div class="stat-val" id="statNotes">—</div></div>
+        <div class="stat"><div class="stat-lbl">Storage audio</div><div class="stat-val" id="statAudio">—</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabs principali -->
+  <div class="card">
+    <div class="card-body" style="padding-bottom:0">
+      <div class="nav">
+        <button class="nav-tab active" onclick="switchTab('users')">Utenti</button>
+        <button class="nav-tab" onclick="switchTab('oidc')">Keycloak / OIDC</button>
+        <button class="nav-tab" onclick="switchTab('ldap')">LDAP / AD</button>
+        <button class="nav-tab" onclick="switchTab('backup')">Backup & Migrazione</button>
+        <button class="nav-tab" onclick="switchTab('whisper')">Whisper</button>
+      </div>
+    </div>
+
+    <!-- UTENTI -->
+    <div class="tab-content active card-body" id="tab-users">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+        <button class="btn btn-primary btn-sm" onclick="openNewUser()">+ Nuovo utente</button>
+      </div>
+      <table id="usersTable">
+        <thead><tr><th>Username</th><th>Nome</th><th>Ruolo</th><th>Stato</th><th>Fonte</th><th>Ultimo accesso</th><th></th></tr></thead>
+        <tbody id="usersTbody"></tbody>
+      </table>
+    </div>
+
+    <!-- OIDC -->
+    <div class="tab-content card-body" id="tab-oidc">
+      <div id="oidcAlert"></div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <span class="toggle-lbl">Keycloak OIDC abilitato</span>
+          <span class="toggle-desc">Quando attivo, il login reindirizza a Keycloak</span>
+        </div>
+        <label class="toggle"><input type="checkbox" id="oidcEnabled"><span class="toggle-slider"></span></label>
+      </div>
+      <hr class="section-sep">
+      <div class="form-row">
+        <div class="form-group"><label>Issuer URL (realm)</label><input type="url" id="oidcIssuer" placeholder="https://keycloak.example.com/realms/graphimecc"></div>
+        <div class="form-group"><label>Client ID</label><input type="text" id="oidcClientId" placeholder="quetza"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Client Secret</label><input type="password" id="oidcClientSecret" placeholder="••••••••"></div>
+        <div class="form-group"><label>Redirect URI</label><input type="url" id="oidcRedirectUri" placeholder="https://quetza.example.com/auth/callback"></div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-primary" onclick="saveOidc()">Salva configurazione</button>
+      </div>
+    </div>
+
+    <!-- LDAP -->
+    <div class="tab-content card-body" id="tab-ldap">
+      <div id="ldapAlert"></div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <span class="toggle-lbl">LDAP / Active Directory abilitato</span>
+          <span class="toggle-desc">Autentica gli utenti tramite AD aziendale</span>
+        </div>
+        <label class="toggle"><input type="checkbox" id="ldapEnabled"><span class="toggle-slider"></span></label>
+      </div>
+      <hr class="section-sep">
+      <div class="form-row">
+        <div class="form-group"><label>URL Server LDAP</label><input type="url" id="ldapUrl" placeholder="ldap://dc.graphimecc.local"></div>
+        <div class="form-group"><label>Bind DN</label><input type="text" id="ldapBindDn" placeholder="CN=svc-quetza,OU=Service,DC=..."></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Bind Password</label><input type="password" id="ldapBindPass" placeholder="••••••••"></div>
+        <div class="form-group"><label>Search Base</label><input type="text" id="ldapSearchBase" placeholder="DC=graphimecc,DC=local"></div>
+      </div>
+      <div class="form-group" style="margin-bottom:12px"><label>Search Filter</label><input type="text" id="ldapFilter" placeholder="(sAMAccountName={{username}})"></div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <span class="toggle-lbl">Verifica certificato TLS</span>
+          <span class="toggle-desc">Disabilita solo con certificati self-signed</span>
+        </div>
+        <label class="toggle"><input type="checkbox" id="ldapTls" checked><span class="toggle-slider"></span></label>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px">
+        <button class="btn btn-primary" onclick="saveLdap()">Salva configurazione</button>
+      </div>
+    </div>
+
+    <!-- WHISPER -->
+    <div class="tab-content card-body" id="tab-whisper">
+      <div id="whisperAlert"></div>
+      <p style="font-size:.8rem;color:var(--muted,#6b7280);margin-bottom:14px;line-height:1.5">
+        Whisper è un modello AI open-source per la trascrizione audio. Deve essere installato sul server Docker come container separato o nel PATH del container Node.
+      </p>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Comando Whisper</label>
+          <input type="text" id="whisperCmd" placeholder="whisper">
+        </div>
+        <div class="form-group">
+          <label>Modello</label>
+          <select id="whisperModel">
+            <option value="tiny">tiny (~1GB RAM, veloce)</option>
+            <option value="base">base (~1GB RAM)</option>
+            <option value="small" selected>small (~2GB RAM, consigliato)</option>
+            <option value="medium">medium (~5GB RAM, ottimo)</option>
+            <option value="large">large (~10GB RAM, migliore)</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-primary" onclick="saveWhisper()">Salva</button>
+      </div>
+    </div>
+
+    <!-- BACKUP -->
+    <div class="tab-content card-body" id="tab-backup">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div style="border:1px solid #e5e7eb;border-radius:10px;padding:16px">
+          <div style="font-size:.85rem;font-weight:600;margin-bottom:4px">Export globale</div>
+          <div style="font-size:.76rem;color:#6b7280;margin-bottom:12px;line-height:1.45">Scarica un archivio ZIP con tutte le note e gli audio di tutti gli utenti. Utile per migrare l'istanza su un altro server.</div>
+          <a href="/api/admin/export" class="btn btn-outline" style="text-decoration:none">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Scarica archivio completo
+          </a>
+        </div>
+        <div style="border:1px solid #e5e7eb;border-radius:10px;padding:16px">
+          <div style="font-size:.85rem;font-weight:600;margin-bottom:4px">Import globale</div>
+          <div style="font-size:.76rem;color:#6b7280;margin-bottom:12px;line-height:1.45">Carica un archivio esportato da un'altra istanza. Gli utenti mancanti vengono creati con password temporanea <code>changeme123</code>.</div>
+          <div id="importAlert" style="margin-bottom:8px"></div>
+          <label class="btn btn-outline" style="cursor:pointer">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Carica archivio ZIP
+            <input type="file" accept=".zip" style="display:none" onchange="doImport(this)">
+          </label>
+        </div>
+      </div>
+      <div style="margin-top:14px;padding:12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:.76rem;color:#78350f">
+        <strong>Nota:</strong> l'import globale è additivo — non elimina i dati esistenti. Le note con lo stesso ID vengono aggiornate. Gli utenti già esistenti non vengono toccati.
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Per-user stats -->
+  <div class="card">
+    <div class="card-hdr"><h2>Utilizzo per utente</h2></div>
+    <div class="card-body" style="padding:0">
+      <table>
+        <thead><tr><th>Utente</th><th>Note</th><th>Storage audio</th><th>Ultimo accesso</th><th>Ruolo</th></tr></thead>
+        <tbody id="perUserTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- Modal nuovo utente -->
+<div class="modal-bg" id="newUserModal">
+  <div class="modal">
+    <h3>Nuovo utente</h3>
+    <div class="form-row">
+      <div class="form-group"><label>Username *</label><input type="text" id="nuUsername" placeholder="mario.rossi"></div>
+      <div class="form-group"><label>Nome visualizzato</label><input type="text" id="nuDisplay" placeholder="Mario Rossi"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Password *</label><input type="password" id="nuPassword"></div>
+      <div class="form-group"><label>Ruolo</label>
+        <select id="nuRole">
+          <option value="0">Utente</option>
+          <option value="1">Amministratore</option>
+        </select>
+      </div>
+    </div>
+    <div id="newUserAlert"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('newUserModal')">Annulla</button>
+      <button class="btn btn-primary" onclick="createUser()">Crea utente</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal reset password -->
+<div class="modal-bg" id="resetPwModal">
+  <div class="modal">
+    <h3>Reset password — <span id="resetPwUser"></span></h3>
+    <div class="form-group">
+      <label>Nuova password</label>
+      <input type="password" id="resetPwInput">
+    </div>
+    <div id="resetPwAlert" style="margin-top:8px"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('resetPwModal')">Annulla</button>
+      <button class="btn btn-primary" onclick="doResetPw()">Salva</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let users = [], settings = {}, currentResetUser = '';
+
+function fmt(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+  if (bytes < 1024*1024*1024) return (bytes/1024/1024).toFixed(1) + ' MB';
+  return (bytes/1024/1024/1024).toFixed(2) + ' GB';
+}
+
+function fmtDate(s) {
+  if (!s) return '—';
+  return new Date(s).toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+}
+
+function alert_(el, msg, type='error') {
+  document.getElementById(el).innerHTML = msg ? `<div class="alert alert-${type}">${msg}</div>` : '';
+}
+
+async function load() {
+  // Me
+  const me = await fetch('/api/me').then(r=>r.json());
+  document.getElementById('adminName').textContent = me.user?.username || '—';
+
+  // Stats
+  const stats = await fetch('/api/admin/stats').then(r=>r.json());
+  document.getElementById('statUsers').textContent = stats.users;
+  document.getElementById('statNotes').textContent = stats.notes;
+  document.getElementById('statAudio').textContent = fmt(stats.audio_bytes||0);
+
+  // Per-user
+  const pb = document.getElementById('perUserTbody');
+  pb.innerHTML = (stats.per_user||[]).map(u=>`
+    <tr>
+      <td><strong>${u.username}</strong><br><span class="sz">${u.display_name}</span></td>
+      <td>${u.note_count}</td>
+      <td>${fmt(u.audio_bytes||0)}</td>
+      <td class="sz">${fmtDate(u.last_login)}</td>
+      <td>${u.is_admin?'<span class="badge badge-admin">Admin</span>':'<span class="badge badge-user">Utente</span>'}</td>
+    </tr>`).join('');
+
+  // Users
+  users = await fetch('/api/admin/users').then(r=>r.json());
+  renderUsers();
+
+  // Settings
+  settings = await fetch('/api/admin/settings').then(r=>r.json());
+  loadSettings();
+}
+
+function renderUsers() {
+  document.getElementById('usersTbody').innerHTML = users.map(u=>`
+    <tr>
+      <td><strong>${u.username}</strong></td>
+      <td>${u.display_name}</td>
+      <td>${u.is_admin?'<span class="badge badge-admin">Admin</span>':'<span class="badge badge-user">Utente</span>'}</td>
+      <td>${u.is_active?'<span class="badge badge-active">Attivo</span>':'<span class="badge badge-inactive">Disattivo</span>'}</td>
+      <td><span class="badge badge-${u.source}">${u.source}</span></td>
+      <td class="sz">${fmtDate(u.last_login)}</td>
+      <td style="white-space:nowrap">
+        ${u.is_admin
+          ? `<button class="btn btn-outline btn-xs" onclick="toggleAdmin('${u.username}',false)">Rimuovi admin</button>`
+          : `<button class="btn btn-outline btn-xs" onclick="toggleAdmin('${u.username}',true)">Promuovi admin</button>`}
+        ${u.is_active
+          ? `<button class="btn btn-outline btn-xs" style="margin-left:4px" onclick="toggleActive('${u.username}',false)">Disattiva</button>`
+          : `<button class="btn btn-outline btn-xs" style="margin-left:4px" onclick="toggleActive('${u.username}',true)">Attiva</button>`}
+        ${u.source==='local'?`<button class="btn btn-outline btn-xs" style="margin-left:4px" onclick="openResetPw('${u.username}')">Reset pw</button>`:''}
+        <button class="btn btn-danger btn-xs" style="margin-left:4px" onclick="delUser('${u.username}')">Elimina</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function toggleAdmin(username, promote) {
+  const r = await fetch(`/api/admin/users/${username}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({isAdmin:promote})});
+  const d = await r.json();
+  if (!r.ok) return alert(d.error);
+  await load();
+}
+
+async function toggleActive(username, active) {
+  const r = await fetch(`/api/admin/users/${username}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({isActive:active})});
+  const d = await r.json();
+  if (!r.ok) return alert(d.error);
+  await load();
+}
+
+async function delUser(username) {
+  if (!confirm(`Eliminare l'utente "${username}"? Tutte le sue note verranno conservate.`)) return;
+  const r = await fetch(`/api/admin/users/${username}`,{method:'DELETE'});
+  const d = await r.json();
+  if (!r.ok) return alert(d.error);
+  await load();
+}
+
+function openNewUser() { document.getElementById('newUserModal').classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+async function createUser() {
+  const u = document.getElementById('nuUsername').value.trim();
+  const p = document.getElementById('nuPassword').value;
+  const d = document.getElementById('nuDisplay').value.trim();
+  const a = document.getElementById('nuRole').value;
+  if (!u||!p) return alert_('newUserAlert','Username e password obbligatori');
+  const r = await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,displayName:d,isAdmin:parseInt(a)})});
+  const res = await r.json();
+  if (!r.ok) return alert_('newUserAlert',res.error);
+  closeModal('newUserModal');
+  document.getElementById('nuUsername').value=''; document.getElementById('nuPassword').value=''; document.getElementById('nuDisplay').value='';
+  await load();
+}
+
+function openResetPw(username) {
+  currentResetUser = username;
+  document.getElementById('resetPwUser').textContent = username;
+  document.getElementById('resetPwInput').value = '';
+  alert_('resetPwAlert','');
+  document.getElementById('resetPwModal').classList.add('open');
+}
+
+async function doResetPw() {
+  const pw = document.getElementById('resetPwInput').value;
+  if (!pw) return alert_('resetPwAlert','Inserire la nuova password');
+  const r = await fetch(`/api/admin/users/${currentResetUser}/reset-password`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
+  if (!r.ok) return alert_('resetPwAlert',(await r.json()).error);
+  closeModal('resetPwModal');
+}
+
+function loadSettings() {
+  document.getElementById('oidcEnabled').checked   = settings.oidc_enabled==='true';
+  document.getElementById('oidcIssuer').value      = settings.oidc_issuer||'';
+  document.getElementById('oidcClientId').value    = settings.oidc_client_id||'';
+  document.getElementById('oidcClientSecret').value= settings.oidc_client_secret||'';
+  document.getElementById('oidcRedirectUri').value = settings.oidc_redirect_uri||'';
+  document.getElementById('ldapEnabled').checked   = settings.ldap_enabled==='true';
+  document.getElementById('ldapUrl').value         = settings.ldap_url||'';
+  document.getElementById('ldapBindDn').value      = settings.ldap_bind_dn||'';
+  document.getElementById('ldapBindPass').value    = settings.ldap_bind_pass||'';
+  document.getElementById('ldapSearchBase').value  = settings.ldap_search_base||'';
+  document.getElementById('ldapFilter').value      = settings.ldap_search_filter||'';
+  document.getElementById('ldapTls').checked       = settings.ldap_tls_reject!=='false';
+  if (document.getElementById('whisperCmd'))   document.getElementById('whisperCmd').value  = settings.whisper_cmd  ||'whisper';
+  if (document.getElementById('whisperModel')) document.getElementById('whisperModel').value = settings.whisper_model||'small';
+}
+
+async function saveOidc() {
+  const r = await fetch('/api/admin/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    oidc_enabled:       document.getElementById('oidcEnabled').checked?'true':'false',
+    oidc_issuer:        document.getElementById('oidcIssuer').value.trim(),
+    oidc_client_id:     document.getElementById('oidcClientId').value.trim(),
+    oidc_client_secret: document.getElementById('oidcClientSecret').value,
+    oidc_redirect_uri:  document.getElementById('oidcRedirectUri').value.trim(),
+  })});
+  alert_('oidcAlert', r.ok?'Configurazione salvata':'Errore salvataggio', r.ok?'success':'error');
+}
+
+async function saveLdap() {
+  const r = await fetch('/api/admin/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    ldap_enabled:       document.getElementById('ldapEnabled').checked?'true':'false',
+    ldap_url:           document.getElementById('ldapUrl').value.trim(),
+    ldap_bind_dn:       document.getElementById('ldapBindDn').value.trim(),
+    ldap_bind_pass:     document.getElementById('ldapBindPass').value,
+    ldap_search_base:   document.getElementById('ldapSearchBase').value.trim(),
+    ldap_search_filter: document.getElementById('ldapFilter').value.trim(),
+    ldap_tls_reject:    document.getElementById('ldapTls').checked?'true':'false',
+  })});
+  alert_('ldapAlert', r.ok?'Configurazione salvata':'Errore salvataggio', r.ok?'success':'error');
+}
+
+async function saveWhisper() {
+  const r = await fetch('/api/admin/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    whisper_cmd:   document.getElementById('whisperCmd').value.trim()||'whisper',
+    whisper_model: document.getElementById('whisperModel').value,
+  })});
+  alert_('whisperAlert', r.ok?'Configurazione salvata':'Errore salvataggio', r.ok?'success':'error');
+}
+
+async function doImport(input) {
+  const file = input.files[0]; if (!file) return;
+  alert_('importAlert','⏳ Importazione in corso…','success');
+  const fd = new FormData(); fd.append('archive', file);
+  const r = await fetch('/api/admin/import',{method:'POST',body:fd});
+  const d = await r.json();
+  if (!r.ok) return alert_('importAlert', d.error);
+  alert_('importAlert',`✓ Importate ${d.imported} note, ${d.usersImported||0} nuovi utenti`,'success');
+  await load();
+  input.value='';
+}
+
+// Chiudi modal cliccando sfondo
+document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open')}));
+
+load();
+</script>
+</body>
+</html>

@@ -6,41 +6,48 @@
 <title>Quetza — Accesso</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0f1923 0%,#1a2a3a 60%,#0d2137 100%)}
-.card{background:#fff;border-radius:14px;padding:40px;width:100%;max-width:360px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
-.logo{display:flex;align-items:center;gap:10px;margin-bottom:28px}
-.logo span{font-size:1.4rem;font-weight:800;color:#0f1923}
-h1{font-size:1.4rem;font-weight:700;color:#0f1923;margin-bottom:4px}
-.sub{font-size:.85rem;color:#6a7a8a;margin-bottom:26px}
-.field{margin-bottom:14px}
-.field label{display:block;font-size:.8rem;font-weight:600;color:#0f1923;margin-bottom:5px}
-.field input{width:100%;padding:9px 12px;border:1.5px solid #ddd;border-radius:7px;font-size:.95rem;outline:none;transition:border-color .15s}
-.field input:focus{border-color:#0f1923}
-.err{color:#c0392b;font-size:.82rem;padding:7px 10px;background:#fdf0f0;border-radius:5px;margin-bottom:10px;display:none}
+body{font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f3f5f7}
+.card{background:#fff;border-radius:16px;padding:36px;width:100%;max-width:360px;box-shadow:0 10px 40px rgba(17,24,39,.12);border:1px solid #e5e7eb}
+.brand{display:flex;align-items:center;gap:10px;margin-bottom:28px}
+.brand-mark{width:28px;height:10px;border-radius:999px;background:linear-gradient(90deg,#f5a000,rgba(245,160,0,.12));transform:skewX(-18deg)}
+.brand span{font-size:1.1rem;font-weight:800;color:#111827}
+h1{font-size:1.2rem;font-weight:700;color:#111827;margin-bottom:4px}
+.sub{font-size:.82rem;color:#6b7280;margin-bottom:24px}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:.78rem;font-weight:600;color:#374151;margin-bottom:5px}
+.field input{width:100%;padding:9px 12px;border:1px solid #e5e7eb;border-radius:8px;font-size:.9rem;font-family:inherit;outline:none;transition:border-color .15s,box-shadow .15s;color:#111827}
+.field input:focus{border-color:#f5a000;box-shadow:0 0 0 3px rgba(245,160,0,.15)}
+.err{color:#b91c1c;font-size:.78rem;padding:7px 10px;background:#fee2e2;border-radius:6px;margin-bottom:10px;display:none;border:1px solid #fca5a5}
 .err.on{display:block}
-button[type=submit]{width:100%;padding:11px;background:#0f1923;color:#fff;border:none;border-radius:7px;font-size:.95rem;font-weight:700;cursor:pointer;margin-top:6px;transition:background .15s}
-button[type=submit]:hover{background:#1e3040}
-button[type=submit]:disabled{opacity:.6}
-.hint{font-size:.72rem;color:#8888aa;margin-top:16px;text-align:center}
+.btn-login{width:100%;padding:10px;background:#f5a000;color:#111827;border:1px solid #d98c00;border-radius:8px;font-size:.9rem;font-weight:700;cursor:pointer;margin-top:4px;transition:background .15s;font-family:inherit}
+.btn-login:hover{background:#d98c00}
+.btn-login:disabled{opacity:.6}
+.sep{display:flex;align-items:center;gap:10px;margin:16px 0;color:#9ca3af;font-size:.75rem}
+.sep::before,.sep::after{content:'';flex:1;height:1px;background:#e5e7eb}
+.btn-oidc{width:100%;padding:10px;background:#fff;color:#374151;border:1px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .15s,border-color .15s;font-family:inherit}
+.btn-oidc:hover{background:#f9fafb;border-color:#d1d5db}
+.hint{font-size:.72rem;color:#9ca3af;margin-top:14px;text-align:center}
+#oidcBtn{display:none}
 </style>
 </head>
 <body>
 <div class="card">
-  <div class="logo">
+  <div class="brand">
     <svg width="36" height="36" viewBox="0 0 64 64" fill="none">
       <path d="M32 30 C22 22 6 28 2 20 C8 18 18 20 28 27Z" fill="#c0392b" opacity=".9"/>
       <path d="M32 30 C18 26 4 32 2 26 C10 22 22 24 30 30Z" fill="#c0392b" opacity=".4"/>
       <path d="M32 30 C42 22 58 28 62 20 C56 18 46 20 36 27Z" fill="#c0392b" opacity=".9"/>
       <path d="M32 30 C46 26 60 32 62 26 C54 22 42 24 34 30Z" fill="#c0392b" opacity=".4"/>
-      <ellipse cx="32" cy="31" rx="5" ry="8" fill="#0f1923"/>
-      <path d="M32 23 L30 16 L32 19 L34 16 Z" fill="#0f1923"/>
-      <path d="M32 38 L30 46 L32 44 L34 46 Z" fill="#0f1923"/>
-      <path d="M31.2 44 L32 48 L32.8 44" fill="#c0392b"/>
+      <ellipse cx="32" cy="31" rx="5" ry="8" fill="#111827"/>
+      <path d="M32 23 L30 16 L32 19 L34 16 Z" fill="#111827"/>
+      <path d="M32 38 L30 46 L32 44 L34 46 Z" fill="#111827"/>
     </svg>
+    <div class="brand-mark"></div>
     <span>Quetza</span>
   </div>
   <h1>Accedi</h1>
   <p class="sub">Graphimecc Group</p>
+
   <form id="form">
     <div class="field">
       <label for="u">Username</label>
@@ -51,10 +58,63 @@ button[type=submit]:disabled{opacity:.6}
       <input type="password" id="p" autocomplete="current-password" placeholder="••••••••" required>
     </div>
     <div class="err" id="err"></div>
-    <button type="submit" id="btn">Accedi</button>
+    <button type="submit" class="btn-login" id="btn">Accedi</button>
   </form>
-  <p class="hint">Usa le credenziali di rete aziendali</p>
+
+  <div class="sep" id="oidcSep" style="display:none">oppure</div>
+  <button class="btn-oidc" id="oidcBtn" onclick="loginOidc()">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
+    Accedi con Keycloak SSO
+  </button>
+
+  <p class="hint" id="hint">Usa le credenziali aziendali</p>
 </div>
-<script src="/js/login.js"></script>
+
+<script>
+async function init() {
+  try {
+    const r = await fetch('/api/login-config');
+    if (r.ok) {
+      const cfg = await r.json();
+      if (cfg.oidc_enabled) {
+        document.getElementById('oidcBtn').style.display = 'flex';
+        document.getElementById('oidcSep').style.display = 'flex';
+      }
+      if (cfg.hint) document.getElementById('hint').textContent = cfg.hint;
+    }
+  } catch {}
+}
+
+function loginOidc() {
+  document.getElementById('oidcBtn').disabled = true;
+  document.getElementById('oidcBtn').textContent = 'Reindirizzamento…';
+  fetch('/api/login', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ username: '__oidc__', password: '__oidc__' })
+  }).then(r => r.json()).then(d => {
+    if (d.redirect) window.location.href = d.redirect;
+  }).catch(() => { document.getElementById('oidcBtn').disabled = false; document.getElementById('oidcBtn').textContent = 'Accedi con Keycloak SSO'; });
+}
+
+document.getElementById('form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = document.getElementById('btn'), err = document.getElementById('err');
+  btn.disabled = true; err.classList.remove('on');
+  try {
+    const r = await fetch('/api/login', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ username: document.getElementById('u').value.trim(), password: document.getElementById('p').value })
+    });
+    const d = await r.json();
+    if (r.ok) window.location.href = '/';
+    else { err.textContent = d.error||'Credenziali non valide'; err.classList.add('on'); }
+  } catch { err.textContent = 'Errore di rete'; err.classList.add('on'); }
+  finally { btn.disabled = false; }
+});
+
+init();
+</script>
 </body>
 </html>

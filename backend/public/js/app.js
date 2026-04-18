@@ -32,6 +32,9 @@ const S = {
   // UI
   dark: false,
   shapeRecog: false,
+  textItems: [],    // {x, y, text, size, id}
+  textMode: false,  // attesa click per posizionare testo
+  sortOrder: 'updated',
   // Selezione
   selectedIds: new Set(),   // set di indici strokes selezionati
   selDrag: false,
@@ -95,6 +98,7 @@ async function init() {
     const d = await r.json();
     S.user = d.user;
     document.getElementById('UNAME').textContent = d.user.displayName || d.user.username;
+    if (d.user.is_admin) { const al=document.getElementById('adminLink'); if(al) al.style.display='block'; }
   } catch { window.location.href = '/login.html'; return; }
 
   await loadNotes();
@@ -165,11 +169,12 @@ async function openNote(id) {
   const r = await fetch(`/api/notes/${id}`);
   const n = await r.json();
   S.curId = id;
-  S.strokes = n.strokes || [];
-  S.imgs    = n.images  || [];
-  S.grid    = n.grid    || 'lines';
-  S.pages   = Math.max(1, Math.ceil(maxY() / PH) + 1);
-  S.undo = []; S.redo = [];
+  S.strokes   = n.strokes    || [];
+  S.imgs      = n.images     || [];
+  S.textItems = n.text_items || n.textItems || [];
+  S.grid      = n.grid       || 'lines';
+  S.pages     = Math.max(1, Math.ceil(maxY() / PH) + 1);
+  S.undo = []; S.redo = []; S.selectedIds.clear(); S.cur = null;
   GSL.value = S.grid;
   NTT.value = n.title;
 
@@ -219,8 +224,25 @@ async function deleteNote(id) {
   if (!confirm('Eliminare questa nota?')) return;
   await fetch(`/api/notes/${id}`, { method: 'DELETE' });
   S.notes = S.notes.filter(n => n.id !== id);
-  if (S.curId === id) { S.curId = null; S.strokes = []; ED.className = ''; EM.style.display = ''; }
+  if (S.curId === id) { S.curId = null; S.strokes = []; S.textItems = []; ED.className = ''; EM.style.display = ''; }
   renderNL();
+}
+
+async function duplicateNote(id) {
+  const src = S.notes.find(n => n.id === id);
+  if (!src) return;
+  // Carica il contenuto completo
+  const full = await fetch(`/api/notes/${id}`).then(r => r.json());
+  // Crea nuova nota
+  const nr = await fetch('/api/notes', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title: full.title + ' (copia)'})});
+  const newNote = await nr.json();
+  // Copia contenuto
+  await fetch(`/api/notes/${newNote.id}/content`, {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({strokes: full.strokes, images: full.images, thumbnail: full.thumbnail, grid: full.grid, canvasText: full.canvas_text})
+  });
+  await loadNotes();
+  toast('Nota duplicata');
 }
 
 function scheduleAutoSave() {
@@ -242,10 +264,13 @@ async function saveNote(silent = false) {
   }
   const thumbnail = genThumb();
 
+  // Estrai testo dal canvas (testo digitato)
+  const canvasText = S.textItems.map(t => t.text).join(' ');
+
   await fetch(`/api/notes/${S.curId}/content`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ strokes: S.strokes, images: S.imgs, thumbnail, grid: S.grid })
+    body: JSON.stringify({ strokes: S.strokes, images: S.imgs, thumbnail, grid: S.grid, canvasText, textItems: S.textItems })
   });
   await fetch(`/api/notes/${S.curId}`, {
     method: 'PATCH',
@@ -273,34 +298,100 @@ function genThumb() {
   const oc = o.getContext('2d');
   oc.fillStyle = '#fff'; oc.fillRect(0, 0, 280, 100);
   const sc = Math.min(280 / PW, 100 / PH);
-  oc.save(); oc.scale(sc, sc); drawSS(oc, S.strokes); oc.restore();
+  oc.save(); oc.scale(sc, sc);
+  drawSS(oc, S.strokes);
+  S.textItems.forEach(ti => {
+    oc.font = `${ti.size||18}px 'Segoe UI',system-ui,sans-serif`;
+    oc.fillStyle = ti.color || '#111827';
+    oc.fillText(ti.text, ti.x, ti.y);
+  });
+  oc.restore();
   return o.toDataURL('image/jpeg', 0.7);
 }
 
-function renderNL(filter) {
+function sortedNotes() {
+  const ns = [...S.notes];
+  switch (S.sortOrder) {
+    case 'created': return ns.sort((a,b) => new Date(b.created_at)-new Date(a.created_at));
+    case 'alpha':   return ns.sort((a,b) => a.title.localeCompare(b.title, 'it'));
+    default:        return ns.sort((a,b) => new Date(b.updated_at||b.created_at)-new Date(a.updated_at||a.created_at));
+  }
+}
+
+function renderNL() {
   const el = document.getElementById('NL');
   el.innerHTML = '';
-  const q = (filter || S.searchQ || '').toLowerCase().trim();
-  const notes = q ? S.notes.filter(n => n.title.toLowerCase().includes(q)) : S.notes;
+  const q = (S.searchQ || '').toLowerCase().trim();
+  let notes = sortedNotes();
+  if (q) notes = notes.filter(n => n.title.toLowerCase().includes(q));
   if (!notes.length) {
     el.innerHTML = `<div style="padding:16px 8px;text-align:center;color:var(--mu);font-size:.72rem">${q ? 'Nessun risultato' : 'Nessuna nota'}</div>`;
     return;
   }
   notes.forEach(n => {
+    const isDirty = n.id === S.curId && S.dirty;
     const d = document.createElement('div');
     d.className = 'ni' + (n.id === S.curId ? ' on' : '');
-    const date = new Date(n.updated_at || n.created_at).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const date = new Date(n.updated_at||n.created_at).toLocaleDateString('it-IT',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
     d.innerHTML = `
-      <button class="ndl" title="Elimina">✕</button>
-      <div class="nt">${esc(n.title)}</div>
+      <div style="display:flex;align-items:baseline;gap:4px">
+        <div class="nt" style="flex:1" title="Doppio click per rinominare">${esc(n.title)}${isDirty?'<span style="color:var(--brand);margin-left:3px;font-size:.6rem">●</span>':''}</div>
+        <button class="ndl" title="Altro" style="opacity:.5;font-size:.7rem">⋯</button>
+      </div>
       <div class="nd">${date}</div>
-      ${n.has_audio ? '<div class="na">⏺ audio</div>' : ''}
-      ${n.thumbnail ? `<div class="nth"><img src="${n.thumbnail}" alt=""></div>` : ''}
+      ${n.has_audio?'<div class="na">⏺ audio</div>':''}
+      ${n.thumbnail?`<div class="nth"><img src="${n.thumbnail}" alt=""></div>`:''}
     `;
-    d.querySelector('.ndl').onclick = e => { e.stopPropagation(); deleteNote(n.id); };
+    // Doppio click → rinomina inline
+    d.querySelector('.nt').ondblclick = e => {
+      e.stopPropagation();
+      const input = document.createElement('input');
+      input.value = n.title;
+      input.style.cssText = 'width:100%;background:transparent;border:none;border-bottom:1px solid var(--brand);font-size:.74rem;font-weight:500;color:var(--sb-fg);outline:none;padding:0';
+      d.querySelector('.nt').replaceWith(input);
+      input.focus(); input.select();
+      const commit = async () => {
+        const newTitle = input.value.trim() || n.title;
+        n.title = newTitle;
+        await fetch(`/api/notes/${n.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:newTitle})});
+        if (n.id===S.curId) NTT.value = newTitle;
+        renderNL();
+      };
+      input.onblur = commit;
+      input.onkeydown = e => { if(e.key==='Enter') input.blur(); if(e.key==='Escape'){input.value=n.title;input.blur();} };
+    };
+    // Menu contestuale (⋯)
+    d.querySelector('.ndl').onclick = e => {
+      e.stopPropagation();
+      showNoteMenu(n, e.target);
+    };
     d.onclick = () => openNote(n.id);
     el.appendChild(d);
   });
+}
+
+function showNoteMenu(n, anchor) {
+  document.getElementById('_nm')?.remove();
+  const m = document.createElement('div');
+  m.id = '_nm';
+  m.style.cssText = 'position:fixed;background:#1a2635;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:4px;z-index:500;min-width:130px;box-shadow:0 8px 24px rgba(0,0,0,.4)';
+  const r = anchor.getBoundingClientRect();
+  m.style.left = (r.right+4)+'px'; m.style.top = r.top+'px';
+  const items = [
+    ['Duplica', () => duplicateNote(n.id)],
+    ['Elimina', () => deleteNote(n.id)],
+  ];
+  items.forEach(([label, fn]) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = 'display:block;width:100%;text-align:left;padding:6px 10px;border:none;background:transparent;color:#e8e8f0;font-size:.78rem;border-radius:5px;cursor:pointer;font-family:inherit';
+    b.onmouseenter = () => b.style.background='rgba(255,255,255,.1)';
+    b.onmouseleave = () => b.style.background='transparent';
+    b.onclick = () => { m.remove(); fn(); };
+    m.appendChild(b);
+  });
+  document.body.appendChild(m);
+  setTimeout(() => document.addEventListener('click', () => m.remove(), { once: true }), 0);
 }
 
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -485,8 +576,14 @@ function redraw(hTs) {
   cx.drawImage(_gridCanvas, 0, 0, PW, totalH());
   cx.drawImage(_strokeCanvas, 0, 0, PW, totalH());
 
-  // Layer 3: overlay dinamici (highlight audio, selezione, lasso, tratto corrente)
-  // — questi cambiano ad ogni frame durante drawing/playback
+  // Layer 3: testo digitato + overlay dinamici
+  S.textItems.forEach(ti => {
+    cx.save();
+    cx.font = `${ti.size||18}px 'Segoe UI',system-ui,sans-serif`;
+    cx.fillStyle = ti.color || (S.dark ? '#e0e4ea' : '#111827');
+    cx.fillText(ti.text, ti.x, ti.y);
+    cx.restore();
+  });
   if (hTs != null) drawHi(cx, hTs);
   if (S.selectedIds.size > 0) {
     S.selectedIds.forEach(idx => { if (S.strokes[idx]) drawStrokeHighlight(cx, S.strokes[idx]); });
@@ -494,6 +591,15 @@ function redraw(hTs) {
   }
   if (S.lassoPath && S.lassoPath.length > 1) drawLassoPath(cx, S.lassoPath);
   if (S.cur && SHAPES.has(S.cur.t)) drawSS(cx, [S.cur]);
+  // Cursore testo in attesa di posizionamento
+  if (S.textMode) {
+    cx.save();
+    cx.strokeStyle = S.dark ? 'rgba(255,255,255,.5)' : 'rgba(0,0,0,.4)';
+    cx.lineWidth = 1; cx.setLineDash([4,3]);
+    cx.strokeRect(0, 0, PW, totalH());
+    cx.setLineDash([]);
+    cx.restore();
+  }
 }
 
 function strokeBBox(s) {
@@ -901,6 +1007,15 @@ function setupCanvas() {
   CV.addEventListener('pointerdown', e => {
     e.preventDefault();
     if (e.pointerType === 'touch') return;
+    // Modalità posizionamento testo
+    if (S.textMode && S._pendingText) {
+      const p = gP(e.clientX, e.clientY);
+      S.textItems.push({ id: Date.now(), text: S._pendingText.text, size: S._pendingText.size, x: p.x, y: p.y, color: S.color });
+      S.textMode = false; S._pendingText = null;
+      CV.style.cursor = 'crosshair';
+      markDirty('strokes'); redraw(); scheduleAutoSave();
+      return;
+    }
     if (S.palmActive) return;
     CV.setPointerCapture(e.pointerId);
     S.activePointers.set(e.pointerId, e.pointerType);
@@ -1228,6 +1343,58 @@ function setupToolbar() {
   };
   document.getElementById('SVB').onclick = () => saveNote(false);
 
+  // Bottone Testo
+  const txtB = document.getElementById('TXTB');
+  if (txtB) {
+    txtB.onclick = () => {
+      document.getElementById('TXTI').value = '';
+      document.getElementById('TXTM').classList.remove('off');
+      setTimeout(() => document.getElementById('TXTI').focus(), 50);
+    };
+  }
+
+  // Modal Testo: slider dimensione
+  const txtSz = document.getElementById('TXTSZ');
+  if (txtSz) txtSz.oninput = () => { document.getElementById('TXTSZV').textContent = txtSz.value; };
+  const txtCancB = document.getElementById('TXTCANC');
+  if (txtCancB) txtCancB.onclick = () => { document.getElementById('TXTM').classList.add('off'); S.textMode = false; };
+  const txtOkB = document.getElementById('TXTOK');
+  if (txtOkB) txtOkB.onclick = () => {
+    const txt = document.getElementById('TXTI').value.trim();
+    if (!txt) return;
+    document.getElementById('TXTM').classList.add('off');
+    S.textMode = true; // attendi click sul canvas
+    S._pendingText = { text: txt, size: parseInt(document.getElementById('TXTSZ').value)||18 };
+    CV.style.cursor = 'text';
+    toast('Clicca sul canvas per posizionare il testo');
+  };
+
+  // Bottone Trascrivi Whisper
+  const transcB = document.getElementById('TRANSCB');
+  if (transcB) {
+    transcB.onclick = async () => {
+      if (!S.curId) return;
+      transcB.disabled = true; transcB.textContent = '⏳';
+      toast('⏳ Trascrizione in corso…');
+      try {
+        const r = await fetch(`/api/notes/${S.curId}/transcribe`, { method: 'POST' });
+        const d = await r.json();
+        if (r.ok && d.text) {
+          toast('✓ Trascrizione completata');
+          // Mostra la trascrizione come tooltip temporaneo
+          const tt = document.createElement('div');
+          tt.style.cssText = 'position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:#1a2635;color:#e8e8f0;padding:10px 14px;border-radius:10px;font-size:.78rem;max-width:400px;line-height:1.5;z-index:500;box-shadow:0 8px 24px rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.1)';
+          tt.textContent = d.text;
+          document.body.appendChild(tt);
+          setTimeout(() => tt.remove(), 8000);
+        } else {
+          toast('⚠ ' + (d.error || 'Whisper non configurato'));
+        }
+      } catch(e) { toast('⚠ ' + e.message); }
+      finally { transcB.disabled = false; transcB.innerHTML = '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg> Trascrivi'; }
+    };
+  }
+
   document.getElementById('PSB').onclick = pasteImg;
 
   // Condivisione — check difensivo se i bottoni esistono nell'HTML
@@ -1314,10 +1481,11 @@ function setupToolbar() {
         case 'a': document.querySelector('[data-t="arrow"]').click(); break;
         case 'o': document.querySelector('[data-t="ellipse"]').click(); break;
         case 's': document.querySelector('[data-t="lasso"]').click(); break;
+        case 't': { const tb=document.getElementById('TXTB'); if(tb) tb.click(); } break;
       }
     }
     if (e.key===' ' && e.target===document.body) { e.preventDefault(); document.getElementById('APB').click(); }
-    if (e.key==='Escape') { S.selectedIds.clear(); S.lassoPath=null; S.selDrag=false; S.cur=null; redraw(); }
+    if (e.key==='Escape') { S.selectedIds.clear(); S.lassoPath=null; S.selDrag=false; S.cur=null; S.textMode=false; S._pendingText=null; CV.style.cursor='crosshair'; redraw(); }
     if ((e.key==='Delete'||e.key==='Backspace') && document.activeElement===document.body) { deleteSelected(); }
   });
 }
@@ -1328,12 +1496,27 @@ function setupSidebar() {
   document.getElementById('sbO').onclick = () => { SB.classList.remove('off'); document.getElementById('sbO').style.display='none'; };
   document.getElementById('newB').onclick = newNote;
 
-  // Ricerca note
+  // Ordinamento
+  const sortSel = document.getElementById('SORT');
+  if (sortSel) sortSel.addEventListener('change', () => { S.sortOrder = sortSel.value; renderNL(); });
+
+  // Ricerca: locale + full-text server (debounced)
   const srch = document.getElementById('SRCH');
+  let _srchTimer = null;
   if (srch) {
     srch.addEventListener('input', () => {
       S.searchQ = srch.value;
-      renderNL();
+      renderNL(); // subito locale per titolo
+      clearTimeout(_srchTimer);
+      if (srch.value.trim().length >= 2) {
+        _srchTimer = setTimeout(async () => {
+          const r = await fetch(`/api/search?q=${encodeURIComponent(srch.value.trim())}`);
+          if (!r.ok) return;
+          const results = await r.json();
+          // Mostra risultati full-text sotto i risultati locali
+          renderFTSResults(results, srch.value.trim());
+        }, 400);
+      }
     });
   }
   // Export
@@ -1941,6 +2124,30 @@ function recognizeShape(stroke) {
   }
 
   return null; // nessuna forma riconosciuta
+}
+
+// ── Full-text search results ─────────────────────────────
+function renderFTSResults(results, q) {
+  const el = document.getElementById('NL');
+  // Rimuovi sezione FTS precedente
+  el.querySelectorAll('.fts-section').forEach(e => e.remove());
+  if (!results.length) return;
+  // Filtra quelli non già visibili per titolo
+  const visibleIds = new Set(S.notes.filter(n => n.title.toLowerCase().includes(q.toLowerCase())).map(n => n.id));
+  const extra = results.filter(r => !visibleIds.has(r.id));
+  if (!extra.length) return;
+  const sep = document.createElement('div');
+  sep.className = 'fts-section';
+  sep.style.cssText = 'padding:6px 8px 2px;font-size:.64rem;color:rgba(255,255,255,.4);font-weight:600;text-transform:uppercase;letter-spacing:.05em;border-top:1px solid rgba(255,255,255,.06);margin-top:6px';
+  sep.textContent = 'Nel contenuto';
+  el.appendChild(sep);
+  extra.forEach(r => {
+    const d = document.createElement('div');
+    d.className = 'ni fts-section' + (r.id === S.curId ? ' on' : '');
+    d.innerHTML = `<div class="nt">${esc(r.title)}</div><div class="nd" style="font-style:italic;color:rgba(255,255,255,.3);font-size:.65rem">${r.snippet||''}</div>`;
+    d.onclick = () => openNote(r.id);
+    el.appendChild(d);
+  });
 }
 
 // ── Share helpers ─────────────────────────────────────────
