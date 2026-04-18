@@ -164,29 +164,68 @@ app.get('/api/notes/:id/audio/:session', requireAuth, (req, res) => {
 });
 app.delete('/api/notes/:id/audio', requireAuth, (req, res) => { db.deleteAudio(req.params.id, req.session.user.username); res.json({ ok: true }); });
 
-// Whisper trascrizione
+// Whisper trascrizione con diarizzazione (via microservizio Python)
 app.post('/api/notes/:id/transcribe', requireAuth, async (req, res) => {
   const note = db.getNoteById(req.params.id, req.session.user.username);
   if (!note) return res.status(404).json({ error: 'Nota non trovata' });
   const sessions = db.getAudio(req.params.id, req.session.user.username);
   if (!sessions?.length) return res.status(404).json({ error: 'Nessun audio da trascrivere' });
-  const whisperModel = db.getSetting('whisper_model') || 'small';
-  const whisperCmd   = db.getSetting('whisper_cmd')   || 'whisper';
-  const os = require('os');
-  const tmpAudio = path.join(os.tmpdir(), `quetza_${req.params.id}.wav`);
-  const tmpBase  = path.join(os.tmpdir(), `quetza_${req.params.id}`);
+
+  const whisperUrl = process.env.WHISPER_URL || db.getSetting('whisper_url') || 'http://localhost:9876';
+
+  // Verifica che il servizio sia disponibile
   try {
-    fs.writeFileSync(tmpAudio, Buffer.concat(sessions.map(s => s.data)));
-    const { execSync } = require('child_process');
-    execSync(`${whisperCmd} "${tmpAudio}" --model ${whisperModel} --language it --output_format txt --output_dir "${os.tmpdir()}"`, { timeout: 180000 });
-    const tmpText = tmpBase + '.txt';
-    const text = fs.existsSync(tmpText) ? fs.readFileSync(tmpText, 'utf8').trim() : '';
-    db.saveWhisperText(req.params.id, text);
-    res.json({ ok: true, text });
+    const health = await fetch(`${whisperUrl}/health`, { signal: AbortSignal.timeout(3000) });
+    if (!health.ok) throw new Error('not ok');
+  } catch {
+    return res.status(503).json({ error: 'Servizio Whisper non disponibile. Controlla che il container quetza-whisper sia avviato.' });
+  }
+
+  // Manda l'audio al microservizio Python
+  try {
+    const audioBuffer = Buffer.concat(sessions.map(s => s.data));
+    const mime = sessions[0]?.mime || 'audio/webm';
+    const ext  = mime.includes('mp4') ? 'mp4' : mime.includes('wav') ? 'wav' : 'webm';
+
+    const { FormData, Blob } = await import('node:buffer').then(() => ({
+      FormData: globalThis.FormData || require('form-data'),
+      Blob: globalThis.Blob
+    })).catch(() => ({ FormData: require('form-data'), Blob: null }));
+
+    // Usa form-data per compatibilità Node.js < 18
+    const FormDataLib = require('form-data');
+    const form = new FormDataLib();
+    form.append('audio', audioBuffer, { filename: `audio.${ext}`, contentType: mime });
+    form.append('diarize', 'true');
+
+    const r = await fetch(`${whisperUrl}/transcribe`, {
+      method: 'POST',
+      body:    form,
+      headers: form.getHeaders(),
+      signal:  AbortSignal.timeout(300000) // 5 min timeout
+    });
+
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ error: 'Errore sconosciuto' }));
+      return res.status(500).json({ error: err.error || 'Errore trascrizione' });
+    }
+
+    const result = await r.json();
+
+    // Salva la trascrizione nel DB e ricostruisce l'indice FTS
+    db.saveWhisperText(req.params.id, result.text || '');
+
+    res.json({
+      ok:       true,
+      text:     result.text,
+      diarized: result.diarized,
+      speakers: result.speakers,
+      segments: result.segments,
+      language: result.language
+    });
   } catch(e) {
-    res.status(500).json({ error: 'Whisper non disponibile: ' + e.message.split('\n')[0] });
-  } finally {
-    [tmpAudio, tmpBase+'.txt'].forEach(f => { try { fs.unlinkSync(f); } catch {} });
+    console.error('Transcribe error:', e.message);
+    res.status(500).json({ error: 'Errore durante la trascrizione: ' + e.message });
   }
 });
 
@@ -270,6 +309,18 @@ app.get('/share/:token', (req, res) => res.sendFile(path.join(__dirname,'public'
 
 // Statistiche
 app.get('/api/admin/stats', requireAuth, requireAdmin, (req, res) => res.json(db.getStats()));
+
+// Health check Whisper (proxy verso il container Python)
+app.get('/api/admin/whisper-health', requireAuth, requireAdmin, async (req, res) => {
+  const whisperUrl = process.env.WHISPER_URL || db.getSetting('whisper_url') || 'http://quetza-whisper:9876';
+  try {
+    const r = await fetch(`${whisperUrl}/health`, { signal: AbortSignal.timeout(4000) });
+    const d = await r.json();
+    res.json(d);
+  } catch(e) {
+    res.status(503).json({ ok: false, error: e.message });
+  }
+});
 
 // Utenti
 app.get('/api/admin/users', requireAuth, requireAdmin, (req, res) => res.json(db.getUsers()));

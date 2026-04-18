@@ -196,13 +196,18 @@ input:focus,select:focus{border-color:#f5a000;box-shadow:0 0 0 3px rgba(245,160,
       <p style="font-size:.8rem;color:var(--muted,#6b7280);margin-bottom:14px;line-height:1.5">
         Whisper è un modello AI open-source per la trascrizione audio. Deve essere installato sul server Docker come container separato o nel PATH del container Node.
       </p>
+      <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px;margin-bottom:14px;font-size:.76rem;color:#78350f;line-height:1.5">
+        <strong>Setup iniziale:</strong> il container <code>quetza-whisper</code> scarica i modelli al primo avvio (~1.5GB).
+        Per la diarizzazione serve un token HuggingFace gratuito — crea account su <a href="https://huggingface.co" target="_blank" style="color:#92400e">huggingface.co</a>
+        e accetta la licenza del modello <a href="https://huggingface.co/pyannote/speaker-diarization-3.1" target="_blank" style="color:#92400e">pyannote/speaker-diarization-3.1</a>.
+      </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Comando Whisper</label>
-          <input type="text" id="whisperCmd" placeholder="whisper">
+          <label>URL servizio Whisper</label>
+          <input type="url" id="whisperUrl" placeholder="http://quetza-whisper:9876">
         </div>
         <div class="form-group">
-          <label>Modello</label>
+          <label>Modello (impostato via env WHISPER_MODEL)</label>
           <select id="whisperModel">
             <option value="tiny">tiny (~1GB RAM, veloce)</option>
             <option value="base">base (~1GB RAM)</option>
@@ -212,8 +217,14 @@ input:focus,select:focus{border-color:#f5a000;box-shadow:0 0 0 3px rgba(245,160,
           </select>
         </div>
       </div>
-      <div style="display:flex;justify-content:flex-end;margin-top:8px">
+      <div class="form-group" style="margin-bottom:12px">
+        <label>Token HuggingFace (per diarizzazione)</label>
+        <input type="password" id="whisperHfToken" placeholder="hf_xxxxxxxxxxxxxxxx">
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
         <button class="btn btn-primary" onclick="saveWhisper()">Salva</button>
+        <button class="btn btn-outline" onclick="testWhisper()">Test connessione</button>
+        <span id="whisperStatus" style="font-size:.76rem;color:var(--muted)"></span>
       </div>
     </div>
 
@@ -447,8 +458,8 @@ function loadSettings() {
   document.getElementById('ldapSearchBase').value  = settings.ldap_search_base||'';
   document.getElementById('ldapFilter').value      = settings.ldap_search_filter||'';
   document.getElementById('ldapTls').checked       = settings.ldap_tls_reject!=='false';
-  if (document.getElementById('whisperCmd'))   document.getElementById('whisperCmd').value  = settings.whisper_cmd  ||'whisper';
-  if (document.getElementById('whisperModel')) document.getElementById('whisperModel').value = settings.whisper_model||'small';
+  if (document.getElementById('whisperUrl'))   document.getElementById('whisperUrl').value   = settings.whisper_url   ||'http://quetza-whisper:9876';
+  if (document.getElementById('whisperModel')) document.getElementById('whisperModel').value  = settings.whisper_model ||'small';
 }
 
 async function saveOidc() {
@@ -476,11 +487,33 @@ async function saveLdap() {
 }
 
 async function saveWhisper() {
-  const r = await fetch('/api/admin/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-    whisper_cmd:   document.getElementById('whisperCmd').value.trim()||'whisper',
-    whisper_model: document.getElementById('whisperModel').value,
-  })});
+  const settings = {
+    whisper_url:    document.getElementById('whisperUrl').value.trim() || 'http://quetza-whisper:9876',
+    whisper_model:  document.getElementById('whisperModel').value,
+  };
+  const hfToken = document.getElementById('whisperHfToken').value.trim();
+  if (hfToken) settings.whisper_hf_token = hfToken;
+  const r = await fetch('/api/admin/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(settings)});
   alert_('whisperAlert', r.ok?'Configurazione salvata':'Errore salvataggio', r.ok?'success':'error');
+}
+
+async function testWhisper() {
+  const url = document.getElementById('whisperUrl').value.trim() || 'http://quetza-whisper:9876';
+  document.getElementById('whisperStatus').textContent = 'Test in corso…';
+  try {
+    const r = await fetch(`/api/admin/whisper-health`);
+    const d = await r.json();
+    if (d.ok) {
+      document.getElementById('whisperStatus').textContent = `✓ Online · modello: ${d.whisper_model} · diarizzazione: ${d.diarization?'sì':'no (HF_TOKEN mancante)'}`;
+      document.getElementById('whisperStatus').style.color = '#065f46';
+    } else {
+      document.getElementById('whisperStatus').textContent = '✕ Non raggiungibile';
+      document.getElementById('whisperStatus').style.color = '#991b1b';
+    }
+  } catch {
+    document.getElementById('whisperStatus').textContent = '✕ Non raggiungibile';
+    document.getElementById('whisperStatus').style.color = '#991b1b';
+  }
 }
 
 async function doImport(input) {

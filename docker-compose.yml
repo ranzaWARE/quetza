@@ -24,7 +24,38 @@ services:
       - LDAP_SEARCH_BASE=${LDAP_SEARCH_BASE:-DC=graphimecc,DC=local}
       - LDAP_SEARCH_FILTER=${LDAP_SEARCH_FILTER:-(sAMAccountName={{username}})}
       - LDAP_TLS_REJECT_UNAUTHORIZED=${LDAP_TLS_REJECT_UNAUTHORIZED:-false}
+      # URL interno del servizio Whisper
+      - WHISPER_URL=http://quetza-whisper:9876
+    depends_on:
+      quetza-whisper:
+        condition: service_healthy
+        required: false
+
+  quetza-whisper:
+    build:
+      context: ./whisper
+    container_name: quetza-whisper
+    restart: unless-stopped
+    # Nessuna porta esposta all'esterno — solo rete interna Docker
+    volumes:
+      - whisper_models:/app/models
+    environment:
+      - WHISPER_MODEL=${WHISPER_MODEL:-small}
+      - HF_TOKEN=${HF_TOKEN:-}
+      - LANGUAGE=${LANGUAGE:-it}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9876/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s   # i modelli possono richiedere tempo al primo avvio
+    # Limita RAM per non soffocare il server
+    deploy:
+      resources:
+        limits:
+          memory: 6G
 
 volumes:
   quetza_data:
   quetza_certs:
+  whisper_models:    # modelli persistiti tra restart

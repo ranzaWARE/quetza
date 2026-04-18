@@ -1374,24 +1374,24 @@ function setupToolbar() {
   if (transcB) {
     transcB.onclick = async () => {
       if (!S.curId) return;
-      transcB.disabled = true; transcB.textContent = '⏳';
-      toast('⏳ Trascrizione in corso…');
+      transcB.disabled = true;
+      transcB.innerHTML = '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg> Elaborazione…';
+      toast('⏳ Trascrizione in corso — può richiedere qualche minuto…');
       try {
         const r = await fetch(`/api/notes/${S.curId}/transcribe`, { method: 'POST' });
         const d = await r.json();
         if (r.ok && d.text) {
-          toast('✓ Trascrizione completata');
-          // Mostra la trascrizione come tooltip temporaneo
-          const tt = document.createElement('div');
-          tt.style.cssText = 'position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:#1a2635;color:#e8e8f0;padding:10px 14px;border-radius:10px;font-size:.78rem;max-width:400px;line-height:1.5;z-index:500;box-shadow:0 8px 24px rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.1)';
-          tt.textContent = d.text;
-          document.body.appendChild(tt);
-          setTimeout(() => tt.remove(), 8000);
+          const speakersInfo = d.diarized ? ` · ${d.speakers} parlant${d.speakers===1?'e':'i'}` : '';
+          toast(`✓ Trascrizione completata${speakersInfo}`);
+          showTranscriptPanel(d);
         } else {
-          toast('⚠ ' + (d.error || 'Whisper non configurato'));
+          toast('⚠ ' + (d.error || 'Whisper non disponibile'));
         }
       } catch(e) { toast('⚠ ' + e.message); }
-      finally { transcB.disabled = false; transcB.innerHTML = '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg> Trascrivi'; }
+      finally {
+        transcB.disabled = false;
+        transcB.innerHTML = '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg> Trascrivi';
+      }
     };
   }
 
@@ -2148,6 +2148,77 @@ function renderFTSResults(results, q) {
     d.onclick = () => openNote(r.id);
     el.appendChild(d);
   });
+}
+
+// ── Transcript Panel ─────────────────────────────────────
+function showTranscriptPanel(data) {
+  document.getElementById('_tp')?.remove();
+  const panel = document.createElement('div');
+  panel.id = '_tp';
+  panel.style.cssText = `
+    position:fixed;right:16px;top:50%;transform:translateY(-50%);
+    width:320px;max-height:70vh;
+    background:#1a2635;color:#e8e8f0;
+    border-radius:12px;border:1px solid rgba(255,255,255,.1);
+    box-shadow:0 16px 48px rgba(0,0,0,.5);
+    z-index:500;display:flex;flex-direction:column;overflow:hidden;
+  `;
+
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;flex-shrink:0';
+  const title = data.diarized
+    ? `Trascrizione · ${data.speakers} parlant${data.speakers===1?'e':'i'}`
+    : 'Trascrizione';
+  hdr.innerHTML = `
+    <span style="font-size:.82rem;font-weight:600">${title}</span>
+    <div style="display:flex;gap:6px">
+      <button onclick="navigator.clipboard.writeText(document.getElementById('_tp_text').innerText).then(()=>toast('✓ Copiato'))"
+        style="padding:3px 8px;border:1px solid rgba(255,255,255,.15);border-radius:5px;background:transparent;color:#e8e8f0;font-size:.7rem;cursor:pointer;font-family:inherit">
+        Copia
+      </button>
+      <button onclick="document.getElementById('_tp').remove()"
+        style="width:22px;height:22px;border:none;background:rgba(255,255,255,.1);border-radius:5px;color:#e8e8f0;cursor:pointer;font-size:.85rem;display:flex;align-items:center;justify-content:center">
+        ✕
+      </button>
+    </div>
+  `;
+
+  const body = document.createElement('div');
+  body.id = '_tp_text';
+  body.style.cssText = 'flex:1;overflow-y:auto;padding:12px 14px;font-size:.78rem;line-height:1.6';
+
+  if (data.diarized && data.segments?.length) {
+    // Visualizzazione diarizzata con bolle per ogni parlante
+    const colors = ['#f5a000','#2471a3','#1e8449','#8e44ad','#c0392b','#e67e22'];
+    const speakerColors = {};
+    let colorIdx = 0;
+    body.innerHTML = data.segments.map(seg => {
+      if (!speakerColors[seg.speaker_label]) {
+        speakerColors[seg.speaker_label] = colors[colorIdx++ % colors.length];
+      }
+      const color = speakerColors[seg.speaker_label];
+      const mm = String(Math.floor(seg.start/60)).padStart(2,'0');
+      const ss = String(Math.floor(seg.start%60)).padStart(2,'0');
+      return `
+        <div style="margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+            <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
+            <span style="font-weight:600;font-size:.72rem;color:${color}">${seg.speaker_label}</span>
+            <span style="font-size:.66rem;color:rgba(255,255,255,.3);margin-left:auto">${mm}:${ss}</span>
+          </div>
+          <div style="padding-left:14px;color:rgba(255,255,255,.85)">${esc(seg.text)}</div>
+        </div>
+      `;
+    }).join('');
+  } else {
+    // Testo semplice
+    body.style.whiteSpace = 'pre-wrap';
+    body.textContent = data.text;
+  }
+
+  panel.appendChild(hdr);
+  panel.appendChild(body);
+  document.body.appendChild(panel);
 }
 
 // ── Share helpers ─────────────────────────────────────────
