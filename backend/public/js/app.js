@@ -17,6 +17,7 @@ const ZOOM_STEPS = [.25,.33,.5,.67,.75,.9,1,1.1,1.25,1.5,1.75,2,2.5,3];
 const S = {
   // Drawing
   tool: 'pen', color: '#111', size: 3,
+  curPage: 0,   // pagina corrente (0-based)
   strokes: [], undo: [], redo: [], cur: null, imgs: [],
   grid: 'lines', pages: 1,
   // Zoom / pan
@@ -104,10 +105,12 @@ async function init() {
   } catch { window.location.href = '/login.html'; return; }
 
   await loadNotes();
+  restoreDarkMode();
   setupToolbar();
   setupSidebar();
   setupZoom();
   setupCanvas();
+  setupPages();
   startNetMonitor();
   // Auto-detect logo (come Stego) — cerca assets/logo.*
   (async () => {
@@ -128,6 +131,17 @@ async function loadNotes() {
   const r = await fetch('/api/notes');
   S.notes = await r.json();
   renderNL();
+}
+
+function restoreDarkMode() {
+  try {
+    const saved = localStorage.getItem('quetza_dark');
+    if (saved === '1') {
+      S.dark = true;
+      APP.setAttribute('data-dk','1');
+      if (S.color === '#111') setColor('#fff');
+    }
+  } catch {}
 }
 
 // Carica tutte le sessioni audio di una nota e le concatena in un unico AudioBuffer
@@ -177,6 +191,7 @@ async function openNote(id) {
   S.whisperSegments = Array.isArray(n.whisper_segments) ? n.whisper_segments : null;
   S.grid      = n.grid       || 'lines';
   S.pages     = Math.max(1, Math.ceil(maxY() / PH) + 1);
+  S.curPage   = 0;
   S.undo = []; S.redo = []; S.selectedIds.clear(); S.cur = null;
   GSL.value = S.grid;
   NTT.value = n.title;
@@ -204,6 +219,7 @@ async function openNote(id) {
   // Imposta dimensioni logiche del canvas (coordinate di disegno)
   CV.width = PW; CV.height = totalH(); markDirty('all');
   renderNL();
+  updatePageNav();
   requestAnimationFrame(() => requestAnimationFrame(() => {
     fitW(); // fitW chiama applyZoom che ridimensiona CV.style.width/height
     redraw();
@@ -398,6 +414,13 @@ function showNoteMenu(n, anchor) {
 }
 
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function setColor(c) {
+  S.color = c;
+  document.querySelectorAll('.sw').forEach(s => {
+    s.classList.toggle('on', s.dataset.c === c);
+  });
+}
 
 // ── Draw helpers ──────────────────────────────────────────
 function totalH() { return S.pages * PH + (S.pages - 1) * PGAP; }
@@ -758,6 +781,10 @@ function applyZoom() {
 
   CW.style.height = (cssH + 32) + 'px';
   ZL.textContent = Math.round(S.zoom * 100) + '%';
+  // Mantieni pagina corrente centrata dopo zoom
+  if (S.curPage > 0) {
+    CO.scrollTop = S.curPage * (PH + PGAP) * S.zoom;
+  }
 }
 
 function zTo(z, pivotX, pivotY) {
@@ -784,6 +811,7 @@ function fitW() {
   if (w > 0) {
     S.zoom = Math.max(.25, Math.min(3, (w - 32) / PW));
     applyZoom();
+    scrollToPage(S.curPage);
   }
 }
 
@@ -792,6 +820,7 @@ function setupCanvas() {
   function gP(ex, ey) {
     const r = CV.getBoundingClientRect();
     // r.width = PW * zoom (CSS px)
+    // nota: CO.scrollTop aggiunto perché canvas è posizionato e non scrolla
     // Coordinate logiche = (css_offset / zoom)
     return {
       x: (ex - r.left) / S.zoom,
@@ -986,7 +1015,7 @@ function setupCanvas() {
 
     if (S.selDrag) {
       S.selDrag = false; S.selDragStart = null; S.selDragFrom = null;
-      S.undo.push([...S.strokes]); S.redo = [];
+      checkAutoPage(); S.undo.push([...S.strokes]); S.redo = [];
       scheduleAutoSave(); redraw();
     }
 
@@ -1321,6 +1350,11 @@ function setupToolbar() {
   document.getElementById('DKB').onclick = () => {
     S.dark = !S.dark;
     S.dark ? APP.setAttribute('data-dk','1') : APP.removeAttribute('data-dk');
+    // Adatta il colore penna: se era nero→bianco, se era bianco→nero
+    if (S.dark  && S.color === '#111') setColor('#fff');
+    if (!S.dark && S.color === '#fff') setColor('#111');
+    // Salva preferenza
+    try { localStorage.setItem('quetza_dark', S.dark ? '1' : '0'); } catch {}
     markDirty('all'); redraw();
   };
 
@@ -1491,6 +1525,8 @@ function setupToolbar() {
     }
     if (e.key===' ' && e.target===document.body) { e.preventDefault(); document.getElementById('APB').click(); }
     if (e.key==='Escape') { S.selectedIds.clear(); S.lassoPath=null; S.selDrag=false; S.cur=null; S.textMode=false; S._pendingText=null; CV.style.cursor='crosshair'; redraw(); }
+    if (e.key==='ArrowRight' || e.key==='PageDown') { e.preventDefault(); goPage(S.curPage+1); }
+    if (e.key==='ArrowLeft'  || e.key==='PageUp')   { e.preventDefault(); goPage(S.curPage-1); }
     if ((e.key==='Delete'||e.key==='Backspace') && document.activeElement===document.body) { deleteSelected(); }
   });
 }
@@ -1675,6 +1711,80 @@ async function checkServerReach() {
     } else { setNetStatus('offline'); }
   } catch { setNetStatus('offline'); }
 }
+
+// ── Pagine ───────────────────────────────────────────────────
+function setupPages() {
+  const prev = document.getElementById('PGPREV');
+  const next = document.getElementById('PGNEXT');
+  const add  = document.getElementById('PGADD');
+  const num  = document.getElementById('PGNUM');
+  if (!prev) return;
+
+  prev.onclick = () => goPage(S.curPage - 1);
+  next.onclick = () => goPage(S.curPage + 1);
+  add.onclick  = () => { S.pages++; goPage(S.pages - 1); scheduleAutoSave(); };
+  num.onclick  = () => {
+    const p = prompt(`Vai a pagina (1-${S.pages}):`, S.curPage + 1);
+    if (p && !isNaN(p)) goPage(parseInt(p) - 1);
+  };
+  updatePageNav();
+}
+
+function goPage(idx, animate = true) {
+  if (idx < 0 || idx >= S.pages) return;
+  if (idx === S.curPage) return;
+  S.curPage = idx;
+  scrollToPage(idx);
+  updatePageNav();
+  markDirty('all'); redraw();
+}
+
+function scrollToPage(idx) {
+  const pageTop = idx * (PH + PGAP) * S.zoom;
+  // Smooth scroll nativo del browser
+  CO.scrollTo({ top: pageTop, behavior: 'smooth' });
+}
+
+function updatePageNav() {
+  const prev = document.getElementById('PGPREV');
+  const next = document.getElementById('PGNEXT');
+  const num  = document.getElementById('PGNUM');
+  if (!prev) return;
+  prev.disabled = S.curPage === 0;
+  next.disabled = S.curPage >= S.pages - 1;
+  num.textContent = `${S.curPage + 1} / ${S.pages}`;
+}
+
+// Aggiungi pagina automatica quando si avvicina al fondo
+function checkAutoPage() {
+  const strokeY = S.cur?.pts?.reduce((m, p) => Math.max(m, p.y), 0) || 0;
+  const pageBottom = (S.curPage + 1) * PH - 80; // 80px dal bordo
+  if (strokeY > pageBottom && S.curPage === S.pages - 1) {
+    S.pages++;
+    updatePageNav();
+  }
+}
+
+// Snap scroll — quando l'utente finisce di scrollare, snapba alla pagina più vicina
+(function setupScrollSnap() {
+  let _snapTimer = null;
+  if (!document.getElementById('CO')) return;
+  document.getElementById('CO').addEventListener('scroll', () => {
+    clearTimeout(_snapTimer);
+    _snapTimer = setTimeout(() => {
+      if (!S.aBuf || !S.playing) { // non snappare durante il playback audio
+        const pageH = (PH + PGAP) * S.zoom;
+        const nearest = Math.round(CO.scrollTop / pageH);
+        const clamped = Math.max(0, Math.min(S.pages - 1, nearest));
+        if (clamped !== S.curPage) {
+          S.curPage = clamped;
+          updatePageNav();
+        }
+        CO.scrollTo({ top: clamped * pageH, behavior: 'smooth' });
+      }
+    }, 150);
+  }, { passive: true });
+})();
 
 function startNetMonitor() {
   checkServerReach();
@@ -1965,6 +2075,15 @@ function highlightTranscriptSegment(currentSec) {
 }
 
 function scrollToTs(ms) {
+  // Aggiorna pagina corrente basandosi sulla posizione dello scroll
+  const pageH = (PH + PGAP) * S.zoom;
+  if (pageH > 0) {
+    const visiblePage = Math.floor(CO.scrollTop / pageH);
+    if (visiblePage !== S.curPage && visiblePage >= 0 && visiblePage < S.pages) {
+      S.curPage = visiblePage;
+      updatePageNav();
+    }
+  }
   const nb = S.strokes.filter(s => s.aTs!=null && Math.abs(s.aTs-ms)<2000);
   if (!nb.length) return;
   const avgY = nb.reduce((a,s) => a+s.pts.reduce((b,p)=>b+p.y,0)/s.pts.length, 0) / nb.length;

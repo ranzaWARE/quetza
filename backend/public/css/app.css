@@ -170,8 +170,53 @@ html,body{height:100%;overflow:hidden;font-family:ui-sans-serif,system-ui,-apple
 
 /* ── Canvas area ────────────────────────────────────────── */
 .CA{position:absolute;inset:0;background:var(--bg);border-radius:var(--r)}
-.CO{position:absolute;inset:0;overflow-x:hidden;overflow-y:auto;touch-action:none;background:transparent;scrollbar-width:thin}
+.CO{position:absolute;inset:0;overflow-y:scroll;overflow-x:hidden;touch-action:none;background:transparent;scrollbar-width:none}
+.CO::-webkit-scrollbar{display:none}
 .CW{display:flex;justify-content:center;padding-top:90px;padding-bottom:70px;min-height:100%}
+/* Transizione slide pagina */
+#C{transition:opacity .18s ease}
+#C.pg-slide{opacity:0}
+
+/* Navigazione pagine */
+.pg-nav{
+  position:absolute;top:50%;transform:translateY(-50%);
+  z-index:55;
+  width:36px;height:36px;border-radius:50%;
+  background:var(--card);border:1px solid var(--line);
+  box-shadow:0 2px 8px rgba(17,24,39,.1);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;color:var(--text);
+  transition:background .12s,opacity .12s,transform .12s;
+}
+.pg-nav:hover{background:var(--bg);transform:translateY(-50%) scale(1.05)}
+.pg-nav:active{transform:translateY(-50%) scale(.96)}
+.pg-nav:disabled{opacity:.25;cursor:default}
+.pg-prev{left:10px}
+.pg-next{right:10px}
+
+.pg-indicator{
+  position:absolute;bottom:20px;left:50%;transform:translateX(-50%);
+  z-index:55;display:flex;align-items:center;gap:6px;
+}
+.pg-num{
+  padding:4px 12px;border-radius:999px;
+  background:var(--card);border:1px solid var(--line);
+  font-size:.75rem;font-weight:600;color:var(--text);
+  cursor:pointer;font-family:inherit;
+  box-shadow:0 2px 8px rgba(17,24,39,.08);
+  transition:background .12s;
+}
+.pg-num:hover{background:var(--bg)}
+.pg-add{
+  width:24px;height:24px;border-radius:50%;
+  background:var(--brand);border:none;color:#111827;
+  font-size:1rem;font-weight:700;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;font-family:inherit;
+  box-shadow:0 2px 8px rgba(245,160,0,.3);
+  transition:background .12s,transform .12s;
+}
+.pg-add:hover{background:var(--brand-dark);transform:scale(1.1)}
 /* Foglio A4 — card dentro card */
 #C{display:block;background:var(--pg);cursor:crosshair;touch-action:none;pointer-events:auto;image-rendering:auto;border-radius:8px;box-shadow:0 8px 32px rgba(17,24,39,.12),0 2px 6px rgba(17,24,39,.07),0 0 0 1px rgba(17,24,39,.05)}
 
