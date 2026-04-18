@@ -36,8 +36,9 @@ db.exec(`
     grid            TEXT DEFAULT 'lines',
     has_audio       INTEGER DEFAULT 0,
     canvas_text     TEXT,
-    whisper_text    TEXT,
-    text_items      TEXT,
+    whisper_text     TEXT,
+    whisper_segments TEXT,
+    text_items       TEXT,
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -93,6 +94,7 @@ try {
 try { db.exec(`ALTER TABLE notes ADD COLUMN canvas_text TEXT`); } catch {}
 try { db.exec(`ALTER TABLE notes ADD COLUMN whisper_text TEXT`); } catch {}
 try { db.exec(`ALTER TABLE notes ADD COLUMN text_items TEXT`); } catch {}
+try { db.exec(`ALTER TABLE notes ADD COLUMN whisper_segments TEXT`); } catch {}
 
 // Indice FTS — ricrea se schema cambiato (rimuove vecchia versione con content table)
 try {
@@ -204,9 +206,10 @@ function getNoteById(id, username) {
   if (!note) return null;
   return {
     ...note,
-    strokes:    note.strokes    ? JSON.parse(note.strokes)    : [],
-    images:     note.images     ? JSON.parse(note.images)     : [],
-    text_items: note.text_items ? JSON.parse(note.text_items) : [],
+    strokes:          note.strokes          ? JSON.parse(note.strokes)          : [],
+    images:           note.images           ? JSON.parse(note.images)           : [],
+    text_items:       note.text_items       ? JSON.parse(note.text_items)       : [],
+    whisper_segments: note.whisper_segments ? JSON.parse(note.whisper_segments) : null,
   };
 }
 
@@ -232,8 +235,9 @@ function saveContent(id, username, strokes, images, thumbnail, grid, canvasText,
   return r.changes > 0;
 }
 
-function saveWhisperText(noteId, text) {
-  db.prepare(`UPDATE notes SET whisper_text=?, updated_at=datetime('now') WHERE id=?`).run(text, noteId);
+function saveWhisperText(noteId, text, segments) {
+  db.prepare(`UPDATE notes SET whisper_text=?, whisper_segments=?, updated_at=datetime('now') WHERE id=?`)
+    .run(text||'', segments ? JSON.stringify(segments) : null, noteId);
   try { rebuildFts(noteId); } catch(e) { console.warn('FTS rebuild whisper:', e.message); }
 }
 

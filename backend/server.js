@@ -169,6 +169,17 @@ app.get('/api/notes/:id/audio/:session', requireAuth, (req, res) => {
 });
 app.delete('/api/notes/:id/audio', requireAuth, (req, res) => { db.deleteAudio(req.params.id, req.session.user.username); res.json({ ok: true }); });
 
+// GET trascrizione salvata
+app.get('/api/notes/:id/transcript', requireAuth, (req, res) => {
+  const note = db.getNoteById(req.params.id, req.session.user.username);
+  if (!note) return res.status(404).json({ error: 'Nota non trovata' });
+  res.json({
+    text:     note.whisper_text     || null,
+    segments: note.whisper_segments || null,
+    has_transcript: !!note.whisper_text
+  });
+});
+
 // Whisper trascrizione con diarizzazione (via microservizio Python)
 app.post('/api/notes/:id/transcribe', requireAuth, async (req, res) => {
   const note = db.getNoteById(req.params.id, req.session.user.username);
@@ -223,7 +234,7 @@ app.post('/api/notes/:id/transcribe', requireAuth, async (req, res) => {
     const result = await r.json();
 
     // Salva la trascrizione nel DB e ricostruisce l'indice FTS
-    db.saveWhisperText(req.params.id, result.text || '');
+    db.saveWhisperText(req.params.id, result.text || '', result.segments || null);
 
     res.json({
       ok:       true,
@@ -319,6 +330,52 @@ app.get('/share/:token', (req, res) => res.sendFile(path.join(__dirname,'public'
 
 // Statistiche
 app.get('/api/admin/stats', requireAuth, requireAdmin, (req, res) => res.json(db.getStats()));
+
+// Auto-trascrizione in background (chiamata dopo stop registrazione)
+// Non aspetta il risultato — risponde subito 202 e processa in background
+app.post('/api/notes/:id/transcribe-async', requireAuth, async (req, res) => {
+  if (!req.params.id) return res.status(400).json({ error: 'ID mancante' });
+  // Risponde subito
+  res.status(202).json({ ok: true, message: 'Trascrizione avviata in background' });
+
+  // Processa in background senza await
+  (async () => {
+    try {
+      const whisperUrl = process.env.WHISPER_URL || db.getSetting('whisper_url') || 'http://quetza-whisper:9876';
+      const health = await fetch(`${whisperUrl}/health`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
+      if (!health?.ok) return;
+
+      const sessions = db.getAudio(req.params.id, req.session.user.username);
+      if (!sessions?.length) return;
+
+      const audioBuffer = Buffer.concat(sessions.map(s => s.data));
+      const mime = sessions[0]?.mime || 'audio/webm';
+      const ext  = mime.includes('mp4') ? 'mp4' : mime.includes('wav') ? 'wav' : 'webm';
+
+      const { FormData: FD, Blob: BL } = globalThis;
+      let r;
+      if (FD && BL) {
+        const form = new FD();
+        form.append('audio', new BL([audioBuffer], { type: mime }), `audio.${ext}`);
+        form.append('diarize', 'true');
+        r = await fetch(`${whisperUrl}/transcribe`, { method:'POST', body:form, signal:AbortSignal.timeout(300000) });
+      } else {
+        const FormDataLib = require('form-data');
+        const form = new FormDataLib();
+        form.append('audio', audioBuffer, { filename:`audio.${ext}`, contentType:mime });
+        form.append('diarize', 'true');
+        r = await fetch(`${whisperUrl}/transcribe`, { method:'POST', body:form, headers:form.getHeaders(), signal:AbortSignal.timeout(300000) });
+      }
+
+      if (!r.ok) return;
+      const result = await r.json();
+      db.saveWhisperText(req.params.id, result.text || '', result.segments || null);
+      console.log(`[whisper] Auto-transcribed note ${req.params.id} (${result.language}, diarized:${result.diarized})`);
+    } catch(e) {
+      console.warn('[whisper] Auto-transcription failed:', e.message);
+    }
+  })();
+});
 
 // Health check Whisper (proxy verso il container Python)
 app.get('/api/admin/whisper-health', requireAuth, requireAdmin, async (req, res) => {

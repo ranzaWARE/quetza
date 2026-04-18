@@ -33,6 +33,8 @@ const S = {
   dark: false,
   shapeRecog: false,
   textItems: [],    // {x, y, text, size, id}
+  whisperSegments: null,  // array segmenti con start/end/text
+  whisperPending: false,  // trascrizione in background in corso
   textMode: false,  // attesa click per posizionare testo
   sortOrder: 'updated',
   // Selezione
@@ -171,7 +173,8 @@ async function openNote(id) {
   S.curId = id;
   S.strokes   = n.strokes    || [];
   S.imgs      = n.images     || [];
-  S.textItems = Array.isArray(n.text_items) ? n.text_items : (Array.isArray(n.textItems) ? n.textItems : []);
+  S.textItems      = Array.isArray(n.text_items)       ? n.text_items       : (Array.isArray(n.textItems) ? n.textItems : []);
+  S.whisperSegments = Array.isArray(n.whisper_segments) ? n.whisper_segments : null;
   S.grid      = n.grid       || 'lines';
   S.pages     = Math.max(1, Math.ceil(maxY() / PH) + 1);
   S.undo = []; S.redo = []; S.selectedIds.clear(); S.cur = null;
@@ -1369,31 +1372,33 @@ function setupToolbar() {
     toast('Clicca sul canvas per posizionare il testo');
   };
 
-  // Bottone Trascrivi Whisper
+  // Bottone Trascrivi — mostra/nascondi pannello con trascrizione salvata
   const transcB = document.getElementById('TRANSCB');
   if (transcB) {
     transcB.onclick = async () => {
       if (!S.curId) return;
-      transcB.disabled = true;
-      transcB.innerHTML = '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg> Elaborazione…';
-      toast('⏳ Trascrizione in corso — può richiedere qualche minuto…');
+      // Toggle: se il pannello è aperto, chiudilo
+      if (document.getElementById('_tp')) { document.getElementById('_tp').remove(); return; }
+      // Se in elaborazione
+      if (S.whisperPending) { toast('⏳ Trascrizione in corso, attendi…'); return; }
       try {
-        const r = await fetch(`/api/notes/${S.curId}/transcribe`, { method: 'POST' });
+        const r = await fetch(`/api/notes/${S.curId}/transcript`);
         const d = await r.json();
-        if (r.ok && d.text) {
-          const speakersInfo = d.diarized ? ` · ${d.speakers} parlant${d.speakers===1?'e':'i'}` : '';
-          toast(`✓ Trascrizione completata${speakersInfo}`);
-          showTranscriptPanel(d);
+        if (d.has_transcript && d.text) {
+          S.whisperSegments = d.segments || null;
+          const speakers = new Set((d.segments||[]).map(s=>s.speaker_label).filter(Boolean)).size;
+          showTranscriptPanel({
+            text: d.text, segments: d.segments,
+            diarized: speakers > 0, speakers
+          });
         } else {
-          toast('⚠ ' + (d.error || 'Whisper non disponibile'));
+          toast('⏳ Nessuna trascrizione — avvio…');
+          autoTranscribe();
         }
       } catch(e) { toast('⚠ ' + e.message); }
-      finally {
-        transcB.disabled = false;
-        transcB.innerHTML = '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg> Trascrivi';
-      }
     };
   }
+  updateTranscribeBtn();
 
   document.getElementById('PSB').onclick = pasteImg;
 
@@ -1804,6 +1809,8 @@ async function onRecStop() {
     drawWave(0); updAT(0);
     TSel.classList.add('on'); drawTL(0);
     toast('✓ Registrazione salvata');
+    // Auto-trascrizione in background
+    autoTranscribe();
   } catch(e) {
     console.error('onRecStop error:', e);
     toast('⚠ Errore: ' + e.message);
@@ -1936,7 +1943,25 @@ function tickAudio() {
     scrollToTs(ms);
   }
   S._audioFrameSkip = !S._audioFrameSkip;
+  // Highlight segmento attivo nel pannello trascrizione
+  if (S.whisperSegments) highlightTranscriptSegment(el);
   S.raf = requestAnimationFrame(tickAudio);
+}
+
+function highlightTranscriptSegment(currentSec) {
+  const panel = document.getElementById('_tp_text');
+  if (!panel || !S.whisperSegments) return;
+  const segs = panel.querySelectorAll('[data-seg]');
+  segs.forEach(el => {
+    const start = parseFloat(el.dataset.start);
+    const end   = parseFloat(el.dataset.end);
+    const active = currentSec >= start && currentSec <= end;
+    el.style.background    = active ? 'rgba(245,160,0,.18)' : 'transparent';
+    el.style.borderRadius  = active ? '5px' : '';
+    el.style.marginLeft    = active ? '-4px' : '';
+    el.style.paddingLeft   = active ? '4px'  : '';
+    if (active) el.scrollIntoView({ block:'nearest', behavior:'smooth' });
+  });
 }
 
 function scrollToTs(ms) {
@@ -2126,6 +2151,11 @@ function recognizeShape(stroke) {
   return null; // nessuna forma riconosciuta
 }
 
+function seekToSegment(sec) {
+  if (!S.aBuf || !S.aCtx) return;
+  seekAudio(Math.max(0, Math.min(sec, S.aBuf.duration)));
+}
+
 // ── Full-text search results ─────────────────────────────
 function renderFTSResults(results, q) {
   const el = document.getElementById('NL');
@@ -2200,18 +2230,29 @@ function showTranscriptPanel(data) {
       const mm = String(Math.floor(seg.start/60)).padStart(2,'0');
       const ss = String(Math.floor(seg.start%60)).padStart(2,'0');
       return `
-        <div style="margin-bottom:12px">
+        <div data-seg="1" data-start="${seg.start}" data-end="${seg.end}"
+             style="margin-bottom:10px;padding:4px 0;transition:background .15s,padding .15s">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
-            <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
-            <span style="font-weight:600;font-size:.72rem;color:${color}">${seg.speaker_label}</span>
-            <span style="font-size:.66rem;color:rgba(255,255,255,.3);margin-left:auto">${mm}:${ss}</span>
+            <span style="width:7px;height:7px;border-radius:50%;background:${color};flex-shrink:0"></span>
+            <span style="font-weight:600;font-size:.7rem;color:${color}">${seg.speaker_label||'Voce'}</span>
+            <span style="font-size:.64rem;color:rgba(255,255,255,.3);margin-left:auto;cursor:pointer"
+                  onclick="seekToSegment(${seg.start})">${mm}:${ss}</span>
           </div>
-          <div style="padding-left:14px;color:rgba(255,255,255,.85)">${esc(seg.text)}</div>
+          <div style="padding-left:13px;color:rgba(255,255,255,.82);line-height:1.55">${esc(seg.text)}</div>
         </div>
       `;
     }).join('');
+  } else if (data.segments?.length) {
+    // Segmenti senza diarizzazione — highlight sync comunque
+    body.innerHTML = data.segments.map(seg => {
+      const mm = String(Math.floor(seg.start/60)).padStart(2,'0');
+      const ss = String(Math.floor(seg.start%60)).padStart(2,'0');
+      return `<span data-seg="1" data-start="${seg.start}" data-end="${seg.end}"
+                style="display:inline;transition:background .15s;border-radius:3px;cursor:pointer"
+                onclick="seekToSegment(${seg.start})">${esc(seg.text)} </span>`;
+    }).join('');
   } else {
-    // Testo semplice
+    // Testo puro senza segmenti
     body.style.whiteSpace = 'pre-wrap';
     body.textContent = data.text;
   }
@@ -2219,6 +2260,59 @@ function showTranscriptPanel(data) {
   panel.appendChild(hdr);
   panel.appendChild(body);
   document.body.appendChild(panel);
+}
+
+// ── Auto-trascrizione ────────────────────────────────────
+async function autoTranscribe() {
+  if (!S.curId) return;
+  S.whisperPending = true;
+  updateTranscribeBtn();
+
+  try {
+    // Chiama endpoint async (risponde subito 202, processa in background)
+    await fetch(`/api/notes/${S.curId}/transcribe-async`, { method: 'POST' });
+
+    // Polling ogni 5s finché la trascrizione non è pronta (max 10 minuti)
+    let attempts = 0;
+    const poll = setInterval(async () => {
+      attempts++;
+      if (attempts > 120) { clearInterval(poll); S.whisperPending = false; updateTranscribeBtn(); return; }
+      if (S.curId === null) { clearInterval(poll); return; }
+      try {
+        const r = await fetch(`/api/notes/${S.curId}/transcript`);
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.has_transcript && d.text) {
+          clearInterval(poll);
+          S.whisperSegments = d.segments || null;
+          S.whisperPending  = false;
+          updateTranscribeBtn();
+          toast('✓ Trascrizione completata');
+        }
+      } catch {}
+    }, 5000);
+  } catch(e) {
+    S.whisperPending = false;
+    updateTranscribeBtn();
+  }
+}
+
+function updateTranscribeBtn() {
+  const btn = document.getElementById('TRANSCB');
+  if (!btn) return;
+  if (S.whisperPending) {
+    btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg> Elaborazione…';
+    btn.style.opacity = '0.7';
+    btn.disabled = true;
+  } else if (S.whisperSegments || document.getElementById('_tp')) {
+    btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg> Trascrizione';
+    btn.style.opacity = '1';
+    btn.disabled = false;
+  } else {
+    btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg> Trascrivi';
+    btn.style.opacity = '1';
+    btn.disabled = false;
+  }
 }
 
 // ── Share helpers ─────────────────────────────────────────
