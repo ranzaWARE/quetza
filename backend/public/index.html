@@ -110,9 +110,21 @@
 <div id="MN">
   <div class="emp" id="EM">Seleziona o crea una nota</div>
   <div id="ED">
-    <!-- Toolbar row 1 -->
-    <div class="TB">
-      <div class="R1">
+    <!-- Canvas area — occupa tutto, toolbar flotta sopra -->
+    <div class="CA">
+      <div class="CO" id="CO">
+        <div class="CW" id="CW">
+          <canvas id="C"></canvas>
+        </div>
+      </div>
+
+      <!-- Overlays -->
+      <div class="MP" id="MP"></div>
+      <div class="TT" id="TT"></div>
+
+      <!-- TOOLBAR CARD flottante in alto -->
+      <div class="TB">
+        <div class="R1">
         <button class="b" id="sbO" style="display:none" title="Apri sidebar">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
@@ -133,8 +145,8 @@
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
           Salva
         </button>
-      </div>
-      <!-- Toolbar row 2: drawing tools -->
+        </div>
+        <!-- Toolbar row 2: drawing tools -->
       <div class="R2">
         <!-- Freehand tools -->
         <button class="b on" data-t="pen" title="Penna (P)">
@@ -215,9 +227,9 @@
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>
         </button>
       </div>
-    </div>
+    </div><!-- /TB -->
 
-    <!-- Audio bar -->
+    <!-- AUDIO BAR CARD flottante -->
     <div class="AB">
       <button class="rb" id="RCB" title="Registra / Ferma">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="12" r="6"/></svg>
@@ -249,18 +261,6 @@
         </div>
       </div>
     </div>
-
-    <!-- Canvas area -->
-    <div class="CA">
-      <div class="CO" id="CO">
-        <div class="CW" id="CW">
-          <canvas id="C"></canvas>
-        </div>
-      </div>
-
-      <!-- Overlays -->
-      <div class="MP" id="MP"></div>
-      <div class="TT" id="TT"></div>
 
       <!-- Share Modal -->
       <div class="MW off" id="SHAREM">
@@ -309,9 +309,10 @@
           <div class="ma"><button class="mc" id="PCA">Annulla</button><button class="mk" id="POK">Esporta</button></div>
         </div>
       </div>
-    </div>
-  </div>
-</div><!-- /#BODY -->
+
+    </div><!-- /CA -->
+  </div><!-- /ED -->
+</div><!-- /MN --><!-- /#BODY -->
 </div><!-- /#W -->
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
