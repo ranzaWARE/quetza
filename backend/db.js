@@ -94,12 +94,23 @@ try { db.exec(`ALTER TABLE notes ADD COLUMN canvas_text TEXT`); } catch {}
 try { db.exec(`ALTER TABLE notes ADD COLUMN whisper_text TEXT`); } catch {}
 try { db.exec(`ALTER TABLE notes ADD COLUMN text_items TEXT`); } catch {}
 
-// Indice FTS per ricerca full-text
+// Indice FTS — ricrea se schema cambiato (rimuove vecchia versione con content table)
+try {
+  // Controlla se la vecchia tabella usa content table (causa "no such column: T.note_id")
+  db.prepare(`INSERT INTO notes_fts(note_id,username,title,canvas_text,whisper_text) VALUES('_test','_test','','','') `).run();
+  db.prepare(`DELETE FROM notes_fts WHERE note_id='_test'`).run();
+} catch(e) {
+  // Schema vecchio/incompatibile — droppa e ricrea
+  console.log('FTS: recreating table (schema migration)');
+  try { db.exec(`DROP TABLE IF EXISTS notes_fts`); } catch {}
+}
 db.exec(`
   CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-    note_id UNINDEXED, username UNINDEXED,
-    title, canvas_text, whisper_text,
-    content='notes', content_rowid='rowid'
+    note_id UNINDEXED,
+    username UNINDEXED,
+    title,
+    canvas_text,
+    whisper_text
   );
 `);
 
@@ -217,21 +228,22 @@ function updateNoteMeta(id, username, { title, grid }) {
 function saveContent(id, username, strokes, images, thumbnail, grid, canvasText, textItems) {
   const r = db.prepare(`UPDATE notes SET strokes=?, images=?, thumbnail=?, grid=?, canvas_text=?, text_items=?, updated_at=datetime('now') WHERE id=? AND username=?`)
     .run(JSON.stringify(strokes||[]), JSON.stringify(images||[]), thumbnail||null, grid||'lines', canvasText||null, JSON.stringify(textItems||[]), id, username);
-  if (r.changes > 0) rebuildFts(id);
+  if (r.changes > 0) { try { rebuildFts(id); } catch(e) { console.warn('FTS rebuild:', e.message); } }
   return r.changes > 0;
 }
 
 function saveWhisperText(noteId, text) {
   db.prepare(`UPDATE notes SET whisper_text=?, updated_at=datetime('now') WHERE id=?`).run(text, noteId);
-  rebuildFts(noteId);
+  try { rebuildFts(noteId); } catch(e) { console.warn('FTS rebuild whisper:', e.message); }
 }
 
 function rebuildFts(noteId) {
   const n = db.prepare(`SELECT id, username, title, canvas_text, whisper_text FROM notes WHERE id=?`).get(noteId);
   if (!n) return;
-  db.prepare(`DELETE FROM notes_fts WHERE note_id=?`).run(noteId);
+  // Cancella record esistente e reinserisci
+  db.prepare(`DELETE FROM notes_fts WHERE note_id = ?`).run(n.id);
   db.prepare(`INSERT INTO notes_fts(note_id, username, title, canvas_text, whisper_text) VALUES(?,?,?,?,?)`)
-    .run(n.id, n.username, n.title||'', n.canvas_text||'', n.whisper_text||'');
+    .run(n.id, n.username||'', n.title||'', n.canvas_text||'', n.whisper_text||'');
 }
 
 function searchNotes(username, query) {
