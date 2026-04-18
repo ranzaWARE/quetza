@@ -21,7 +21,7 @@ html,body{height:100%;overflow:hidden;font-family:ui-sans-serif,system-ui,-apple
   --r:12px; --r-sm:8px; --r-lg:16px;
 }
 [data-dk]{
-  --bg:#181c22; --pg:#23272e; --tb:#1c2028;
+  --bg:#181c22; --pg:#1e2229; --tb:#1c2028;
   --tbr:rgba(255,255,255,.08); --ink:#e0e4ea;
   --bh:rgba(255,255,255,.05); --sh:0 2px 16px rgba(0,0,0,.5);
   --card:#1c2028; --line:rgba(255,255,255,.08);
@@ -170,9 +170,9 @@ html,body{height:100%;overflow:hidden;font-family:ui-sans-serif,system-ui,-apple
 
 /* ── Canvas area ────────────────────────────────────────── */
 .CA{position:absolute;inset:0;background:var(--bg);border-radius:var(--r)}
-.CO{position:absolute;inset:0;overflow-y:scroll;overflow-x:hidden;touch-action:none;background:transparent;scrollbar-width:none}
+.CO{position:absolute;inset:0;overflow-x:scroll;overflow-y:hidden;touch-action:none;background:transparent;scrollbar-width:none}
 .CO::-webkit-scrollbar{display:none}
-.CW{display:flex;justify-content:center;padding-top:90px;padding-bottom:70px;min-height:100%}
+.CW{display:flex;align-items:center;padding:70px 20px 50px;height:100%;width:max-content;min-width:100%}
 /* Transizione slide pagina */
 #C{transition:opacity .18s ease}
 #C.pg-slide{opacity:0}
@@ -218,7 +218,7 @@ html,body{height:100%;overflow:hidden;font-family:ui-sans-serif,system-ui,-apple
 }
 .pg-add:hover{background:var(--brand-dark);transform:scale(1.1)}
 /* Foglio A4 — card dentro card */
-#C{display:block;background:var(--pg);cursor:crosshair;touch-action:none;pointer-events:auto;image-rendering:auto;border-radius:8px;box-shadow:0 8px 32px rgba(17,24,39,.12),0 2px 6px rgba(17,24,39,.07),0 0 0 1px rgba(17,24,39,.05)}
+#C{display:block;background:var(--pg);cursor:crosshair;touch-action:none;pointer-events:auto;image-rendering:auto;border-radius:8px;box-shadow:0 4px 24px rgba(17,24,39,.15),0 1px 4px rgba(17,24,39,.08)}
 
 /* Timeline strip rimossa — punti sulla waveform */
 
