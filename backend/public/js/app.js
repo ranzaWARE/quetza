@@ -171,7 +171,7 @@ async function openNote(id) {
   S.curId = id;
   S.strokes   = n.strokes    || [];
   S.imgs      = n.images     || [];
-  S.textItems = n.text_items || n.textItems || [];
+  S.textItems = Array.isArray(n.text_items) ? n.text_items : (Array.isArray(n.textItems) ? n.textItems : []);
   S.grid      = n.grid       || 'lines';
   S.pages     = Math.max(1, Math.ceil(maxY() / PH) + 1);
   S.undo = []; S.redo = []; S.selectedIds.clear(); S.cur = null;
@@ -300,7 +300,7 @@ function genThumb() {
   const sc = Math.min(280 / PW, 100 / PH);
   oc.save(); oc.scale(sc, sc);
   drawSS(oc, S.strokes);
-  S.textItems.forEach(ti => {
+  (Array.isArray(S.textItems) ? S.textItems : []).forEach(ti => {
     oc.font = `${ti.size||18}px 'Segoe UI',system-ui,sans-serif`;
     oc.fillStyle = ti.color || '#111827';
     oc.fillText(ti.text, ti.x, ti.y);
@@ -577,7 +577,7 @@ function redraw(hTs) {
   cx.drawImage(_strokeCanvas, 0, 0, PW, totalH());
 
   // Layer 3: testo digitato + overlay dinamici
-  S.textItems.forEach(ti => {
+  (Array.isArray(S.textItems) ? S.textItems : []).forEach(ti => {
     cx.save();
     cx.font = `${ti.size||18}px 'Segoe UI',system-ui,sans-serif`;
     cx.fillStyle = ti.color || (S.dark ? '#e0e4ea' : '#111827');

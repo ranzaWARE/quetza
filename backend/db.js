@@ -191,7 +191,12 @@ function getNoteById(id, username) {
     ? db.prepare(`SELECT * FROM notes WHERE id = ? AND username = ?`).get(id, username)
     : db.prepare(`SELECT * FROM notes WHERE id = ?`).get(id);
   if (!note) return null;
-  return { ...note, strokes: note.strokes ? JSON.parse(note.strokes) : [], images: note.images ? JSON.parse(note.images) : [] };
+  return {
+    ...note,
+    strokes:    note.strokes    ? JSON.parse(note.strokes)    : [],
+    images:     note.images     ? JSON.parse(note.images)     : [],
+    text_items: note.text_items ? JSON.parse(note.text_items) : [],
+  };
 }
 
 function createNote(id, username, title) {

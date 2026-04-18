@@ -124,9 +124,14 @@ app.patch('/api/notes/:id', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 app.put('/api/notes/:id/content', requireAuth, (req, res) => {
-  const { strokes, images, thumbnail, grid, canvasText, textItems } = req.body;
-  if (!db.saveContent(req.params.id, req.session.user.username, strokes, images, thumbnail, grid, canvasText, textItems)) return res.status(404).json({ error: 'Nota non trovata' });
-  res.json({ ok: true });
+  try {
+    const { strokes, images, thumbnail, grid, canvasText, textItems } = req.body;
+    if (!db.saveContent(req.params.id, req.session.user.username, strokes, images, thumbnail, grid, canvasText, textItems)) return res.status(404).json({ error: 'Nota non trovata' });
+    res.json({ ok: true });
+  } catch(e) {
+    console.error('saveContent error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Ricerca full-text
@@ -193,17 +198,22 @@ app.post('/api/notes/:id/transcribe', requireAuth, async (req, res) => {
     })).catch(() => ({ FormData: require('form-data'), Blob: null }));
 
     // Usa form-data per compatibilità Node.js < 18
-    const FormDataLib = require('form-data');
-    const form = new FormDataLib();
-    form.append('audio', audioBuffer, { filename: `audio.${ext}`, contentType: mime });
-    form.append('diarize', 'true');
-
-    const r = await fetch(`${whisperUrl}/transcribe`, {
-      method: 'POST',
-      body:    form,
-      headers: form.getHeaders(),
-      signal:  AbortSignal.timeout(300000) // 5 min timeout
-    });
+    // Usa FormData nativo (Node.js 18+)
+    const { FormData: FD, Blob: BL } = globalThis;
+    let r;
+    if (FD && BL) {
+      const form = new FD();
+      form.append('audio', new BL([audioBuffer], { type: mime }), `audio.${ext}`);
+      form.append('diarize', 'true');
+      r = await fetch(`${whisperUrl}/transcribe`, { method:'POST', body:form, signal:AbortSignal.timeout(300000) });
+    } else {
+      // Fallback form-data per Node < 18
+      const FormDataLib = require('form-data');
+      const form = new FormDataLib();
+      form.append('audio', audioBuffer, { filename:`audio.${ext}`, contentType:mime });
+      form.append('diarize', 'true');
+      r = await fetch(`${whisperUrl}/transcribe`, { method:'POST', body:form, headers:form.getHeaders(), signal:AbortSignal.timeout(300000) });
+    }
 
     if (!r.ok) {
       const err = await r.json().catch(() => ({ error: 'Errore sconosciuto' }));
