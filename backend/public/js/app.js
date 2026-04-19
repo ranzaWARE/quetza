@@ -632,15 +632,7 @@ function redraw(hTs) {
   }
   if (S.lassoPath && S.lassoPath.length > 1) drawLassoPath(cx, S.lassoPath);
   if (S.cur && SHAPES.has(S.cur.t)) drawSS(cx, [S.cur]);
-  // Cursore testo in attesa di posizionamento
-  if (S.textMode) {
-    cx.save();
-    cx.strokeStyle = S.dark ? 'rgba(255,255,255,.5)' : 'rgba(0,0,0,.4)';
-    cx.lineWidth = 1; cx.setLineDash([4,3]);
-    cx.strokeRect(0, 0, PW, totalH());
-    cx.setLineDash([]);
-    cx.restore();
-  }
+  // cursor crosshair già gestito da CSS in textMode
 
   // Copia ogni pagina sul suo page-canvas nel CO
   const dpr = window.devicePixelRatio || 1;
@@ -807,14 +799,23 @@ function setupZoom() {
     goPage(Math.max(0, Math.min(S.pages - 1, nearest)));
   }
 
-  CO.addEventListener('mousedown', e => {
+  function panDown(e) {
     if (e.button === 1 || e.button === 2) { e.preventDefault(); startMPan(e.clientX, e.clientY); }
-    if (e.button === 0 && _spaceDown)      { e.preventDefault(); startMPan(e.clientX, e.clientY); }
-  });
-  CO.addEventListener('mousemove', e => { if (_mPan) moveMPan(e.clientX); });
-  CO.addEventListener('mouseup',   e => { if (_mPan) endMPan(); });
-  CO.addEventListener('mouseleave',()  => { if (_mPan) endMPan(); });
+    if (e.button === 0 && _spaceDown)     { e.preventDefault(); startMPan(e.clientX, e.clientY); }
+  }
+  function panMove(e) { if (_mPan) moveMPan(e.clientX); }
+  function panUp()    { if (_mPan) endMPan(); }
+
+  CO.addEventListener('mousedown',  panDown);
+  CO.addEventListener('mousemove',  panMove);
+  CO.addEventListener('mouseup',    panUp);
+  CO.addEventListener('mouseleave', panUp);
   CO.addEventListener('contextmenu', e => e.preventDefault());
+  // Pan anche quando il cursore è sul CV (che è dentro il PV dentro CO)
+  CV.addEventListener('mousedown',  panDown);
+  CV.addEventListener('mousemove',  panMove);
+  CV.addEventListener('mouseup',    panUp);
+  CV.addEventListener('contextmenu', e => e.preventDefault());
 
   document.addEventListener('keydown', e => {
     if (e.key === ' ' && !_spaceDown && e.target === document.body) {
@@ -860,7 +861,6 @@ function rebuildPageViewports() {
   const gap  = 24;
 
   CO.querySelectorAll('.PV,.PG').forEach(el => el.remove());
-  CV.style.display = 'none';
 
   for (let p = 0; p < S.pages; p++) {
     if (p > 0) {
@@ -874,13 +874,26 @@ function rebuildPageViewports() {
     pv.dataset.page = p;
     pv.style.cssText = 'width:' + cssW + 'px;height:' + cssH + 'px';
 
-    const pc = document.createElement('canvas');
-    pc.className = 'page-canvas';
-    pc.dataset.page = p;
-    pc.width  = Math.round(PW * dpr);
-    pc.height = Math.round(PH * dpr);
-    pc.style.cssText = 'width:' + cssW + 'px;height:' + cssH + 'px;position:absolute;left:0;top:0';
-    pv.appendChild(pc);
+    if (p === S.curPage) {
+      // Pagina attiva: usa il canvas principale (CV) — mantiene tutti i pointer events
+      CV.style.display = 'block';
+      CV.style.position = 'absolute';
+      CV.style.left = '0';
+      // Shift verticale: mostra solo la fetta della pagina corrente
+      CV.style.top  = '-' + Math.round(p * (PH + PGAP) * S.zoom) + 'px';
+      CV.style.width  = cssW + 'px';
+      CV.style.height = Math.round(totalH() * S.zoom) + 'px';
+      pv.appendChild(CV);
+    } else {
+      // Pagine non attive: canvas offscreen copiato da redraw()
+      const pc = document.createElement('canvas');
+      pc.className = 'page-canvas';
+      pc.dataset.page = p;
+      pc.width  = Math.round(PW * dpr);
+      pc.height = Math.round(PH * dpr);
+      pc.style.cssText = 'width:' + cssW + 'px;height:' + cssH + 'px;position:absolute;left:0;top:0';
+      pv.appendChild(pc);
+    }
     CO.appendChild(pv);
   }
   showPage(S.curPage, false);
@@ -890,19 +903,34 @@ function rebuildPageViewports() {
 function showPage(idx, animate) {
   if (idx < 0 || idx >= S.pages) return;
   S.curPage = idx;
-  updatePageNav();
-  const items = [...CO.querySelectorAll('.PV,.PG')];
-  if (!items.length) return;
-  // Calcola marginLeft per centrare il PV idx nel CO
+
+  // Rebuild sposta il CV nel PV corretto
+  // Prima calcola il marginLeft target
   const cssW = Math.round(PW * S.zoom);
   const gap  = 24;
-  // Offset sinistro del PV idx (somma di tutti i PV+gap precedenti)
-  const pvLeft = idx * cssW + idx * gap;
+  const pvLeft = idx * (cssW + gap);
   const coW    = CO.clientWidth;
   const ml     = Math.round((coW - cssW) / 2) - pvLeft;
+
+  // Se già costruiti, anima solo il margine
+  const items = [...CO.querySelectorAll('.PV,.PG')];
+  if (items.length && items[0].querySelector('canvas')) {
+    // Rebuilda per spostare CV nel PV giusto (senza animazione DOM)
+    rebuildPageViewports();
+    const newItems = [...CO.querySelectorAll('.PV,.PG')];
+    if (!newItems.length) return;
+    // Applica marginLeft finale senza animazione prima, poi con
+    newItems.forEach(el => { el.style.transition = ''; });
+    if (newItems[0]) newItems[0].style.marginLeft = ml + 'px';
+    updatePageNav();
+    redraw();
+    return;
+  }
+
+  updatePageNav();
   if (animate !== false) {
     items.forEach(el => { el.style.transition = 'margin-left .22s ease'; });
-    items[0].style.marginLeft = ml + 'px';
+    if (items[0]) items[0].style.marginLeft = ml + 'px';
     setTimeout(() => items.forEach(el => { el.style.transition = ''; }), 240);
   } else {
     items.forEach(el => { el.style.transition = ''; });
@@ -942,14 +970,12 @@ function fitW() {
 // ── Canvas pointer events ─────────────────────────────────
 function setupCanvas() {
   function gP(ex, ey) {
-    // Trova il page-canvas della pagina corrente
-    const pc = CO.querySelector('.page-canvas[data-page="' + S.curPage + '"]');
-    const r  = pc ? pc.getBoundingClientRect() : CV.getBoundingClientRect();
-    // Offset Y logico = origine pagina corrente nel canvas verticale
-    const pageOffsetY = S.curPage * (PH + PGAP);
+    // CV è posizionato nel PV con top = -pageOffset*zoom
+    // BoundingClientRect di CV riflette questa posizione
+    const r = CV.getBoundingClientRect();
     return {
       x: (ex - r.left) / S.zoom,
-      y: (ey - r.top)  / S.zoom + pageOffsetY
+      y: (ey - r.top)  / S.zoom
     };
   }
 
