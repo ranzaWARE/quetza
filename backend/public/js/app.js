@@ -7,10 +7,10 @@
 // ── Config ────────────────────────────────────────────────
 // A4 @ 96dpi — coordinate logiche fisse
 // La qualità Retina è gestita via devicePixelRatio in applyZoom
-const PW   = 794;  // A4 width @ 96dpi
-const PH   = 1123; // A4 height @ 96dpi
-const PGAP = 48;   // gap orizzontale tra pagine
-const GSP  = 28;   // grid spacing
+const PW = 794;   // A4 width @ 96dpi
+const PH = 1123;  // A4 height @ 96dpi
+const PGAP = 32;  // gap between pages
+const GSP = 28;   // grid spacing
 const ZOOM_STEPS = [.25,.33,.5,.67,.75,.9,1,1.1,1.25,1.5,1.75,2,2.5,3];
 
 // ── State ─────────────────────────────────────────────────
@@ -22,10 +22,6 @@ const S = {
   grid: 'lines', pages: 1,
   // Zoom / pan
   zoom: 1, pan: false, pY: 0, pSY: 0,
-  mousePan: false,      // pan con middle click o spazio+drag
-  mousePanX: 0, mousePanY: 0,   // ultimo punto mouse durante pan
-  mousePanSL: 0, mousePanST: 0, // scrollLeft/Top al start pan
-  spaceDown: false,     // spazio premuto
   // Palm rejection
   palmActive: false,  // true se un dito è sul canvas mentre scriviamo
   activePointers: new Map(), // pointerId → type
@@ -37,6 +33,7 @@ const S = {
   // UI
   dark: false,
   shapeRecog: false,
+  curPage: 0,   // pagina corrente (0-based)
   textItems: [],    // {x, y, text, size, id}
   whisperSegments: null,  // array segmenti con start/end/text
   whisperPending: false,  // trascrizione in background in corso
@@ -143,9 +140,9 @@ function restoreDarkMode() {
     if (saved === '1') {
       S.dark = true;
       APP.setAttribute('data-dk','1');
+      if (S.color === '#111') setColor('#fff');
     }
   } catch {}
-  // applyDarkColor viene chiamato dopo setupToolbar quando i bottoni esistono
 }
 
 // Carica tutte le sessioni audio di una nota e le concatena in un unico AudioBuffer
@@ -194,7 +191,7 @@ async function openNote(id) {
   S.textItems      = Array.isArray(n.text_items)       ? n.text_items       : (Array.isArray(n.textItems) ? n.textItems : []);
   S.whisperSegments = Array.isArray(n.whisper_segments) ? n.whisper_segments : null;
   S.grid      = n.grid       || 'lines';
-  S.pages     = Math.max(1, Math.ceil((maxX() - PW) / (PW + PGAP)) + 1);
+  S.pages     = Math.max(1, Math.ceil(maxY() / PH) + 1);
   S.curPage   = 0;
   S.undo = []; S.redo = []; S.selectedIds.clear(); S.cur = null;
   GSL.value = S.grid;
@@ -220,8 +217,7 @@ async function openNote(id) {
   }
 
   EM.style.display = 'none'; ED.className = 'on';
-  // Imposta dimensioni logiche del canvas (coordinate di disegno)
-  CV.width = totalW(); CV.height = PH; markDirty('all');
+  CV.width = PW; CV.height = totalH(); markDirty('all');
   renderNL();
   updatePageNav();
   requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -322,9 +318,8 @@ function genThumb() {
   oc.fillStyle = '#fff'; oc.fillRect(0, 0, 280, 100);
   const sc = Math.min(280 / PW, 100 / PH);
   oc.save(); oc.scale(sc, sc);
-  // Solo stroke della prima pagina (X < PW)
-  drawSS(oc, S.strokes.filter(s => !s.pts || s.pts.some(p => p.x < PW)));
-  (Array.isArray(S.textItems) ? S.textItems : []).filter(ti => ti.x < PW).forEach(ti => {
+  drawSS(oc, S.strokes);
+  (Array.isArray(S.textItems) ? S.textItems : []).forEach(ti => {
     oc.font = `${ti.size||18}px 'Segoe UI',system-ui,sans-serif`;
     oc.fillStyle = ti.color || '#111827';
     oc.fillText(ti.text, ti.x, ti.y);
@@ -418,6 +413,21 @@ function showNoteMenu(n, anchor) {
   setTimeout(() => document.addEventListener('click', () => m.remove(), { once: true }), 0);
 }
 
+function setColor(c) {
+  S.color = c;
+  document.querySelectorAll('.sw').forEach(s => s.classList.toggle('on', s.dataset.c === c));
+}
+function applyDarkColor() {
+  const bk = document.getElementById('SW_BK');
+  if (S.dark) {
+    if (bk) { bk.dataset.c = '#fff'; bk.style.background = '#fff'; }
+    if (S.color === '#111') setColor('#fff');
+  } else {
+    if (bk) { bk.dataset.c = '#111'; bk.style.background = '#111'; }
+    if (S.color === '#fff') setColor('#111');
+  }
+}
+
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function setColor(c) {
@@ -427,30 +437,11 @@ function setColor(c) {
   });
 }
 
-function applyDarkColor() {
-  const bk = document.getElementById('SW_BK');
-  if (S.dark) {
-    // In dark: pallino diventa bianco
-    if (bk) { bk.dataset.c = '#fff'; bk.style.background = '#fff'; bk.title = 'Bianco'; }
-    if (S.color === '#111') setColor('#fff');
-  } else {
-    // In light: pallino torna nero
-    if (bk) { bk.dataset.c = '#111'; bk.style.background = '#111'; bk.title = 'Nero'; }
-    if (S.color === '#fff') setColor('#111');
-  }
-}
-
 // ── Draw helpers ──────────────────────────────────────────
-function totalH() { return PH; }  // canvas alto = una pagina
-function totalW() { return S.pages * PW + (S.pages - 1) * PGAP; }  // largo = tutte le pagine
-function maxY() {  // mantieni per compatibilità PDF
+function totalH() { return S.pages * PH + (S.pages - 1) * PGAP; }
+function maxY() {
   let m = 0;
   S.strokes.forEach(s => s.pts && s.pts.forEach(p => { if (p.y > m) m = p.y; }));
-  return m;
-}
-function maxX() {
-  let m = 0;
-  S.strokes.forEach(s => s.pts && s.pts.forEach(p => { if (p.x > m) m = p.x; }));
   return m;
 }
 
@@ -460,14 +451,14 @@ function drawGrid(c, dk) {
   const lc = dk ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.06)';
   const dc = dk ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.18)';
   for (let p = 0; p < S.pages; p++) {
-    const ox = p * (PW + PGAP);  // offset X della pagina p
+    const py = p * (PH + PGAP);
     if (S.grid === 'lines' || S.grid === 'grid') {
       c.strokeStyle = lc;
-      for (let y = GSP; y < PH; y += GSP) { c.beginPath(); c.moveTo(ox, y); c.lineTo(ox+PW, y); c.stroke(); }
-      if (S.grid === 'grid') for (let x = GSP; x < PW; x += GSP) { c.beginPath(); c.moveTo(ox+x, 0); c.lineTo(ox+x, PH); c.stroke(); }
+      for (let y = GSP; y < PH; y += GSP) { c.beginPath(); c.moveTo(0, py+y); c.lineTo(PW, py+y); c.stroke(); }
+      if (S.grid === 'grid') for (let x = GSP; x < PW; x += GSP) { c.beginPath(); c.moveTo(x, py); c.lineTo(x, py+PH); c.stroke(); }
     } else {
       c.fillStyle = dc;
-      for (let y = GSP; y < PH; y += GSP) for (let x = GSP; x < PW; x += GSP) { c.beginPath(); c.arc(ox+x, y, 1.2, 0, Math.PI*2); c.fill(); }
+      for (let y = GSP; y < PH; y += GSP) for (let x = GSP; x < PW; x += GSP) { c.beginPath(); c.arc(x, py+y, 1.2, 0, Math.PI*2); c.fill(); }
     }
   }
   c.restore();
@@ -476,18 +467,21 @@ function drawGrid(c, dk) {
 function drawSeps(c, dk) {
   c.save();
   for (let p = 0; p < S.pages - 1; p++) {
-    const sx = (p + 1) * PW + p * PGAP;  // inizio gap orizzontale
-    // Sfondo gap
-    c.fillStyle = dk ? '#181c22' : '#eceef1';
-    c.fillRect(sx, 0, PGAP, PH);
-    // Ombra a destra del foglio precedente
-    const shadowW = Math.min(14, PGAP / 2);
-    const shadowGrad = c.createLinearGradient(sx, 0, sx + shadowW, 0);
-    shadowGrad.addColorStop(0, dk ? 'rgba(0,0,0,.35)' : 'rgba(0,0,0,.12)');
-    shadowGrad.addColorStop(1, 'rgba(0,0,0,0)');
-    c.fillStyle = shadowGrad;
-    c.fillRect(sx, 0, shadowW, PH);
+    const sy = (p + 1) * PH + p * PGAP;
+    c.fillStyle = dk ? 'rgba(0,0,0,.35)' : 'rgba(0,0,0,.07)';
+    c.fillRect(0, sy, PW, PGAP);
+    c.setLineDash([8, 6]);
+    c.strokeStyle = dk ? 'rgba(255,255,255,.15)' : 'rgba(0,0,0,.2)';
+    c.lineWidth = 1;
+    c.beginPath(); c.moveTo(0, sy+PGAP); c.lineTo(PW, sy+PGAP); c.stroke();
+    c.setLineDash([]);
+    c.fillStyle = dk ? 'rgba(255,255,255,.2)' : 'rgba(0,0,0,.18)';
+    c.font = '11px system-ui'; c.textAlign = 'right';
+    c.fillText(`${p+1} / ${S.pages}`, PW - 10, sy - 6);
   }
+  c.fillStyle = dk ? 'rgba(255,255,255,.2)' : 'rgba(0,0,0,.18)';
+  c.font = '11px system-ui'; c.textAlign = 'right';
+  c.fillText(`${S.pages} / ${S.pages}`, PW - 10, totalH() - 6);
   c.restore();
 }
 
@@ -602,9 +596,9 @@ function redraw(hTs) {
 
   // Layer 1: griglia (offscreen, ridisegnata solo se cambia)
   if (_gridDirty) {
-    _gridCtx.clearRect(0, 0, totalW(), PH);
+    _gridCtx.clearRect(0, 0, PW, totalH());
     _gridCtx.fillStyle = dk ? '#23272e' : '#fff';
-    for (let p = 0; p < S.pages; p++) _gridCtx.fillRect(p*(PW+PGAP), 0, PW, PH);
+    for (let p = 0; p < S.pages; p++) _gridCtx.fillRect(0, p*(PH+PGAP), PW, PH);
     drawGrid(_gridCtx, dk);
     drawSeps(_gridCtx, dk);
     _gridDirty = false;
@@ -612,16 +606,16 @@ function redraw(hTs) {
 
   // Layer 2: strokes statici (offscreen, ridisegnati solo se cambiano)
   if (_strokeDirty) {
-    _strokeCtx.clearRect(0, 0, totalW(), PH);
+    _strokeCtx.clearRect(0, 0, PW, totalH());
     S.imgs.forEach(i => _strokeCtx.drawImage(i.el, i.x, i.y, i.w, i.h));
     drawSS(_strokeCtx, S.strokes);
     _strokeDirty = false;
   }
 
   // Composita tutto sul canvas finale (coordinate logiche — il context è scalato dpr)
-  cx.clearRect(0, 0, totalW(), PH);
-  cx.drawImage(_gridCanvas, 0, 0, totalW(), PH);
-  cx.drawImage(_strokeCanvas, 0, 0, totalW(), PH);
+  cx.clearRect(0, 0, PW, totalH());
+  cx.drawImage(_gridCanvas, 0, 0, PW, totalH());
+  cx.drawImage(_strokeCanvas, 0, 0, PW, totalH());
 
   // Layer 3: testo digitato + overlay dinamici
   (Array.isArray(S.textItems) ? S.textItems : []).forEach(ti => {
@@ -647,6 +641,18 @@ function redraw(hTs) {
     cx.setLineDash([]);
     cx.restore();
   }
+
+  // Copia ogni pagina sul suo page-canvas nel CO
+  const dpr = window.devicePixelRatio || 1;
+  document.querySelectorAll('.page-canvas').forEach(pc => {
+    const p   = parseInt(pc.dataset.page);
+    const pct = pc.getContext('2d');
+    if (!pct) return;
+    pct.clearRect(0, 0, pc.width, pc.height);
+    // Copia la slice verticale della pagina p dal canvas principale
+    const srcY = p * (PH + PGAP) * dpr;
+    pct.drawImage(CV, 0, srcY, pc.width, pc.height, 0, 0, pc.width, pc.height);
+  });
 }
 
 function strokeBBox(s) {
@@ -733,9 +739,9 @@ function drawLassoPath(c, pts) {
 
 // ── Auto-extend pages ─────────────────────────────────────
 function checkExtend() {
-  const mx = maxX();
-  const lastPageStart = (S.pages - 1) * (PW + PGAP);
-  if (mx > lastPageStart + PW * 0.8) {
+  const my = maxY();
+  const lastPageStart = (S.pages - 1) * (PH + PGAP);
+  if (my > lastPageStart + PH * 0.8) {
     S.pages++;
     markDirty('all');
     applyZoom();
@@ -759,90 +765,79 @@ function setupZoom() {
   // Wheel zoom (desktop) — centrato sul cursore
   CO.addEventListener('wheel', e => {
     e.preventDefault();
-    const r = CO.getBoundingClientRect();
-
-    if (e.ctrlKey || e.metaKey) {
-      // Ctrl+rotella → zoom centrato sul cursore, più veloce
-      const mx = (e.clientX - r.left) + CO.scrollLeft;
-      const my = (e.clientY - r.top)  + CO.scrollTop;
-      const factor = e.deltaMode === 1 ? 0.15 : 0.0012; // linee vs pixel
-      const scale  = 1 - e.deltaY * factor;
-      zTo(S.zoom * scale, mx, my);
-
-    } else if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+    if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
       // Shift+rotella o scroll orizzontale → cambia pagina
-      const delta = e.deltaX || e.deltaY;
-      if (Math.abs(delta) > 30) {
-        goPage(delta > 0 ? S.curPage + 1 : S.curPage - 1);
-      } else {
-        CO.scrollLeft += delta;
-      }
-
+      const d = e.deltaX || e.deltaY;
+      if (Math.abs(d) > 50) goPage(d > 0 ? S.curPage + 1 : S.curPage - 1);
     } else {
-      // Rotella senza modificatori → zoom diretto (più naturale su canvas)
-      const mx = (e.clientX - r.left) + CO.scrollLeft;
-      const my = (e.clientY - r.top)  + CO.scrollTop;
+      // Rotella (con o senza Ctrl) → zoom, più veloce
       const factor = e.deltaMode === 1 ? 0.12 : 0.001;
-      const scale  = 1 - e.deltaY * factor;
-      zTo(S.zoom * scale, mx, my);
+      zTo(S.zoom * (1 - e.deltaY * factor));
     }
   }, { passive: false });
+
+  // Pan con mouse: middle click o click destro + drag
+  let _mPan = false, _mPanX = 0, _mPanY = 0, _mPanItems = null, _mPanML = 0;
+  let _spaceDown = false;
+
+  function startMPan(clientX, clientY) {
+    _mPan = true; _mPanX = clientX; _mPanY = clientY;
+    _mPanItems = [...CO.querySelectorAll('.PV,.PG')];
+    _mPanML = parseFloat(_mPanItems[0]?.style.marginLeft || '0') || 0;
+    CO.style.cursor = 'grabbing';
+  }
+  function moveMPan(clientX) {
+    if (!_mPan || !_mPanItems?.length) return;
+    const dx = clientX - _mPanX;
+    _mPanItems[0].style.marginLeft = (_mPanML + dx) + 'px';
+  }
+  function endMPan() {
+    if (!_mPan) return;
+    _mPan = false;
+    CO.style.cursor = _spaceDown ? 'grab' : '';
+    // Snap alla pagina più vicina
+    if (!_mPanItems?.length) return;
+    const cssW = Math.round(PW * S.zoom);
+    const gap  = 24;
+    const ml   = parseFloat(_mPanItems[0].style.marginLeft || '0') || 0;
+    const coW  = CO.clientWidth;
+    // Centro corrente rispetto alla prima pagina
+    const center = (coW / 2) - ml;
+    const nearest = Math.round((center - cssW / 2) / (cssW + gap));
+    goPage(Math.max(0, Math.min(S.pages - 1, nearest)));
+  }
+
+  CO.addEventListener('mousedown', e => {
+    if (e.button === 1 || e.button === 2) { e.preventDefault(); startMPan(e.clientX, e.clientY); }
+    if (e.button === 0 && _spaceDown)      { e.preventDefault(); startMPan(e.clientX, e.clientY); }
+  });
+  CO.addEventListener('mousemove', e => { if (_mPan) moveMPan(e.clientX); });
+  CO.addEventListener('mouseup',   e => { if (_mPan) endMPan(); });
+  CO.addEventListener('mouseleave',()  => { if (_mPan) endMPan(); });
+  CO.addEventListener('contextmenu', e => e.preventDefault());
+
+  document.addEventListener('keydown', e => {
+    if (e.key === ' ' && !_spaceDown && e.target === document.body) {
+      e.preventDefault(); _spaceDown = true;
+      CO.style.cursor = 'grab';
+    }
+  });
+  document.addEventListener('keyup', e => {
+    if (e.key === ' ') { _spaceDown = false; CO.style.cursor = ''; }
+  });
 
   // Blocca zoom browser
   document.addEventListener('wheel', e => {
     if (e.ctrlKey || e.metaKey) e.preventDefault();
   }, { passive: false });
-
-  // ── Pan con mouse ────────────────────────────────────────
-  // Middle click (button=1) o Spazio+drag sinistro
-
-  function startMousePan(clientX, clientY) {
-    S.mousePan = true;
-    S.mousePanX  = clientX;  S.mousePanY  = clientY;
-    S.mousePanSL = CO.scrollLeft; S.mousePanST = CO.scrollTop;
-    CO.style.cursor = 'grabbing';
-    CV.style.cursor = 'grabbing';
-  }
-
-  function endMousePan() {
-    S.mousePan = false;
-    CO.style.cursor = '';
-    CV.style.cursor = S.spaceDown ? 'grab' : (S.textMode ? 'text' : 'crosshair');
-  }
-
-  // Middle click → pan
-  CO.addEventListener('mousedown', e => {
-    if (e.button === 1) { e.preventDefault(); startMousePan(e.clientX, e.clientY); }
-    // Click destro → pan
-    if (e.button === 2) { e.preventDefault(); startMousePan(e.clientX, e.clientY); }
-  });
-
-  CO.addEventListener('mousemove', e => {
-    if (!S.mousePan) return;
-    const dx = e.clientX - S.mousePanX;
-    const dy = e.clientY - S.mousePanY;
-    CO.scrollLeft = S.mousePanSL - dx;
-    CO.scrollTop  = S.mousePanST - dy;
-  });
-
-  CO.addEventListener('mouseup', e => {
-    if (e.button === 1 || e.button === 2) endMousePan();
-  });
-
-  CO.addEventListener('mouseleave', () => { if (S.mousePan) endMousePan(); });
-
-  // Blocca context menu su click destro (usiamo per pan)
-  CO.addEventListener('contextmenu', e => e.preventDefault());
 }
 
 function applyZoom() {
   const dpr = window.devicePixelRatio || 1;
 
-  // Dimensioni LOGICHE: larghezza = tutte le pagine affiancate, altezza = una pagina
-  const logW = totalW();
-  const logH = PH;
-
-  // Dimensioni FISICHE: logiche * dpr per Retina
+  // Canvas logico verticale (PW x totalH) — invariato
+  const logW = PW;
+  const logH = totalH();
   const physW = Math.round(logW * dpr);
   const physH = Math.round(logH * dpr);
   if (CV.width !== physW || CV.height !== physH) {
@@ -851,68 +846,117 @@ function applyZoom() {
     cx.setTransform(dpr, 0, 0, dpr, 0, 0);
     markDirty('all');
   }
-
-  // Dimensioni CSS con zoom visivo
-  const cssW = Math.round(logW * S.zoom);
-  const cssH = Math.round(logH * S.zoom);
-  CV.style.width  = cssW + 'px';
-  CV.style.height = cssH + 'px';
-
-  CW.style.width  = (cssW + 32) + 'px';
-  CW.style.height = '100%';
+  // Canvas nascosto — visuale tramite page-canvas
+  CV.style.width  = Math.round(logW * S.zoom) + 'px';
+  CV.style.height = Math.round(logH * S.zoom) + 'px';
   ZL.textContent = Math.round(S.zoom * 100) + '%';
-  // Mantieni pagina corrente visibile dopo zoom
-  if (S.curPage > 0) {
-    CO.scrollLeft = S.curPage * (PW + PGAP) * S.zoom;
-  }
+  rebuildPageViewports();
 }
 
-function zTo(z, pivotX, pivotY) {
-  const oldZ = S.zoom;
-  S.zoom = Math.max(.25, Math.min(3, z));
-  markDirty('all'); // zoom cambia le dimensioni fisiche del canvas
+function rebuildPageViewports() {
+  const dpr  = window.devicePixelRatio || 1;
+  const cssW = Math.round(PW * S.zoom);
+  const cssH = Math.round(PH * S.zoom);
+  const gap  = 24;
 
-  if (pivotX !== undefined && pivotY !== undefined) {
-    const ratio = S.zoom / oldZ;
-    CO.scrollLeft = (CO.scrollLeft + pivotX) * ratio - pivotX;
-    CO.scrollTop  = (CO.scrollTop  + pivotY) * ratio - pivotY;  // mantieni Y centrato
-  } else {
-    const f = CO.scrollLeft / (CW.scrollWidth || 1);
-    applyZoom();
-    CO.scrollLeft = f * CW.scrollWidth;
-    redraw(); return;
+  CO.querySelectorAll('.PV,.PG').forEach(el => el.remove());
+  CV.style.display = 'none';
+
+  for (let p = 0; p < S.pages; p++) {
+    if (p > 0) {
+      const g = document.createElement('div');
+      g.className = 'PG';
+      g.style.cssText = 'width:' + gap + 'px;height:' + cssH + 'px;flex-shrink:0';
+      CO.appendChild(g);
+    }
+    const pv = document.createElement('div');
+    pv.className = 'PV';
+    pv.dataset.page = p;
+    pv.style.cssText = 'width:' + cssW + 'px;height:' + cssH + 'px';
+
+    const pc = document.createElement('canvas');
+    pc.className = 'page-canvas';
+    pc.dataset.page = p;
+    pc.width  = Math.round(PW * dpr);
+    pc.height = Math.round(PH * dpr);
+    pc.style.cssText = 'width:' + cssW + 'px;height:' + cssH + 'px;position:absolute;left:0;top:0';
+    pv.appendChild(pc);
+    CO.appendChild(pv);
   }
+  showPage(S.curPage, false);
+  updatePageNav();
+}
+
+function showPage(idx, animate) {
+  if (idx < 0 || idx >= S.pages) return;
+  S.curPage = idx;
+  updatePageNav();
+  const items = [...CO.querySelectorAll('.PV,.PG')];
+  if (!items.length) return;
+  // Calcola marginLeft per centrare il PV idx nel CO
+  const cssW = Math.round(PW * S.zoom);
+  const gap  = 24;
+  // Offset sinistro del PV idx (somma di tutti i PV+gap precedenti)
+  const pvLeft = idx * cssW + idx * gap;
+  const coW    = CO.clientWidth;
+  const ml     = Math.round((coW - cssW) / 2) - pvLeft;
+  if (animate !== false) {
+    items.forEach(el => { el.style.transition = 'margin-left .22s ease'; });
+    items[0].style.marginLeft = ml + 'px';
+    setTimeout(() => items.forEach(el => { el.style.transition = ''; }), 240);
+  } else {
+    items.forEach(el => { el.style.transition = ''; });
+    if (items[0]) items[0].style.marginLeft = ml + 'px';
+  }
+  redraw();
+}
+
+function updatePageNav() {
+  const prev = document.getElementById('PGPREV');
+  const next = document.getElementById('PGNEXT');
+  const num  = document.getElementById('PGNUM');
+  if (prev) prev.disabled = S.curPage === 0;
+  if (next) next.disabled = S.curPage >= S.pages - 1;
+  if (num)  num.textContent = (S.curPage + 1) + ' / ' + S.pages;
+}
+
+function zTo(z) {
+  S.zoom = Math.max(.25, Math.min(3, z));
+  markDirty('all');
   applyZoom();
   redraw();
 }
 
 function fitW() {
   const h = CO.clientHeight;
-  if (h > 0) {
-    // Adatta altezza della pagina al viewport (più naturale per scroll orizzontale)
-    S.zoom = Math.max(.25, Math.min(3, (h - 160) / PH));
+  const w = CO.clientWidth;
+  if (h > 0 && w > 0) {
+    const zH = (h - 140) / PH;
+    const zW = (w - 80)  / PW;
+    S.zoom = Math.max(.25, Math.min(3, Math.min(zH, zW)));
     applyZoom();
-    scrollToPage(S.curPage);
+    redraw();
   }
 }
 
 // ── Canvas pointer events ─────────────────────────────────
 function setupCanvas() {
   function gP(ex, ey) {
-    const r = CV.getBoundingClientRect();
-    // r.width = PW * zoom (CSS px)
-    // nota: CO.scrollTop aggiunto perché canvas è posizionato e non scrolla
-    // Coordinate logiche = (css_offset / zoom)
+    // Trova il page-canvas della pagina corrente
+    const pc = CO.querySelector('.page-canvas[data-page="' + S.curPage + '"]');
+    const r  = pc ? pc.getBoundingClientRect() : CV.getBoundingClientRect();
+    // Offset Y logico = origine pagina corrente nel canvas verticale
+    const pageOffsetY = S.curPage * (PH + PGAP);
     return {
       x: (ex - r.left) / S.zoom,
-      y: (ey - r.top)  / S.zoom
+      y: (ey - r.top)  / S.zoom + pageOffsetY
     };
   }
 
-  function inGap(x) {
+  function inGap(y) {
     for (let p = 0; p < S.pages - 1; p++) {
-      const g = (p+1)*PW + p*PGAP;
-      if (x >= g && x <= g + PGAP) return true;
+      const g = (p+1)*PH + p*PGAP;
+      if (y >= g && y <= g + PGAP) return true;
     }
     return false;
   }
@@ -1113,16 +1157,6 @@ function setupCanvas() {
     }
   }, { passive: false });
 
-  document.addEventListener('keyup', e => {
-    if (e.key === ' ') {
-      S.spaceDown = false;
-      if (!S.mousePan) {
-        CV.style.cursor = S.textMode ? 'text' : 'crosshair';
-        CO.style.cursor = '';
-      }
-    }
-  });
-
   // ── Pointer handlers su CV (canvas) per disegno ──────────
   // Registrare su CV invece che CO risolve il problema di input mancanti:
   // il canvas riceve gli eventi direttamente senza che il wrapper
@@ -1130,13 +1164,6 @@ function setupCanvas() {
   CV.addEventListener('pointerdown', e => {
     e.preventDefault();
     if (e.pointerType === 'touch') return;
-    // Spazio+click sinistro → pan
-    if (S.spaceDown && e.button === 0) {
-      startMousePan(e.clientX, e.clientY);
-      return;
-    }
-    // Click medio o destro → pan (già gestito su CO, ma catturiamo anche su CV)
-    if (e.button === 1 || e.button === 2) { startMousePan(e.clientX, e.clientY); return; }
     // Modalità posizionamento testo
     if (S.textMode && S._pendingText) {
       const p = gP(e.clientX, e.clientY);
@@ -1150,7 +1177,7 @@ function setupCanvas() {
     CV.setPointerCapture(e.pointerId);
     S.activePointers.set(e.pointerId, e.pointerType);
     const p = gP(e.clientX, e.clientY);
-    if (inGap(p.x)) return;
+    if (inGap(p.y)) return;
     const t = (e.buttons === 32 || e.button === 5) ? 'eraser' : S.tool;
     const aTs = S.recOn ? (Date.now() - S.recStart + S.recOffset) : null;
     const additive = e.shiftKey || e.ctrlKey || e.metaKey;
@@ -1195,16 +1222,7 @@ function setupCanvas() {
 
   CV.addEventListener('pointermove', e => {
     e.preventDefault();
-    if (e.pointerType === 'touch') return;
-    // Pan con spazio+drag
-    if (S.mousePan && S.spaceDown) {
-      const dx = e.clientX - S.mousePanX;
-      const dy = e.clientY - S.mousePanY;
-      CO.scrollLeft = S.mousePanSL - dx;
-      CO.scrollTop  = S.mousePanST - dy;
-      return;
-    }
-    if (!S.cur) return;
+    if (e.pointerType === 'touch' || !S.cur) return;
 
     const events = (e.getCoalescedEvents && e.getCoalescedEvents().length > 0)
       ? e.getCoalescedEvents() : [e];
@@ -1250,7 +1268,6 @@ function setupCanvas() {
   CV.addEventListener('pointerup', e => {
     e.preventDefault();
     if (e.pointerType === 'touch') return;
-    if (S.mousePan) { endMousePan(); return; }
     S.activePointers.delete(e.pointerId);
 
     // Fine drag selezione
@@ -1310,7 +1327,7 @@ function setupCanvas() {
       if (t.touchType === 'stylus') {
         e.preventDefault();
         const pos = gP(t.clientX, t.clientY);
-        if (inGap(pos.x)) return;
+        if (inGap(pos.y)) return;
         const aTs = S.recOn ? (Date.now() - S.recStart + S.recOffset) : null;
         // Con pennino: se tool è lasso, fai hit test; altrimenti disegna
         if (S.tool === 'lasso') {
@@ -1538,7 +1555,6 @@ function setupToolbar() {
     };
   }
   updateTranscribeBtn();
-  // Applica colori dark mode dopo che i bottoni sono pronti
   if (S.dark) applyDarkColor();
 
   document.getElementById('PSB').onclick = pasteImg;
@@ -1630,22 +1646,10 @@ function setupToolbar() {
         case 't': { const tb=document.getElementById('TXTB'); if(tb) tb.click(); } break;
       }
     }
-    if (e.key===' ' && e.target===document.body) { e.preventDefault(); document.getElementById('APB')?.click(); }
-    // Spazio → pan temporaneo (se non in input)
-    if (e.key===' ' && !e.ctrlKey && !S.spaceDown && e.target===document.body) {
-      e.preventDefault();
-      S.spaceDown = true;
-      if (!S.mousePan) { CV.style.cursor='grab'; CO.style.cursor='grab'; }
-    }
-    if (e.key==='PageDown') { e.preventDefault(); goPage(S.curPage+1); }
-    if (e.key==='PageUp')   { e.preventDefault(); goPage(S.curPage-1); }
+    if (e.key===' ' && e.target===document.body) { e.preventDefault(); document.getElementById('APB').click(); }
     if (e.key==='Escape') { S.selectedIds.clear(); S.lassoPath=null; S.selDrag=false; S.cur=null; S.textMode=false; S._pendingText=null; CV.style.cursor='crosshair'; redraw(); }
-    if (e.key===' ') {
-      S.spaceDown = false;
-      if (!S.mousePan) { CV.style.cursor = S.textMode ? 'text' : 'crosshair'; CO.style.cursor=''; }
-    }
-    if (e.key==='PageDown') { e.preventDefault(); goPage(S.curPage+1); }
-    if (e.key==='PageUp')   { e.preventDefault(); goPage(S.curPage-1); }
+    if (e.key==='ArrowRight' || e.key==='PageDown') { e.preventDefault(); goPage(S.curPage+1); }
+    if (e.key==='ArrowLeft'  || e.key==='PageUp')   { e.preventDefault(); goPage(S.curPage-1); }
     if ((e.key==='Delete'||e.key==='Backspace') && document.activeElement===document.body) { deleteSelected(); }
   });
 }
@@ -1761,9 +1765,9 @@ function exportPDF(withGrid) {
         const off = document.createElement('canvas'); off.width = PW; off.height = PH;
         const oc = off.getContext('2d'); oc.fillStyle = '#fff'; oc.fillRect(0, 0, PW, PH);
         if (withGrid) drawGrid(oc, false);
-        const pl = p*(PW+PGAP), pr = pl+PW;  // offset orizzontale della pagina p
-        S.imgs.forEach(i => { if (i.x+i.w>pl && i.x<pr) oc.drawImage(i.el, i.x-pl, i.y, i.w, i.h); });
-        drawSS(oc, S.strokes.filter(s => s.pts && s.pts.some(q => q.x>=pl && q.x<=pr)).map(s => ({...s, pts: s.pts.map(q => ({...q, x: q.x-pl}))})));
+        const pt = p*(PH+PGAP), pb = pt+PH;
+        S.imgs.forEach(i => { if (i.y+i.h>pt && i.y<pb) oc.drawImage(i.el, i.x, i.y-pt, i.w, i.h); });
+        drawSS(oc, S.strokes.filter(s => s.pts && s.pts.some(q => q.y>=pt && q.y<=pb)).map(s => ({...s, pts: s.pts.map(q => ({...q, y: q.y-pt}))})));
         pdf.addImage(off.toDataURL('image/jpeg', .95), 'JPEG', 0, 0, 210, 297, '', 'FAST');
       }
       pdf.save(`${(NTT.value||'quetza').replace(/[^a-z0-9]/gi,'_')}.pdf`);
@@ -1849,18 +1853,16 @@ function setupPages() {
   updatePageNav();
 }
 
-function goPage(idx) {
+function goPage(idx, animate = true) {
   if (idx < 0 || idx >= S.pages) return;
   if (idx === S.curPage) return;
   S.curPage = idx;
   scrollToPage(idx);
   updatePageNav();
+  markDirty('all'); redraw();
 }
 
-function scrollToPage(idx) {
-  const pageLeft = idx * (PW + PGAP) * S.zoom;
-  CO.scrollTo({ left: pageLeft, behavior: 'smooth' });
-}
+function scrollToPage(idx) { showPage(idx, true); }
 
 function updatePageNav() {
   const prev = document.getElementById('PGPREV');
@@ -1874,11 +1876,10 @@ function updatePageNav() {
 
 // Aggiungi pagina automatica quando si avvicina al fondo
 function checkAutoPage() {
-  const strokeX = S.cur?.pts?.reduce((m, p) => Math.max(m, p.x), 0) || 0;
-  const pageRight = (S.curPage + 1) * PW + S.curPage * PGAP - 60; // 60px dal bordo destro
-  if (strokeX > pageRight && S.curPage === S.pages - 1) {
+  const strokeY = S.cur?.pts?.reduce((m, p) => Math.max(m, p.y), 0) || 0;
+  const pageBottom = (S.curPage + 1) * PH - 80; // 80px dal bordo
+  if (strokeY > pageBottom && S.curPage === S.pages - 1) {
     S.pages++;
-    applyZoom(); // ridimensiona il canvas
     updatePageNav();
   }
 }
@@ -1890,18 +1891,83 @@ function checkAutoPage() {
   document.getElementById('CO').addEventListener('scroll', () => {
     clearTimeout(_snapTimer);
     _snapTimer = setTimeout(() => {
-      if (!S.aBuf || !S.playing) {
-        const pageWs = (PW + PGAP) * S.zoom;
-        const nearest = Math.round(CO.scrollLeft / pageWs);
+      if (!S.aBuf || !S.playing) { // non snappare durante il playback audio
+        const pageH = (PH + PGAP) * S.zoom;
+        const nearest = Math.round(CO.scrollTop / pageH);
         const clamped = Math.max(0, Math.min(S.pages - 1, nearest));
         if (clamped !== S.curPage) {
           S.curPage = clamped;
           updatePageNav();
         }
-        CO.scrollTo({ left: clamped * pageWs, behavior: 'smooth' });
+        CO.scrollTo({ top: clamped * pageH, behavior: 'smooth' });
       }
     }, 150);
   }, { passive: true });
+})();
+
+function setupPages() {
+  const prev = document.getElementById('PGPREV');
+  const next = document.getElementById('PGNEXT');
+  const add  = document.getElementById('PGADD');
+  const num  = document.getElementById('PGNUM');
+  if (!prev) return;
+
+  prev.onclick = () => goPage(S.curPage - 1);
+  next.onclick = () => goPage(S.curPage + 1);
+  if (add) add.onclick = () => {
+    S.pages++;
+    applyZoom();
+    redraw();
+    goPage(S.pages - 1);
+    scheduleAutoSave();
+  };
+  if (num) num.onclick = () => {
+    const p = prompt('Vai a pagina (1-' + S.pages + '):', S.curPage + 1);
+    if (p && !isNaN(p)) goPage(parseInt(p) - 1);
+  };
+  updatePageNav();
+}
+
+function goPage(idx) {
+  if (idx < 0 || idx >= S.pages) return;
+  showPage(idx, true);
+}
+
+// Tastiera: frecce e scorciatoie
+(function setupKeyboard() {
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    const m = e.ctrlKey || e.metaKey;
+    if (m && e.key === 's')  { e.preventDefault(); saveNote(); }
+    if (m && e.key === 'z')  { e.preventDefault(); document.getElementById('UDB').click(); }
+    if (m && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) { e.preventDefault(); document.getElementById('RDB').click(); }
+    if (m && (e.key === '=' || e.key === '+')) { e.preventDefault(); zTo(S.zoom * 1.2); }
+    if (m && e.key === '-')  { e.preventDefault(); zTo(S.zoom / 1.2); }
+    if (m && e.key === '0')  { e.preventDefault(); fitW(); }
+    if (m && e.key === 'v')  { pasteImg(); }
+    if (!m) {
+      switch (e.key) {
+        case 'p': document.querySelector('[data-t="pen"]')?.click(); break;
+        case 'h': document.querySelector('[data-t="hl"]')?.click(); break;
+        case 'e': document.querySelector('[data-t="eraser"]')?.click(); break;
+        case 'r': document.querySelector('[data-t="rect"]')?.click(); break;
+        case 'l': document.querySelector('[data-t="line"]')?.click(); break;
+        case 'a': document.querySelector('[data-t="arrow"]')?.click(); break;
+        case 'o': document.querySelector('[data-t="ellipse"]')?.click(); break;
+        case 's': document.querySelector('[data-t="lasso"]')?.click(); break;
+        case 't': document.getElementById('TXTB')?.click(); break;
+      }
+    }
+    if (e.key === 'PageDown' || (e.key === 'ArrowRight' && m)) { e.preventDefault(); goPage(S.curPage + 1); }
+    if (e.key === 'PageUp'   || (e.key === 'ArrowLeft'  && m)) { e.preventDefault(); goPage(S.curPage - 1); }
+    if (e.key === 'Escape') {
+      S.selectedIds.clear(); S.lassoPath = null; S.selDrag = false;
+      S.cur = null; S.textMode = false; S._pendingText = null;
+      const pc = CO.querySelector('.page-canvas[data-page="' + S.curPage + '"]');
+      if (pc) pc.style.cursor = 'crosshair';
+      redraw();
+    }
+  });
 })();
 
 function startNetMonitor() {
@@ -2193,10 +2259,10 @@ function highlightTranscriptSegment(currentSec) {
 }
 
 function scrollToTs(ms) {
-  // Aggiorna pagina corrente da scrollLeft
-  const pageW2 = (PW + PGAP) * S.zoom;
-  if (pageW2 > 0) {
-    const visiblePage = Math.round(CO.scrollLeft / pageW2);
+  // Aggiorna pagina corrente basandosi sulla posizione dello scroll
+  const pageH = (PH + PGAP) * S.zoom;
+  if (pageH > 0) {
+    const visiblePage = Math.floor(CO.scrollTop / pageH);
     if (visiblePage !== S.curPage && visiblePage >= 0 && visiblePage < S.pages) {
       S.curPage = visiblePage;
       updatePageNav();
