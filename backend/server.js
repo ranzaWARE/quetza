@@ -125,8 +125,8 @@ app.patch('/api/notes/:id', requireAuth, (req, res) => {
 });
 app.put('/api/notes/:id/content', requireAuth, (req, res) => {
   try {
-    const { strokes, images, thumbnail, grid, canvasText, textItems } = req.body;
-    if (!db.saveContent(req.params.id, req.session.user.username, strokes, images, thumbnail, grid, canvasText, textItems)) return res.status(404).json({ error: 'Nota non trovata' });
+    const { strokes, images, thumbnail, grid, canvasText, textItems, pagesData } = req.body;
+    if (!db.saveContent(req.params.id, req.session.user.username, strokes, images, thumbnail, grid, canvasText, textItems, pagesData)) return res.status(404).json({ error: 'Nota non trovata' });
     res.json({ ok: true });
   } catch(e) {
     console.error('saveContent error:', e.message);

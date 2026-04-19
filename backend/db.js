@@ -95,6 +95,7 @@ try { db.exec(`ALTER TABLE notes ADD COLUMN canvas_text TEXT`); } catch {}
 try { db.exec(`ALTER TABLE notes ADD COLUMN whisper_text TEXT`); } catch {}
 try { db.exec(`ALTER TABLE notes ADD COLUMN text_items TEXT`); } catch {}
 try { db.exec(`ALTER TABLE notes ADD COLUMN whisper_segments TEXT`); } catch {}
+try { db.exec(`ALTER TABLE notes ADD COLUMN pages_data TEXT`); } catch {}
 
 // Indice FTS — ricrea se schema cambiato (rimuove vecchia versione con content table)
 try {
@@ -210,6 +211,7 @@ function getNoteById(id, username) {
     images:           note.images           ? JSON.parse(note.images)           : [],
     text_items:       note.text_items       ? JSON.parse(note.text_items)       : [],
     whisper_segments: note.whisper_segments ? JSON.parse(note.whisper_segments) : null,
+    pages_data:       note.pages_data       ? JSON.parse(note.pages_data)       : null,
   };
 }
 
@@ -228,9 +230,12 @@ function updateNoteMeta(id, username, { title, grid }) {
   return db.prepare(`UPDATE notes SET ${sets.join(', ')} WHERE id = ? AND username = ?`).run(...vals).changes > 0;
 }
 
-function saveContent(id, username, strokes, images, thumbnail, grid, canvasText, textItems) {
-  const r = db.prepare(`UPDATE notes SET strokes=?, images=?, thumbnail=?, grid=?, canvas_text=?, text_items=?, updated_at=datetime('now') WHERE id=? AND username=?`)
-    .run(JSON.stringify(strokes||[]), JSON.stringify(images||[]), thumbnail||null, grid||'lines', canvasText||null, JSON.stringify(textItems||[]), id, username);
+function saveContent(id, username, strokes, images, thumbnail, grid, canvasText, textItems, pagesData) {
+  // pagesData = array di pagine [{strokes, textItems}]
+  // Se fornito usa quello, altrimenti compatibilità con vecchio formato
+  const pagesJson = pagesData ? JSON.stringify(pagesData) : null;
+  const r = db.prepare(`UPDATE notes SET strokes=?, images=?, thumbnail=?, grid=?, canvas_text=?, text_items=?, pages_data=?, updated_at=datetime('now') WHERE id=? AND username=?`)
+    .run(JSON.stringify(strokes||[]), JSON.stringify(images||[]), thumbnail||null, grid||'lines', canvasText||null, JSON.stringify(textItems||[]), pagesJson, id, username);
   if (r.changes > 0) { try { rebuildFts(id); } catch(e) { console.warn('FTS rebuild:', e.message); } }
   return r.changes > 0;
 }

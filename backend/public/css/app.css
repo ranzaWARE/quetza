@@ -179,17 +179,7 @@ html,body{height:100%;overflow:hidden;font-family:ui-sans-serif,system-ui,-apple
   cursor:default;
 }
 
-.CW{display:none}
 
-/* CV posizionato da JS (_applyPan) */
-#C{
-  position:absolute;
-  cursor:crosshair;
-  border-radius:8px;
-  box-shadow:0 4px 24px rgba(17,24,39,.15),0 1px 4px rgba(17,24,39,.08);
-  touch-action:none;
-  pointer-events:auto;
-}
 /* Transizione slide pagina */
 #C{transition:opacity .18s ease}
 #C.pg-slide{opacity:0}
@@ -342,3 +332,54 @@ html,body{height:100%;overflow:hidden;font-family:ui-sans-serif,system-ui,-apple
   transition:background .12s,transform .12s;
 }
 .pg-add:hover{background:var(--brand-dark);transform:scale(1.1)}
+/* ── Canvas area ─────────────────────────────────────────────── */
+.CA{position:absolute;inset:0;background:var(--bg);border-radius:var(--r)}
+.CO{position:absolute;inset:0;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+.CW{display:none}
+
+/* Canvas A4 — posizionato da JS */
+#C{
+  position:absolute;
+  border-radius:8px;
+  box-shadow:0 4px 24px rgba(17,24,39,.14),0 1px 4px rgba(17,24,39,.07);
+  cursor:crosshair;
+  touch-action:none;
+  pointer-events:auto;
+  background:var(--pg);
+}
+
+/* ── Navigazione pagine ──────────────────────────────────────── */
+.pg-prev,.pg-next{
+  position:absolute;top:50%;transform:translateY(-50%);
+  z-index:55;width:36px;height:36px;border-radius:50%;
+  background:var(--card);border:1px solid var(--line);
+  box-shadow:0 2px 8px rgba(17,24,39,.1);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;color:var(--text);font-family:inherit;
+  transition:background .12s,opacity .12s;
+}
+.pg-prev:hover,.pg-next:hover{background:var(--bg)}
+.pg-prev:disabled,.pg-next:disabled{opacity:.2;cursor:default;pointer-events:none}
+.pg-prev{left:10px}
+.pg-next{right:10px}
+.pg-ind{
+  position:absolute;bottom:16px;left:50%;transform:translateX(-50%);
+  z-index:55;display:flex;align-items:center;gap:8px;
+}
+#PGNUM{
+  padding:4px 14px;border-radius:999px;
+  background:var(--card);border:1px solid var(--line);
+  font-size:.76rem;font-weight:600;color:var(--text);
+  cursor:pointer;font-family:inherit;
+  box-shadow:0 2px 8px rgba(17,24,39,.08);
+}
+#PGNUM:hover{background:var(--bg)}
+#PGADD{
+  width:26px;height:26px;border-radius:50%;
+  background:var(--brand);border:none;color:#111827;
+  font-size:1.1rem;font-weight:700;line-height:1;
+  cursor:pointer;font-family:inherit;
+  box-shadow:0 2px 8px rgba(245,160,0,.3);
+  transition:background .12s,transform .12s;
+}
+#PGADD:hover{background:var(--brand-dark);transform:scale(1.1)}
