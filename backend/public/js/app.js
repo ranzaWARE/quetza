@@ -729,20 +729,27 @@ function drawLassoPath(c, pts) {
   c.restore();
 }
 
-// ── Auto-extend pages ─────────────────────────────────────
-function checkExtend() {
-  const my = maxY();
-  const lastPageStart = (S.pages - 1) * (PH + PGAP);
-  if (my > lastPageStart + PH * 0.8) {
-    S.pages++;
-    markDirty('all');
-    applyZoom();
-    redraw();
-    drawTL();
-  }
-}
+// Auto-extend pagine rimosso — usa il tasto +
 
 // ── Zoom ──────────────────────────────────────────────────
+// Pan offset per la pagina corrente (reset ad ogni cambio pagina)
+let _panOffX = 0, _panOffY = 0;
+
+function _applyPan() {
+  // Centra la pagina + offset pan dell'utente
+  const cssW = Math.round(PW * S.zoom);
+  const cssH = Math.round(PH * S.zoom);
+  const coW  = CO.clientWidth;
+  const coH  = CO.clientHeight;
+  const baseX = Math.round((coW - cssW) / 2);
+  const baseY = Math.round((coH - cssH) / 2);
+  CV.style.left = (baseX + _panOffX) + 'px';
+  CV.style.top  = '0';
+  // translateY negativo per mostrare la pagina corrente
+  const offsetY = S.curPage * (PH + PGAP);
+  CV.style.transform = 'translateY(' + (-Math.round(offsetY * S.zoom) + baseY + _panOffY) + 'px)';
+}
+
 function setupZoom() {
   document.getElementById('ZI').onclick = () => {
     const i = ZOOM_STEPS.findIndex(z => z > S.zoom - .01);
@@ -772,48 +779,43 @@ function setupZoom() {
   let _mPan = false, _mPanX = 0, _mPanY = 0, _mPanItems = null, _mPanML = 0;
   let _spaceDown = false;
 
+  let _mPanStartX = 0, _mPanStartY = 0, _mPanStartOffX = 0, _mPanStartOffY = 0;
+
   function startMPan(clientX, clientY) {
-    _mPan = true; _mPanX = clientX; _mPanY = clientY;
-    _mPanItems = [...CO.querySelectorAll('.PV,.PG')];
-    _mPanML = parseFloat(_mPanItems[0]?.style.marginLeft || '0') || 0;
+    _mPan = true;
+    _mPanStartX = clientX; _mPanStartY = clientY;
+    _mPanStartOffX = _panOffX; _mPanStartOffY = _panOffY;
     CO.style.cursor = 'grabbing';
+    CV.style.cursor = 'grabbing';
   }
-  function moveMPan(clientX) {
-    if (!_mPan || !_mPanItems?.length) return;
-    const dx = clientX - _mPanX;
-    _mPanItems[0].style.marginLeft = (_mPanML + dx) + 'px';
+  function moveMPan(clientX, clientY) {
+    if (!_mPan) return;
+    _panOffX = _mPanStartOffX + (clientX - _mPanStartX);
+    _panOffY = _mPanStartOffY + (clientY - _mPanStartY);
+    _applyPan();
   }
   function endMPan() {
     if (!_mPan) return;
     _mPan = false;
     CO.style.cursor = _spaceDown ? 'grab' : '';
-    // Snap alla pagina più vicina
-    if (!_mPanItems?.length) return;
-    const cssW = Math.round(PW * S.zoom);
-    const gap  = 24;
-    const ml   = parseFloat(_mPanItems[0].style.marginLeft || '0') || 0;
-    const coW  = CO.clientWidth;
-    // Centro corrente rispetto alla prima pagina
-    const center = (coW / 2) - ml;
-    const nearest = Math.round((center - cssW / 2) / (cssW + gap));
-    goPage(Math.max(0, Math.min(S.pages - 1, nearest)));
+    CV.style.cursor = 'crosshair';
   }
 
   function panDown(e) {
     if (e.button === 1 || e.button === 2) { e.preventDefault(); startMPan(e.clientX, e.clientY); }
     if (e.button === 0 && _spaceDown)     { e.preventDefault(); startMPan(e.clientX, e.clientY); }
   }
-  function panMove(e) { if (_mPan) moveMPan(e.clientX); }
+
   function panUp()    { if (_mPan) endMPan(); }
 
   CO.addEventListener('mousedown',  panDown);
-  CO.addEventListener('mousemove',  panMove);
+  CO.addEventListener('mousemove',  e => { if (_mPan) moveMPan(e.clientX, e.clientY); });
   CO.addEventListener('mouseup',    panUp);
   CO.addEventListener('mouseleave', panUp);
   CO.addEventListener('contextmenu', e => e.preventDefault());
   // Pan anche quando il cursore è sul CV (che è dentro il PV dentro CO)
   CV.addEventListener('mousedown',  panDown);
-  CV.addEventListener('mousemove',  panMove);
+  CV.addEventListener('mousemove', e => { if (_mPan) moveMPan(e.clientX, e.clientY); });
   CV.addEventListener('mouseup',    panUp);
   CV.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -852,77 +854,42 @@ function applyZoom() {
   CV.style.height = Math.round(logH * S.zoom) + 'px';
   ZL.textContent = Math.round(S.zoom * 100) + '%';
   rebuildPageViewports();
+  _applyPan();
 }
 
 function rebuildPageViewports() {
   const dpr  = window.devicePixelRatio || 1;
   const cssW = Math.round(PW * S.zoom);
   const cssH = Math.round(PH * S.zoom);
-  const gap  = 24;
 
-  CO.querySelectorAll('.PV,.PG').forEach(el => el.remove());
+  // Rimuovi tutto tranne CV
+  [...CO.children].forEach(el => { if (el !== CV) el.remove(); });
 
-  for (let p = 0; p < S.pages; p++) {
-    if (p > 0) {
-      const g = document.createElement('div');
-      g.className = 'PG';
-      g.style.cssText = 'width:' + gap + 'px;height:' + cssH + 'px;flex-shrink:0';
-      CO.appendChild(g);
-    }
-    const pv = document.createElement('div');
-    pv.className = 'PV';
-    pv.dataset.page = p;
-    pv.style.cssText = 'width:' + cssW + 'px;height:' + cssH + 'px';
-
-    if (p === S.curPage) {
-      CV.style.display  = 'block';
-      CV.style.position = 'absolute';
-      CV.style.left     = '0';
-      CV.style.top      = '-' + Math.round(p * (PH + PGAP) * S.zoom) + 'px';
-      CV.style.width    = cssW + 'px';
-      CV.style.height   = Math.round(totalH() * S.zoom) + 'px';
-      pv.appendChild(CV);
-    } else {
-      const pc = document.createElement('canvas');
-      pc.className = 'page-canvas';
-      pc.dataset.page = p;
-      pc.width  = Math.round(PW * dpr);
-      pc.height = Math.round(PH * dpr);
-      pc.style.cssText = 'width:' + cssW + 'px;height:' + cssH + 'px;position:absolute;left:0;top:0';
-      pv.appendChild(pc);
-    }
-    CO.appendChild(pv);
-  }
-  // Centra la pagina corrente SENZA chiamare showPage (evita loop)
-  _centerPage(S.curPage, false);
+  // Posiziona CV per mostrare la pagina corrente
+  // Usa transform per evitare reflow e artefatti
+  const offsetY = S.curPage * (PH + PGAP);
+  CV.style.display   = 'block';
+  CV.style.position  = 'absolute';
+  CV.style.left      = '0';
+  CV.style.top       = '0';
+  CV.style.width     = cssW + 'px';
+  CV.style.height    = Math.round(totalH() * S.zoom) + 'px';
+  // Posizionamento tramite _applyPan
+  _applyPan();
   updatePageNav();
 }
 
-// Centra un PV nel CO — usato internamente senza triggerare rebuild
 function _centerPage(idx, animate) {
-  const cssW = Math.round(PW * S.zoom);
-  const gap  = 24;
-  const pvLeft = idx * (cssW + gap);
-  const coW    = CO.clientWidth;
-  const ml     = Math.round((coW - cssW) / 2) - pvLeft;
-  const items  = [...CO.querySelectorAll('.PV,.PG')];
-  if (!items.length) return;
-  if (animate) {
-    items.forEach(el => { el.style.transition = 'margin-left .22s ease'; });
-    items[0].style.marginLeft = ml + 'px';
-    setTimeout(() => items.forEach(el => { el.style.transition = ''; }), 240);
-  } else {
-    items.forEach(el => { el.style.transition = ''; });
-    items[0].style.marginLeft = ml + 'px';
-  }
+  // Con una sola pagina visibile non serve animare margini
+  // Il pan offset viene resettato al cambio pagina
+  _panOffX = 0; _panOffY = 0;
+  _applyPan();
 }
 
-function showPage(idx, animate) {
+function showPage(idx) {
   if (idx < 0 || idx >= S.pages) return;
   S.curPage = idx;
-  // Rebuild DOM (sposta CV nel PV corretto) poi centra
-  rebuildPageViewports();         // imposta struttura DOM
-  _centerPage(idx, animate !== false);  // anima posizione
+  rebuildPageViewports();
   updatePageNav();
   redraw();
 }
@@ -958,8 +925,7 @@ function fitW() {
 // ── Canvas pointer events ─────────────────────────────────
 function setupCanvas() {
   function gP(ex, ey) {
-    // CV è posizionato nel PV con top = -pageOffset*zoom
-    // BoundingClientRect di CV riflette questa posizione
+    // CV ha transform translateY — getBoundingClientRect() riflette la posizione reale
     const r = CV.getBoundingClientRect();
     return {
       x: (ex - r.left) / S.zoom,
@@ -1154,7 +1120,7 @@ function setupCanvas() {
 
     if (S.selDrag) {
       S.selDrag = false; S.selDragStart = null; S.selDragFrom = null;
-      checkAutoPage(); S.undo.push([...S.strokes]); S.redo = [];
+      // checkAutoPage rimosso S.undo.push([...S.strokes]); S.redo = [];
       scheduleAutoSave(); redraw();
     }
 
@@ -1178,6 +1144,10 @@ function setupCanvas() {
   CV.addEventListener('pointerdown', e => {
     e.preventDefault();
     if (e.pointerType === 'touch') return;
+    // Middle click (rotella) o destro → pan, non disegno
+    if (e.button === 1 || e.button === 2 || e.buttons === 4) { startMPan(e.clientX, e.clientY); return; }
+    // Spazio+click → pan
+    if (_spaceDown && e.button === 0) { startMPan(e.clientX, e.clientY); return; }
     // Modalità posizionamento testo
     if (S.textMode && S._pendingText) {
       const p = gP(e.clientX, e.clientY);
@@ -1309,7 +1279,7 @@ function setupCanvas() {
       scheduleAutoSave();
     }
     S.cur = null;
-    checkExtend();
+    // checkExtend rimosso
     redraw();
     if (S.aBuf) drawTL();
   }, { passive: false });
@@ -1441,7 +1411,7 @@ function setupCanvas() {
           S.redo = [];
         }
         S.cur = null; S._stylusId = null;
-        checkExtend();
+        // checkExtend rimosso
         redraw();
         scheduleAutoSave();
         if (S.aBuf) drawTL();
@@ -1888,15 +1858,7 @@ function updatePageNav() {
   num.textContent = `${S.curPage + 1} / ${S.pages}`;
 }
 
-// Aggiungi pagina automatica quando si avvicina al fondo
-function checkAutoPage() {
-  const strokeY = S.cur?.pts?.reduce((m, p) => Math.max(m, p.y), 0) || 0;
-  const pageBottom = (S.curPage + 1) * PH - 80; // 80px dal bordo
-  if (strokeY > pageBottom && S.curPage === S.pages - 1) {
-    S.pages++;
-    updatePageNav();
-  }
-}
+// Auto-pagina rimossa
 
 // Snap scroll — quando l'utente finisce di scrollare, snapba alla pagina più vicina
 (function setupScrollSnap() {
@@ -1944,7 +1906,8 @@ function setupPages() {
 
 function goPage(idx) {
   if (idx < 0 || idx >= S.pages) return;
-  showPage(idx, true);
+  _panOffX = 0; _panOffY = 0;
+  showPage(idx);
 }
 
 // Tastiera: frecce e scorciatoie

@@ -174,29 +174,20 @@ html,body{height:100%;overflow:hidden;font-family:ui-sans-serif,system-ui,-apple
 /* CO: rail orizzontale, scroll gestito da JS */
 .CO{
   position:absolute;inset:0;
-  display:flex;align-items:center;justify-content:center;
   overflow:hidden;
   touch-action:none;
-  gap:0;
-}
-
-/* Ogni .PV mostra una pagina del canvas (viewport con clip) */
-.PV{
-  flex-shrink:0;
-  overflow:hidden;
-  position:relative;
-  border-radius:8px;
-  box-shadow:0 4px 24px rgba(17,24,39,.15),0 1px 4px rgba(17,24,39,.08);
-  background:var(--pg);
-}
-
-/* Gap visivo tra pagine */
-.PG{
-  flex-shrink:0;
-  background:var(--bg);
 }
 
 .CW{display:none}
+
+/* CV è posizionato direttamente nel CO tramite left/transform */
+#C{
+  position:absolute;
+  will-change:transform;
+  cursor:crosshair;
+  border-radius:8px;
+  box-shadow:0 4px 24px rgba(17,24,39,.15),0 1px 4px rgba(17,24,39,.08);
+}
 /* Transizione slide pagina */
 #C{transition:opacity .18s ease}
 #C.pg-slide{opacity:0}
