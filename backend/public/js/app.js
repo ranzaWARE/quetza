@@ -736,18 +736,19 @@ function drawLassoPath(c, pts) {
 let _panOffX = 0, _panOffY = 0;
 
 function _applyPan() {
-  // Centra la pagina + offset pan dell'utente
-  const cssW = Math.round(PW * S.zoom);
-  const cssH = Math.round(PH * S.zoom);
-  const coW  = CO.clientWidth;
-  const coH  = CO.clientHeight;
-  const baseX = Math.round((coW - cssW) / 2);
-  const baseY = Math.round((coH - cssH) / 2);
-  CV.style.left = (baseX + _panOffX) + 'px';
-  CV.style.top  = '0';
-  // translateY negativo per mostrare la pagina corrente
-  const offsetY = S.curPage * (PH + PGAP);
-  CV.style.transform = 'translateY(' + (-Math.round(offsetY * S.zoom) + baseY + _panOffY) + 'px)';
+  const cssW   = Math.round(PW * S.zoom);
+  const cssH   = Math.round(PH * S.zoom);
+  const coW    = CO.clientWidth  || CO.getBoundingClientRect().width  || 800;
+  const coH    = CO.clientHeight || CO.getBoundingClientRect().height || 600;
+  // Centro del viewport rispetto alla pagina corrente
+  const baseX  = Math.round((coW - cssW) / 2);
+  const baseY  = Math.round((coH - cssH) / 2);
+  // Offset verticale per mostrare la pagina curPage nel canvas verticale
+  const pageOffY = Math.round(S.curPage * (PH + PGAP) * S.zoom);
+  CV.style.position  = 'absolute';
+  CV.style.transform = '';
+  CV.style.left      = (baseX + _panOffX) + 'px';
+  CV.style.top       = (baseY + _panOffY - pageOffY) + 'px';
 }
 
 function setupZoom() {
