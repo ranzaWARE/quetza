@@ -875,17 +875,14 @@ function rebuildPageViewports() {
     pv.style.cssText = 'width:' + cssW + 'px;height:' + cssH + 'px';
 
     if (p === S.curPage) {
-      // Pagina attiva: usa il canvas principale (CV) — mantiene tutti i pointer events
-      CV.style.display = 'block';
+      CV.style.display  = 'block';
       CV.style.position = 'absolute';
-      CV.style.left = '0';
-      // Shift verticale: mostra solo la fetta della pagina corrente
-      CV.style.top  = '-' + Math.round(p * (PH + PGAP) * S.zoom) + 'px';
-      CV.style.width  = cssW + 'px';
-      CV.style.height = Math.round(totalH() * S.zoom) + 'px';
+      CV.style.left     = '0';
+      CV.style.top      = '-' + Math.round(p * (PH + PGAP) * S.zoom) + 'px';
+      CV.style.width    = cssW + 'px';
+      CV.style.height   = Math.round(totalH() * S.zoom) + 'px';
       pv.appendChild(CV);
     } else {
-      // Pagine non attive: canvas offscreen copiato da redraw()
       const pc = document.createElement('canvas');
       pc.className = 'page-canvas';
       pc.dataset.page = p;
@@ -896,46 +893,37 @@ function rebuildPageViewports() {
     }
     CO.appendChild(pv);
   }
-  showPage(S.curPage, false);
+  // Centra la pagina corrente SENZA chiamare showPage (evita loop)
+  _centerPage(S.curPage, false);
   updatePageNav();
 }
 
-function showPage(idx, animate) {
-  if (idx < 0 || idx >= S.pages) return;
-  S.curPage = idx;
-
-  // Rebuild sposta il CV nel PV corretto
-  // Prima calcola il marginLeft target
+// Centra un PV nel CO — usato internamente senza triggerare rebuild
+function _centerPage(idx, animate) {
   const cssW = Math.round(PW * S.zoom);
   const gap  = 24;
   const pvLeft = idx * (cssW + gap);
   const coW    = CO.clientWidth;
   const ml     = Math.round((coW - cssW) / 2) - pvLeft;
-
-  // Se già costruiti, anima solo il margine
-  const items = [...CO.querySelectorAll('.PV,.PG')];
-  if (items.length && items[0].querySelector('canvas')) {
-    // Rebuilda per spostare CV nel PV giusto (senza animazione DOM)
-    rebuildPageViewports();
-    const newItems = [...CO.querySelectorAll('.PV,.PG')];
-    if (!newItems.length) return;
-    // Applica marginLeft finale senza animazione prima, poi con
-    newItems.forEach(el => { el.style.transition = ''; });
-    if (newItems[0]) newItems[0].style.marginLeft = ml + 'px';
-    updatePageNav();
-    redraw();
-    return;
-  }
-
-  updatePageNav();
-  if (animate !== false) {
+  const items  = [...CO.querySelectorAll('.PV,.PG')];
+  if (!items.length) return;
+  if (animate) {
     items.forEach(el => { el.style.transition = 'margin-left .22s ease'; });
-    if (items[0]) items[0].style.marginLeft = ml + 'px';
+    items[0].style.marginLeft = ml + 'px';
     setTimeout(() => items.forEach(el => { el.style.transition = ''; }), 240);
   } else {
     items.forEach(el => { el.style.transition = ''; });
-    if (items[0]) items[0].style.marginLeft = ml + 'px';
+    items[0].style.marginLeft = ml + 'px';
   }
+}
+
+function showPage(idx, animate) {
+  if (idx < 0 || idx >= S.pages) return;
+  S.curPage = idx;
+  // Rebuild DOM (sposta CV nel PV corretto) poi centra
+  rebuildPageViewports();         // imposta struttura DOM
+  _centerPage(idx, animate !== false);  // anima posizione
+  updatePageNav();
   redraw();
 }
 
