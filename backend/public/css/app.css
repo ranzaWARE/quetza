@@ -127,14 +127,14 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 .b.red{color:var(--danger)}
 .b.red:hover{background:rgba(185,28,28,.06);border-color:var(--danger-soft)}
 /* Text button in toolbar (R1 row) */
-.bp{padding:0 9px;width:auto;font-size:var(--auror-fs-12);font-weight:600;gap:4px;border:1px solid var(--border);background:var(--surface-raised);color:var(--text-secondary)}
-.bp:hover{background:var(--surface-sunken);color:var(--text);border-color:var(--border)}
-/* Dark-mode toggle — neutral outlined */
-.bp.dk{background:var(--surface-raised);color:var(--text-secondary);border-color:var(--border)}
-.bp.dk:hover{background:var(--surface-sunken);color:var(--text)}
+/* Action buttons R1 — icon-only, AUROR iconBtn pattern */
+.bp{width:32px;min-width:32px;padding:0}
+.bp.dk .ic-moon{display:none}
+[data-theme="dark"] .bp.dk .ic-sun{display:none}
+[data-theme="dark"] .bp.dk .ic-moon{display:block}
 /* Salva = brand amber primary */
-.bp.ar{background:var(--accent);color:var(--text-on-accent);border-color:var(--accent-hover);font-weight:700}
-.bp.ar:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+.bp.ar{background:var(--accent);color:var(--text-on-accent);border-color:var(--accent-hover)}
+.bp.ar:hover{background:var(--accent-hover)}
 
 .sw{width:16px;height:16px;border-radius:50%;border:2px solid transparent;cursor:pointer;flex-shrink:0;transition:transform .12s}
 .sw:hover{transform:scale(1.2)}
