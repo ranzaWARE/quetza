@@ -76,7 +76,7 @@
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       Nuova
     </button>
-    <select id="SORT" title="Ordina note" style="padding:4px 5px;border:1px solid rgba(255,255,255,.1);border-radius:6px;background:rgba(255,255,255,.07);color:var(--sb-fg);font-size:.68rem;font-family:inherit;cursor:pointer;flex-shrink:0">
+    <select id="SORT" title="Ordina note" style="padding:4px 5px;border:1px solid rgba(255,255,255,.1);border-radius:var(--r);background:rgba(255,255,255,.07);color:var(--sb-fg);font-size:.68rem;font-family:inherit;cursor:pointer;flex-shrink:0">
       <option value="updated">Modifica</option>
       <option value="created">Creazione</option>
       <option value="alpha">A-Z</option>
@@ -99,7 +99,7 @@
     </label>
   </div>
   <div class="sf" id="adminLink" style="display:none;padding:4px 8px 0">
-    <a href="/admin" style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:var(--brand);text-decoration:none;padding:4px 6px;border-radius:6px;background:rgba(245,160,0,.12);width:100%">
+    <a href="/admin" style="display:flex;align-items:center;gap:5px;font-size:.7rem;color:var(--brand);text-decoration:none;padding:4px 6px;border-radius:var(--r);background:var(--accent-soft);width:100%">
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
       Amministrazione
     </a>
@@ -291,7 +291,7 @@
           <p class="ms">Genera un link di sola lettura — chi lo riceve vede la nota senza bisogno di account.</p>
           <div style="margin-bottom:10px">
             <label style="font-size:.76rem;color:var(--ink);font-weight:500;display:block;margin-bottom:5px">Scadenza link</label>
-            <select id="SHAREEXP" style="width:100%;padding:6px 8px;border:.5px solid var(--tbr);border-radius:5px;background:var(--tb);color:var(--ink);font-size:.8rem">
+            <select id="SHAREEXP" style="width:100%;padding:6px 8px;border:1px solid var(--tbr);border-radius:var(--r);background:var(--tb);color:var(--ink);font-size:.8rem">
               <option value="">Nessuna scadenza</option>
               <option value="1">1 giorno</option>
               <option value="7">7 giorni</option>
@@ -311,7 +311,7 @@
         <div class="MD" style="width:340px">
           <h3>Testo sulla nota</h3>
           <p class="ms">Il testo verrà posizionato sul canvas dove clicchi. Sarà anche cercabile.</p>
-          <input type="text" id="TXTI" placeholder="Scrivi qui…" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:.9rem;font-family:inherit;margin-bottom:8px">
+          <input type="text" id="TXTI" placeholder="Scrivi qui…" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);font-size:.9rem;font-family:inherit;margin-bottom:8px">
           <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
             <label style="font-size:.74rem;color:var(--muted)">Dimensione</label>
             <input type="range" id="TXTSZ" min="10" max="72" value="18" style="flex:1;accent-color:var(--brand)">
