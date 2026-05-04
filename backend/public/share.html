@@ -4,25 +4,26 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Quetza — Nota condivisa</title>
+<link rel="stylesheet" href="/css/tokens.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',system-ui,sans-serif;background:#e8eaed;min-height:100vh}
-.hdr{background:#0f1923;color:#e8e8f0;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+body{font-family:var(--auror-font);background:var(--surface);min-height:100vh}
+.hdr{background:var(--inverse-surface);color:var(--inverse-text);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
 .logo{display:flex;align-items:center;gap:8px;font-size:.9rem;font-weight:800;color:#fff}
-.meta{font-size:.72rem;color:#6a7a8a;text-align:right}
-.meta strong{color:#e8e8f0;display:block;font-size:.82rem}
-.abar{background:#1a2a3a;padding:5px 12px;display:flex;align-items:center;gap:8px}
+.meta{font-size:.72rem;color:var(--inverse-text-muted);text-align:right}
+.meta strong{color:var(--inverse-text);display:block;font-size:.82rem}
+.abar{background:rgba(0,0,0,.25);padding:5px 12px;display:flex;align-items:center;gap:8px}
 .apb{width:28px;height:28px;border-radius:50%;border:none;background:#c0392b;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .apb:hover{background:#a93226}
-.pw{flex:1;height:22px;border-radius:3px;background:rgba(255,255,255,.08);position:relative;cursor:pointer;overflow:hidden}
+.pw{flex:1;height:22px;border-radius:var(--auror-r);background:rgba(255,255,255,.08);position:relative;cursor:pointer;overflow:hidden}
 #WC{width:100%;height:100%;display:block}
 .sc{position:absolute;top:0;width:2px;height:100%;background:#c0392b;pointer-events:none}
-.at{font-size:.65rem;color:#6a7a8a;white-space:nowrap;font-variant-numeric:tabular-nums}
-.wrap{display:flex;justify-content:center;padding:20px;background:#e8eaed;min-height:calc(100vh - 100px)}
-#C{display:block;background:#fff;box-shadow:0 2px 16px rgba(0,0,0,.18)}
-.err{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:12px;color:#6a7a8a;font-size:.9rem}
+.at{font-size:.65rem;color:var(--inverse-text-muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.wrap{display:flex;justify-content:center;padding:20px;background:var(--surface);min-height:calc(100vh - 100px)}
+#C{display:block;background:var(--surface-canvas);box-shadow:var(--shadow-md)}
+.err{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:12px;color:var(--text-muted);font-size:.9rem}
 .err svg{opacity:.2}
-.badge{font-size:.68rem;padding:2px 8px;border-radius:20px;background:rgba(255,255,255,.1);color:#6a7a8a}
+.badge{font-size:.68rem;padding:2px 8px;border-radius:var(--auror-r);background:rgba(255,255,255,.1);color:var(--inverse-text-muted)}
 </style>
 </head>
 <body>

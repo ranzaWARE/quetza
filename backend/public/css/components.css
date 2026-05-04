@@ -1,0 +1,168 @@
+/* =========================================================
+   AUROR — Component Library
+   Extracted verbatim from design-system.html.
+   Import AFTER tokens.css.
+   ========================================================= */
+
+/* ── Buttons ─────────────────────────────────────────────── */
+.aurorBtn{
+  border: 1px solid var(--border);
+  background: var(--surface-raised); color: var(--text);
+  padding: 10px 12px; border-radius: var(--auror-r);
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 8px; white-space: nowrap; line-height: 1.1;
+  transition:
+    transform var(--auror-dur-fast) ease,
+    background var(--auror-dur-base) ease,
+    border-color var(--auror-dur-base) ease;
+  font-family: inherit; font-size: 13px;
+}
+.aurorBtn:hover{ background: var(--surface-sunken); }
+.aurorBtn:active{ transform: translateY(1px); }
+
+.aurorBtn.primary{
+  background: var(--accent);
+  border-color: var(--accent-hover);
+  color: var(--text-on-accent); font-weight: 600;
+}
+.aurorBtn.primary:hover{ background: var(--accent-hover); }
+
+.aurorBtn.danger{
+  background: var(--surface-raised);
+  border-color: var(--danger-soft);
+  color: var(--danger);
+}
+.aurorBtn.danger:hover{ background: rgba(185,28,28,.06); }
+
+.aurorBtn.active{
+  box-shadow: var(--focus-ring);
+  border-color: var(--accent-ring);
+  background: var(--accent-soft);
+  color: var(--text-on-accent);
+}
+
+.aurorBtn[disabled]{ opacity: .5; cursor: not-allowed; }
+
+/* Small icon button (28×28, always bordered) */
+.iconBtnSm{
+  width: 28px; height: 28px; padding: 0;
+  border-radius: var(--auror-r);
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text-secondary);
+  transition: background var(--auror-dur-base) var(--auror-ease),
+              border-color var(--auror-dur-base) var(--auror-ease);
+}
+.iconBtnSm:hover{ background: var(--surface-sunken); color: var(--text); }
+.iconBtnSm svg{ width: 14px; height: 14px; }
+
+/* Tool-dock icon button (44×44) */
+.toolBtn{
+  width: 44px; height: 44px;
+  border-radius: var(--auror-r);
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+  color: var(--text); cursor: pointer;
+  display: grid; place-items: center;
+  transition:
+    transform var(--auror-dur-fast) ease,
+    background var(--auror-dur-base) ease,
+    box-shadow var(--auror-dur-base) ease;
+}
+.toolBtn:hover{ transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.toolBtn.active{
+  background: var(--accent-soft);
+  border-color: var(--accent-ring);
+  color: var(--accent-hover);
+}
+.toolBtn svg{ width: 20px; height: 20px; }
+
+/* ── Inputs ──────────────────────────────────────────────── */
+.aurorInput,
+.aurorSelect{
+  width: 100%;
+  height: var(--auror-control-h);  /* 36px */
+  border: 1px solid var(--border);
+  border-radius: var(--auror-r);
+  padding: 0 10px;
+  background: var(--surface-raised); color: var(--text);
+  font-family: inherit; font-size: 13px;
+  outline: none;
+  transition:
+    border-color var(--auror-dur-base) var(--auror-ease),
+    box-shadow var(--auror-dur-base) var(--auror-ease);
+}
+.aurorInput:focus,
+.aurorSelect:focus{
+  box-shadow: var(--focus-ring);
+  border-color: var(--accent-ring);
+}
+.aurorInput::placeholder{ color: var(--text-muted); }
+
+.aurorLabel{
+  font-size: 12px; color: var(--text-secondary);
+  display: block; margin: 0 0 6px; font-weight: 500;
+}
+
+/* ── Tags / Badges ───────────────────────────────────────── */
+.aurorTag{
+  font-size: 12px; padding: 4px 10px;
+  border: 1px solid var(--border); border-radius: var(--auror-r);
+  background: var(--surface-raised); color: var(--text-secondary);
+  display: inline-flex; align-items: center; gap: 6px;
+  font-weight: 500;
+}
+.aurorTag--brand{
+  background: var(--accent-soft);
+  border-color: var(--accent-ring);
+  color: var(--text); font-weight: 600;
+}
+.aurorTag--ghost{
+  background: transparent;
+}
+
+.badgeSm{
+  font-size: 11px; padding: 3px 8px;
+  border: 1px solid var(--border); border-radius: var(--auror-r);
+  background: var(--surface-raised); color: var(--text-secondary);
+  display: inline-flex; align-items: center; gap: 4px;
+}
+
+/* ── Context menu ────────────────────────────────────────── */
+.aurorCtxMenu{
+  display: inline-block;
+  min-width: 200px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--auror-r);
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  z-index: 200;
+}
+.aurorCtxMenu button{
+  width: 100%; text-align: left; border: 0; background: transparent;
+  padding: 8px 10px; border-radius: var(--auror-r);
+  font-size: 13px; color: var(--text); cursor: pointer;
+  display: flex; align-items: center; gap: 10px;
+  font-family: inherit;
+  transition: background var(--auror-dur-fast) ease;
+}
+.aurorCtxMenu button:hover{ background: var(--surface-sunken); }
+.aurorCtxMenu .sep{
+  height: 1px; margin: 4px 6px; background: var(--border-strong);
+}
+
+/* ── Kbd ─────────────────────────────────────────────────── */
+.aurorKbd{
+  font-family: var(--auror-mono);
+  font-size: 11px;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--auror-r);
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+  display: inline-block;
+}
