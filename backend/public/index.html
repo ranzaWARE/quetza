@@ -6,6 +6,16 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Quetza</title>
+<script>
+  (function(){
+    try{
+      var t=localStorage.getItem('auror-theme');
+      if(!t){t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+      if(t==='dark') document.documentElement.setAttribute('data-theme','dark');
+    }catch(e){}
+  })();
+</script>
+<link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/app.css">
   <!-- Blocca zoom browser su iOS Safari (ignora user-scalable in alcuni casi) -->
   <meta name="HandheldFriendly" content="true">
@@ -32,7 +42,7 @@
   </div>
   <div class="headerRight">
     <span class="hpill" id="UNAME2">—</span>
-    <button class="sbb" id="logoutB2" title="Esci" style="background:none;border:1px solid var(--line);border-radius:999px;width:auto;padding:4px 10px;color:var(--muted);font-size:.72rem">
+    <button class="sbb" id="logoutB2" title="Esci" style="background:none;border:1px solid var(--line);border-radius:var(--r);width:auto;padding:4px 10px;color:var(--muted);font-size:.72rem">
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
       Esci
     </button>
@@ -144,15 +154,15 @@
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
           Dark
         </button>
-        <button class="b bp" id="SHAREB" style="background:#8e44ad;color:#fff;border-color:#8e44ad" title="Condividi nota">
+        <button class="b bp" id="SHAREB" title="Condividi nota">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
           Condividi
         </button>
-        <button class="b bp a2" id="PDFB" title="Esporta PDF">
+        <button class="b bp" id="PDFB" title="Esporta PDF">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           PDF
         </button>
-        <button class="b bp" id="TRANSCB" title="Trascrivi audio con Whisper" style="background:rgba(17,24,39,.07);color:var(--ink);border-color:var(--line);gap:4px">
+        <button class="b bp" id="TRANSCB" title="Trascrivi audio con Whisper">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
           Trascrivi
         </button>

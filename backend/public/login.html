@@ -4,117 +4,301 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Quetza — Accesso</title>
+<script>
+  (function(){
+    try{
+      var t=localStorage.getItem('auror-theme');
+      if(!t){t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+      if(t==='dark') document.documentElement.setAttribute('data-theme','dark');
+    }catch(e){}
+  })();
+</script>
+<link rel="stylesheet" href="/css/tokens.css">
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f3f5f7}
-.card{background:#fff;border-radius:16px;padding:36px;width:100%;max-width:360px;box-shadow:0 10px 40px rgba(17,24,39,.12);border:1px solid #e5e7eb}
-.brand{display:flex;align-items:center;gap:10px;margin-bottom:28px}
-.brand-mark{width:28px;height:10px;border-radius:999px;background:linear-gradient(90deg,#f5a000,rgba(245,160,0,.12));transform:skewX(-18deg)}
-.brand span{font-size:1.1rem;font-weight:800;color:#111827}
-h1{font-size:1.2rem;font-weight:700;color:#111827;margin-bottom:4px}
-.sub{font-size:.82rem;color:#6b7280;margin-bottom:24px}
-.field{margin-bottom:12px}
-.field label{display:block;font-size:.78rem;font-weight:600;color:#374151;margin-bottom:5px}
-.field input{width:100%;padding:9px 12px;border:1px solid #e5e7eb;border-radius:8px;font-size:.9rem;font-family:inherit;outline:none;transition:border-color .15s,box-shadow .15s;color:#111827}
-.field input:focus{border-color:#f5a000;box-shadow:0 0 0 3px rgba(245,160,0,.15)}
-.err{color:#b91c1c;font-size:.78rem;padding:7px 10px;background:#fee2e2;border-radius:6px;margin-bottom:10px;display:none;border:1px solid #fca5a5}
-.err.on{display:block}
-.btn-login{width:100%;padding:10px;background:#f5a000;color:#111827;border:1px solid #d98c00;border-radius:8px;font-size:.9rem;font-weight:700;cursor:pointer;margin-top:4px;transition:background .15s;font-family:inherit}
-.btn-login:hover{background:#d98c00}
-.btn-login:disabled{opacity:.6}
-.sep{display:flex;align-items:center;gap:10px;margin:16px 0;color:#9ca3af;font-size:.75rem}
-.sep::before,.sep::after{content:'';flex:1;height:1px;background:#e5e7eb}
-.btn-oidc{width:100%;padding:10px;background:#fff;color:#374151;border:1px solid #e5e7eb;border-radius:8px;font-size:.85rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .15s,border-color .15s;font-family:inherit}
-.btn-oidc:hover{background:#f9fafb;border-color:#d1d5db}
-.hint{font-size:.72rem;color:#9ca3af;margin-top:14px;text-align:center}
-#oidcBtn{display:none}
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%}
+  body{
+    font-family:var(--auror-font);
+    background:var(--surface);
+    color:var(--text);
+    font-size:var(--auror-fs-14);
+    line-height:var(--auror-lh-body);
+    min-height:100vh;
+    display:flex;flex-direction:column;
+  }
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  .topRail{
+    position:absolute;top:0;left:0;right:0;
+    padding:16px 20px;
+    display:flex;align-items:center;justify-content:space-between;
+  }
+  .topBrand{
+    display:flex;align-items:center;gap:10px;
+    font-weight:800;font-size:13px;letter-spacing:.02em;color:var(--text);
+  }
+  .topBrand .mark{
+    width:24px;height:24px;border-radius:var(--auror-r);
+    background:var(--accent);color:var(--text-on-accent);
+    display:inline-flex;align-items:center;justify-content:center;overflow:hidden;
+  }
+  .topBrand .mark svg{width:20px;height:20px}
+
+  .iconBtn{
+    width:32px;height:32px;
+    display:inline-flex;align-items:center;justify-content:center;
+    border-radius:var(--auror-r);border:1px solid var(--border);
+    background:var(--surface-raised);color:var(--text-secondary);
+    cursor:pointer;
+    transition:background var(--auror-dur-base) var(--auror-ease);
+  }
+  .iconBtn:hover{background:var(--surface-sunken);color:var(--text)}
+  .iconBtn svg{width:16px;height:16px}
+  .iconBtn .ic-moon{display:none}
+  [data-theme="dark"] .iconBtn .ic-sun{display:none}
+  [data-theme="dark"] .iconBtn .ic-moon{display:block}
+
+  .pageWrap{flex:1;display:flex;align-items:center;justify-content:center;padding:80px 20px 40px}
+  .loginCard{
+    width:100%;max-width:420px;
+    background:var(--surface-raised);border:1px solid var(--border);
+    border-radius:var(--auror-r);box-shadow:var(--auror-shadow-md);
+    padding:32px 28px 24px;
+  }
+  .cardHead{text-align:center;margin-bottom:24px}
+  .cardHead .bigMark{
+    width:48px;height:48px;border-radius:var(--auror-r);
+    background:var(--accent);color:var(--text-on-accent);
+    display:inline-flex;align-items:center;justify-content:center;
+    margin-bottom:14px;overflow:hidden;
+  }
+  .cardHead .bigMark svg{width:36px;height:36px}
+  .cardHead h1{margin:0 0 4px;font-size:22px;font-weight:700;letter-spacing:-.01em;color:var(--text)}
+  .cardHead .sub{margin:0;color:var(--text-muted);font-size:13px}
+
+  .methods{
+    display:flex;gap:4px;background:var(--surface-sunken);
+    border-radius:var(--auror-r);padding:4px;margin-bottom:20px;
+  }
+  .methodBtn{
+    flex:1;background:transparent;border:none;padding:8px 10px;border-radius:6px;
+    font-family:inherit;font-size:12px;font-weight:600;color:var(--text-muted);cursor:pointer;
+    transition:background var(--auror-dur-base) var(--auror-ease),color var(--auror-dur-base) var(--auror-ease);
+  }
+  .methodBtn:hover{color:var(--text)}
+  .methodBtn.active{background:var(--surface-raised);color:var(--text);box-shadow:0 1px 2px rgba(17,24,39,.05)}
+
+  .formPane{display:none}
+  .formPane.active{display:block}
+  .field{margin-bottom:14px}
+  .field label{display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px}
+  .input{
+    width:100%;padding:10px 12px;
+    border-radius:var(--auror-r);border:1px solid var(--border);
+    background:var(--surface-raised);color:var(--text);
+    font-family:inherit;font-size:14px;
+    transition:border-color var(--auror-dur-base) var(--auror-ease),box-shadow var(--auror-dur-base) var(--auror-ease);
+  }
+  .input:focus{outline:none;border-color:var(--accent);box-shadow:var(--auror-focus)}
+  .input::placeholder{color:var(--text-muted)}
+
+  .primaryBtn{
+    width:100%;padding:11px 14px;border-radius:var(--auror-r);
+    border:1px solid var(--accent);background:var(--accent);
+    color:var(--text-on-accent);font-family:inherit;font-size:14px;font-weight:600;
+    cursor:pointer;
+    transition:background var(--auror-dur-base) var(--auror-ease);
+  }
+  .primaryBtn:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+  .primaryBtn[disabled]{opacity:.6;cursor:not-allowed}
+
+  .infoNote{
+    background:var(--surface-sunken);border:1px solid var(--border-soft);
+    border-radius:var(--auror-r);padding:12px 14px;
+    font-size:12px;color:var(--text-secondary);margin-bottom:16px;line-height:1.5;
+  }
+  .infoNote strong{color:var(--text);font-weight:600}
+
+  .err{
+    display:none;background:rgba(185,28,28,.08);border:1px solid var(--danger-soft);
+    color:var(--danger);border-radius:var(--auror-r);padding:8px 12px;
+    font-size:12px;margin-bottom:14px;
+  }
+  .err.show{display:block}
+  .footer{text-align:center;margin-top:18px;font-size:12px;color:var(--text-muted)}
+  .versionBar{text-align:center;padding:16px;font-size:11px;color:var(--text-muted)}
 </style>
 </head>
 <body>
-<div class="card">
-  <div class="brand">
-    <svg width="36" height="36" viewBox="0 0 64 64" fill="none">
-      <path d="M32 30 C22 22 6 28 2 20 C8 18 18 20 28 27Z" fill="#c0392b" opacity=".9"/>
-      <path d="M32 30 C18 26 4 32 2 26 C10 22 22 24 30 30Z" fill="#c0392b" opacity=".4"/>
-      <path d="M32 30 C42 22 58 28 62 20 C56 18 46 20 36 27Z" fill="#c0392b" opacity=".9"/>
-      <path d="M32 30 C46 26 60 32 62 26 C54 22 42 24 34 30Z" fill="#c0392b" opacity=".4"/>
-      <ellipse cx="32" cy="31" rx="5" ry="8" fill="#111827"/>
-      <path d="M32 23 L30 16 L32 19 L34 16 Z" fill="#111827"/>
-      <path d="M32 38 L30 46 L32 44 L34 46 Z" fill="#111827"/>
-    </svg>
-    <div class="brand-mark"></div>
+
+<div class="topRail">
+  <div class="topBrand">
+    <span class="mark">
+      <svg viewBox="0 0 64 64" fill="none">
+        <path d="M32 30 C22 22 6 28 2 20 C8 18 18 20 28 27Z" fill="#c0392b" opacity=".9"/>
+        <path d="M32 30 C18 26 4 32 2 26 C10 22 22 24 30 30Z" fill="#c0392b" opacity=".4"/>
+        <path d="M32 30 C42 22 58 28 62 20 C56 18 46 20 36 27Z" fill="#c0392b" opacity=".9"/>
+        <path d="M32 30 C46 26 60 32 62 26 C54 22 42 24 34 30Z" fill="#c0392b" opacity=".4"/>
+        <ellipse cx="32" cy="31" rx="5" ry="8" fill="#111827"/>
+        <path d="M32 23 L30 16 L32 19 L34 16 Z" fill="#111827"/>
+        <path d="M32 38 L30 46 L32 44 L34 46 Z" fill="#111827"/>
+      </svg>
+    </span>
     <span>Quetza</span>
   </div>
-  <h1>Accedi</h1>
-  <p class="sub">Graphimecc Group</p>
-
-  <form id="form">
-    <div class="field">
-      <label for="u">Username</label>
-      <input type="text" id="u" autocomplete="username" placeholder="nome.cognome" required autofocus>
-    </div>
-    <div class="field">
-      <label for="p">Password</label>
-      <input type="password" id="p" autocomplete="current-password" placeholder="••••••••" required>
-    </div>
-    <div class="err" id="err"></div>
-    <button type="submit" class="btn-login" id="btn">Accedi</button>
-  </form>
-
-  <div class="sep" id="oidcSep" style="display:none">oppure</div>
-  <button class="btn-oidc" id="oidcBtn" onclick="loginOidc()">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
-    Accedi con Keycloak SSO
+  <button class="iconBtn" type="button" id="themeToggle" aria-label="Cambia tema">
+    <svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <svg class="ic-moon" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.5A9 9 0 1 1 11.5 3a7 7 0 0 0 9.5 9.5z"/></svg>
   </button>
-
-  <p class="hint" id="hint">Usa le credenziali aziendali</p>
 </div>
 
+<div class="pageWrap">
+  <div class="loginCard">
+    <div class="cardHead">
+      <div class="bigMark">
+        <svg viewBox="0 0 64 64" fill="none">
+          <path d="M32 30 C22 22 6 28 2 20 C8 18 18 20 28 27Z" fill="#c0392b" opacity=".9"/>
+          <path d="M32 30 C18 26 4 32 2 26 C10 22 22 24 30 30Z" fill="#c0392b" opacity=".4"/>
+          <path d="M32 30 C42 22 58 28 62 20 C56 18 46 20 36 27Z" fill="#c0392b" opacity=".9"/>
+          <path d="M32 30 C46 26 60 32 62 26 C54 22 42 24 34 30Z" fill="#c0392b" opacity=".4"/>
+          <ellipse cx="32" cy="31" rx="5" ry="8" fill="#111827"/>
+          <path d="M32 23 L30 16 L32 19 L34 16 Z" fill="#111827"/>
+          <path d="M32 38 L30 46 L32 44 L34 46 Z" fill="#111827"/>
+        </svg>
+      </div>
+      <h1>Accedi a Quetza</h1>
+      <p class="sub">Graphimecc Group</p>
+    </div>
+
+    <div class="methods" id="methodTabs" role="tablist" style="display:none">
+      <button class="methodBtn active" data-method="local" type="button">Locale</button>
+      <button class="methodBtn" data-method="oidc" type="button">SSO</button>
+      <button class="methodBtn" data-method="ldap" type="button">LDAP</button>
+    </div>
+
+    <div class="err" id="errBanner">Credenziali non valide.</div>
+
+    <form class="formPane active" id="form-local" autocomplete="on">
+      <div class="field">
+        <label for="u">Username</label>
+        <input class="input" type="text" id="u" autocomplete="username" placeholder="nome.cognome" required autofocus>
+      </div>
+      <div class="field">
+        <label for="p">Password</label>
+        <input class="input" type="password" id="p" autocomplete="current-password" placeholder="••••••••" required>
+      </div>
+      <button class="primaryBtn" type="submit" id="btn">Accedi</button>
+    </form>
+
+    <form class="formPane" id="form-oidc">
+      <div class="infoNote">
+        Single sign-on via Keycloak.<br>
+        Verrai reindirizzato al provider per autenticarti.
+      </div>
+      <button class="primaryBtn" type="submit">Accedi con Keycloak SSO</button>
+    </form>
+
+    <form class="formPane" id="form-ldap" autocomplete="on">
+      <div class="infoNote">Autenticazione via directory LDAP aziendale.</div>
+      <div class="field">
+        <label for="ldapUser">Username</label>
+        <input class="input" type="text" id="ldapUser" placeholder="DOMAIN\\user o user@domain" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label for="ldapPwd">Password</label>
+        <input class="input" type="password" id="ldapPwd" placeholder="••••••••" autocomplete="current-password" required>
+      </div>
+      <button class="primaryBtn" type="submit">Accedi via LDAP</button>
+    </form>
+
+    <div class="footer">Usa le credenziali aziendali</div>
+  </div>
+</div>
+
+<div class="versionBar">Quetza · Graphimecc Group</div>
+
 <script>
-async function init() {
-  try {
-    const r = await fetch('/api/login-config');
-    if (r.ok) {
-      const cfg = await r.json();
-      if (cfg.oidc_enabled) {
-        document.getElementById('oidcBtn').style.display = 'flex';
-        document.getElementById('oidcSep').style.display = 'flex';
-      }
-      if (cfg.hint) document.getElementById('hint').textContent = cfg.hint;
-    }
-  } catch {}
-}
-
-function loginOidc() {
-  document.getElementById('oidcBtn').disabled = true;
-  document.getElementById('oidcBtn').textContent = 'Reindirizzamento…';
-  fetch('/api/login', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ username: '__oidc__', password: '__oidc__' })
-  }).then(r => r.json()).then(d => {
-    if (d.redirect) window.location.href = d.redirect;
-  }).catch(() => { document.getElementById('oidcBtn').disabled = false; document.getElementById('oidcBtn').textContent = 'Accedi con Keycloak SSO'; });
-}
-
-document.getElementById('form').addEventListener('submit', async e => {
-  e.preventDefault();
-  const btn = document.getElementById('btn'), err = document.getElementById('err');
-  btn.disabled = true; err.classList.remove('on');
-  try {
-    const r = await fetch('/api/login', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ username: document.getElementById('u').value.trim(), password: document.getElementById('p').value })
+  (function(){
+    var btn=document.getElementById('themeToggle');
+    if(!btn) return;
+    btn.addEventListener('click',function(){
+      var isDark=document.documentElement.getAttribute('data-theme')==='dark';
+      var next=isDark?'light':'dark';
+      if(next==='dark') document.documentElement.setAttribute('data-theme','dark');
+      else document.documentElement.removeAttribute('data-theme');
+      try{localStorage.setItem('auror-theme',next);}catch(e){}
     });
-    const d = await r.json();
-    if (r.ok) window.location.href = '/';
-    else { err.textContent = d.error||'Credenziali non valide'; err.classList.add('on'); }
-  } catch { err.textContent = 'Errore di rete'; err.classList.add('on'); }
-  finally { btn.disabled = false; }
-});
+  })();
 
-init();
+  (function(){
+    var btns=document.querySelectorAll('.methodBtn');
+    btns.forEach(function(b){
+      b.addEventListener('click',function(){
+        btns.forEach(function(x){x.classList.remove('active');});
+        document.querySelectorAll('.formPane').forEach(function(p){p.classList.remove('active');});
+        b.classList.add('active');
+        var pane=document.getElementById('form-'+b.getAttribute('data-method'));
+        if(pane) pane.classList.add('active');
+        document.getElementById('errBanner').classList.remove('show');
+      });
+    });
+  })();
+
+  async function init(){
+    try{
+      const r=await fetch('/api/login-config');
+      if(r.ok){
+        const cfg=await r.json();
+        var hasExtra=cfg.oidc_enabled||cfg.ldap_enabled;
+        if(hasExtra){
+          document.getElementById('methodTabs').style.display='flex';
+          if(!cfg.oidc_enabled) document.querySelector('[data-method="oidc"]').style.display='none';
+          if(!cfg.ldap_enabled) document.querySelector('[data-method="ldap"]').style.display='none';
+        }
+        if(cfg.hint) document.querySelector('.footer').textContent=cfg.hint;
+      }
+    }catch{}
+  }
+
+  document.getElementById('form-local').addEventListener('submit',async function(e){
+    e.preventDefault();
+    var btn=document.getElementById('btn');
+    var err=document.getElementById('errBanner');
+    btn.disabled=true;err.classList.remove('show');
+    try{
+      var r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('u').value.trim(),password:document.getElementById('p').value})});
+      var d=await r.json();
+      if(r.ok) window.location.href='/';
+      else{err.textContent=d.error||'Credenziali non valide';err.classList.add('show');}
+    }catch{err.textContent='Errore di rete';err.classList.add('show');}
+    finally{btn.disabled=false;}
+  });
+
+  document.getElementById('form-oidc').addEventListener('submit',function(e){
+    e.preventDefault();
+    var btn=e.target.querySelector('button');
+    btn.disabled=true;btn.textContent='Reindirizzamento…';
+    fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'__oidc__',password:'__oidc__'})})
+      .then(function(r){return r.json();}).then(function(d){if(d.redirect) window.location.href=d.redirect;})
+      .catch(function(){btn.disabled=false;btn.textContent='Accedi con Keycloak SSO';});
+  });
+
+  document.getElementById('form-ldap').addEventListener('submit',async function(e){
+    e.preventDefault();
+    var btn=e.target.querySelector('button');
+    var err=document.getElementById('errBanner');
+    btn.disabled=true;err.classList.remove('show');
+    try{
+      var r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('ldapUser').value.trim(),password:document.getElementById('ldapPwd').value,method:'ldap'})});
+      var d=await r.json();
+      if(r.ok) window.location.href='/';
+      else{err.textContent=d.error||'Credenziali non valide';err.classList.add('show');}
+    }catch{err.textContent='Errore di rete';err.classList.add('show');}
+    finally{btn.disabled=false;}
+  });
+
+  init();
 </script>
 </body>
 </html>
