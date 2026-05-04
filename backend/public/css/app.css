@@ -1,31 +1,43 @@
 /* ═══════════════════════════════════════════════════════
    Quetza — UI CSS
-   Design system Graphimecc Group — card layout flottante
-   Brand: #f5a000 · Radius: 12px · Font: system-ui
+   Design system: AUROR (github.com/ranzaWARE/auror)
+   Requires /css/tokens.css loaded before this file.
 ═══════════════════════════════════════════════════════ */
 
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;overflow:hidden;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif}
+html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 
 :root{
-  --brand:#f5a000; --brand-dark:#d98c00;
-  --bg:#f3f5f7; --card:#ffffff;
-  --line:#e5e7eb;
-  --shadow:0 10px 24px rgba(17,24,39,.08);
-  --shadow-sm:0 2px 8px rgba(17,24,39,.07);
-  --text:#111827; --muted:#6b7280;
-  --sb:#0f1923; --sb-line:rgba(255,255,255,.06); --sb-fg:#e8e8f0;
-  --acc:#c0392b; --acc2:#2471a3;
-  --tb:var(--card); --tbr:var(--line); --ink:var(--text); --mu:var(--muted);
-  --bh:rgba(17,24,39,.04); --pg:#ffffff; --sh:var(--shadow);
-  --r:12px; --r-sm:8px; --r-lg:16px;
+  /* ── Aliases → AUROR tokens ─────────────────────────── */
+  --brand:     var(--auror-brand);
+  --brand-dark: var(--auror-brand-dark);
+  --bg:        var(--auror-bg);
+  --card:      var(--auror-card);
+  --line:      var(--auror-line);
+  --shadow:    var(--auror-shadow-md);
+  --shadow-sm: var(--auror-shadow-sm);
+  --text:      var(--auror-ink);
+  --muted:     var(--auror-muted);
+  --sb:        var(--inverse-surface);
+  --sb-line:   var(--inverse-border);
+  --sb-fg:     var(--inverse-text);
+  --acc:  #c0392b;  /* recording red — no AUROR equiv */
+  --acc2: #2471a3;  /* lasso blue — no AUROR equiv */
+  --tb:   var(--auror-card);
+  --tbr:  var(--auror-line);
+  --ink:  var(--auror-ink);
+  --mu:   var(--auror-muted);
+  --bh:   rgba(17,24,39,.04);
+  --pg:   #ffffff;
+  --sh:   var(--auror-shadow-md);
+  --r:    var(--auror-r);
+  --r-sm: var(--auror-r);
+  --r-lg: var(--auror-r);
 }
-[data-dk]{
-  --bg:#181c22; --pg:#23272e; --tb:#1c2028;
-  --tbr:rgba(255,255,255,.08); --ink:#e0e4ea;
-  --bh:rgba(255,255,255,.05); --sh:0 2px 16px rgba(0,0,0,.5);
-  --card:#1c2028; --line:rgba(255,255,255,.08);
-  --text:#e0e4ea; --muted:#6b7280;
+[data-theme="dark"]{
+  --bh: rgba(255,255,255,.05);
+  --pg: var(--auror-card);
+  --sh: var(--auror-shadow-md);
 }
 
 /* ── Layout — tutto flotta sul grigio ─────────────────── */
@@ -42,11 +54,11 @@ html,body{height:100%;overflow:hidden;font-family:ui-sans-serif,system-ui,-apple
   padding:0 16px;gap:12px;flex-shrink:0;z-index:100;
 }
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:.95rem;letter-spacing:.3px;color:var(--text);min-width:0}
-.brandMark{width:28px;height:10px;border-radius:999px;background:linear-gradient(90deg,var(--brand),rgba(245,160,0,.15));transform:skewX(-18deg);flex-shrink:0}
+.brandMark{width:28px;height:10px;border-radius:var(--r);background:linear-gradient(90deg,var(--brand),rgba(245,160,0,.15));transform:skewX(-18deg);flex-shrink:0}
 .brandLogo{display:block;width:auto;max-width:min(38vw,220px);max-height:28px;object-fit:contain}
 .appHeader.hasCustomLogo .brandFallback{display:none}
 .headerRight{display:flex;align-items:center;gap:8px}
-.hpill{font-size:.72rem;padding:4px 10px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--muted);white-space:nowrap}
+.hpill{font-size:.72rem;padding:4px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--card);color:var(--muted);white-space:nowrap}
 
 /* ── Sidebar card ───────────────────────────────────────── */
 #SB{
@@ -206,7 +218,7 @@ html,body{height:100%;overflow:hidden;font-family:ui-sans-serif,system-ui,-apple
   z-index:55;display:flex;align-items:center;gap:6px;
 }
 .pg-num{
-  padding:4px 12px;border-radius:999px;
+  padding:4px 12px;border-radius:var(--r);
   background:var(--card);border:1px solid var(--line);
   font-size:.75rem;font-weight:600;color:var(--text);
   cursor:pointer;font-family:inherit;
@@ -230,13 +242,13 @@ html,body{height:100%;overflow:hidden;font-family:ui-sans-serif,system-ui,-apple
 /* Timeline strip rimossa — punti sulla waveform */
 
 /* ── Mode pill ──────────────────────────────────────────── */
-.MP{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);padding:3px 12px;border-radius:999px;font-size:.66rem;font-weight:600;pointer-events:none;opacity:0;transition:opacity .2s;z-index:60;white-space:nowrap}
+.MP{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);padding:3px 12px;border-radius:var(--r);font-size:.66rem;font-weight:600;pointer-events:none;opacity:0;transition:opacity .2s;z-index:60;white-space:nowrap}
 .MP.pen{background:var(--sb);color:#fff;opacity:.85}
 .MP.touch{background:var(--acc2);color:#fff;opacity:.85}
 .MP.palm{background:#e67e22;color:#fff;opacity:.85}
 
 /* ── Toast ──────────────────────────────────────────────── */
-.TT{position:absolute;bottom:80px;right:16px;padding:6px 14px;border-radius:999px;font-size:.72rem;font-weight:600;background:#1e8449;color:#fff;opacity:0;transition:opacity .3s;pointer-events:none;z-index:300;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+.TT{position:absolute;bottom:80px;right:16px;padding:6px 14px;border-radius:var(--r);font-size:.72rem;font-weight:600;background:#1e8449;color:#fff;opacity:0;transition:opacity .3s;pointer-events:none;z-index:300;box-shadow:0 4px 12px rgba(0,0,0,.2)}
 .TT.on{opacity:1}
 
 /* ── Modali ─────────────────────────────────────────────── */
@@ -315,7 +327,7 @@ html,body{height:100%;overflow:hidden;font-family:ui-sans-serif,system-ui,-apple
   z-index:55;display:flex;align-items:center;gap:6px;
 }
 .pg-num{
-  padding:4px 12px;border-radius:999px;
+  padding:4px 12px;border-radius:var(--r);
   background:var(--card);border:1px solid var(--line);
   font-size:.75rem;font-weight:600;color:var(--text);
   cursor:pointer;font-family:inherit;
@@ -367,7 +379,7 @@ html,body{height:100%;overflow:hidden;font-family:ui-sans-serif,system-ui,-apple
   z-index:55;display:flex;align-items:center;gap:8px;
 }
 #PGNUM{
-  padding:4px 14px;border-radius:999px;
+  padding:4px 14px;border-radius:var(--r);
   background:var(--card);border:1px solid var(--line);
   font-size:.76rem;font-weight:600;color:var(--text);
   cursor:pointer;font-family:inherit;

@@ -1,0 +1,273 @@
+/* =========================================================
+   AUROR — Design Tokens
+   Extracted + extended from /css/ui.css in graphimecc/auror
+   ========================================================= */
+
+/* ---- Inter (variable, brand-supplied) ---------------- */
+@font-face{
+  font-family: "Inter";
+  src: url("../fonts/Inter-VariableFont_opsz_wght.ttf") format("truetype-variations"),
+       url("../fonts/Inter-VariableFont_opsz_wght.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face{
+  font-family: "Inter";
+  src: url("../fonts/Inter-Italic-VariableFont_opsz_wght.ttf") format("truetype-variations"),
+       url("../fonts/Inter-Italic-VariableFont_opsz_wght.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+:root{
+  /* ---- Brand ---- */
+  --auror-brand:        #f5a000;   /* primary amber */
+  --auror-brand-dark:   #d98c00;
+  --auror-brand-soft:   rgba(245,160,0,.16);
+  --auror-brand-tint:   rgba(245,160,0,.08);
+  --auror-brand-ring:   rgba(245,160,0,.55);
+
+  /* Secondary palette — extension to support layers/categories
+     Drawn from common CAD layer colors, harmonized to brand */
+  --auror-bone:         #f3ead8;   /* warm "fossil" neutral */
+  --auror-fern:         #5b8c5a;   /* layer green */
+  --auror-river:        #2f6f9f;   /* layer blue */
+  --auror-clay:         #b15a3c;   /* layer terracotta */
+  --auror-amethyst:     #6b4f9c;   /* layer violet */
+
+  /* ---- Surfaces ---- */
+  --auror-bg:           #f3f5f7;
+  --auror-canvas:       #fafafa;   /* drawing surface */
+  --auror-card:         #ffffff;
+  --auror-line:         #e5e7eb;
+  --auror-line-strong:  rgba(17,24,39,.12);
+  --auror-line-soft:    rgba(17,24,39,.08);
+  --auror-grid:         rgba(17,24,39,.06);   /* canvas grid lines */
+  --auror-grid-strong:  rgba(17,24,39,.18);   /* sample drawings on canvas */
+
+  /* ---- Ink ---- */
+  --auror-ink:          #111827;
+  --auror-ink-2:        #374151;
+  --auror-muted:        #6b7280;
+
+  /* ---- State ---- */
+  --auror-success:      #15803d;
+  --auror-warn:         #b45309;
+  --auror-danger:       #b91c1c;
+  --auror-danger-soft:  #fecaca;
+  --auror-info:         #1d4ed8;
+
+  /* ---- Radius ----
+     Single radius for the whole system. No pills, no varied corners. */
+  --auror-r:            10px;
+  /* Legacy aliases — all map to the single radius for backward compat */
+  --auror-r-sm:         10px;
+  --auror-r-md:         10px;
+  --auror-r-lg:         10px;
+  --auror-r-xl:         10px;
+  --auror-r-pill:       10px;
+
+  /* ---- Shadow ---- */
+  --auror-shadow-sm:    0 6px 14px rgba(17,24,39,.10);
+  --auror-shadow-md:    0 10px 24px rgba(17,24,39,.08);
+  --auror-shadow-lg:    0 12px 30px rgba(17,24,39,.18);
+  --auror-focus:        0 0 0 3px rgba(245,160,0,.25);
+
+  /* ---- Spacing (4-base) ---- */
+  --auror-s-1:          4px;
+  --auror-s-2:          8px;
+  --auror-s-3:          10px;
+  --auror-s-4:          12px;
+  --auror-s-5:          14px;
+  --auror-s-6:          16px;
+  --auror-s-8:          24px;
+  --auror-s-10:         32px;
+  --auror-s-12:         48px;
+
+  /* ---- Type ---- */
+  --auror-font:  "Inter", sans-serif;
+  --auror-mono:  "Inter", sans-serif;
+
+  --auror-fs-11: 11px;   /* badges */
+  --auror-fs-12: 12px;   /* small / labels / kbd */
+  --auror-fs-13: 13px;   /* dense body */
+  --auror-fs-14: 14px;   /* body */
+  --auror-fs-16: 16px;   /* h3 */
+  --auror-fs-20: 20px;   /* h2 */
+  --auror-fs-28: 28px;   /* h1 */
+  --auror-fs-40: 40px;   /* display */
+
+  --auror-lh-tight: 1.1;
+  --auror-lh-snug:  1.35;
+  --auror-lh-body:  1.5;
+
+  /* ---- Motion ---- */
+  --auror-dur-fast: 80ms;
+  --auror-dur-base: 120ms;
+  --auror-dur-slow: 220ms;
+  --auror-ease:     cubic-bezier(.2,.7,.2,1);
+
+  /* ---- Sizing ---- */
+  --auror-control-h:   36px;       /* default input/button */
+  --auror-control-h-sm: 28px;      /* layer iconBtn */
+  --auror-tool-h:      44px;       /* dock tool */
+  --auror-header-h:    60px;
+
+  /* =========================================================
+     SEMANTIC LAYER — components consume these, not the raw values.
+     Light theme defaults; dark overrides below.
+     ========================================================= */
+
+  /* Surfaces */
+  --surface:            var(--auror-bg);          /* page rail / app shell */
+  --surface-raised:     var(--auror-card);        /* cards, header, panels */
+  --surface-sunken:     #eef1f4;                  /* inset wells, code blocks */
+  --surface-canvas:     var(--auror-canvas);      /* drawing area */
+  --surface-overlay:    rgba(17,24,39,.45);       /* modal scrim */
+
+  /* Borders */
+  --border:             var(--auror-line);
+  --border-soft:        var(--auror-line-soft);
+  --border-strong:      var(--auror-line-strong);
+
+  /* Text */
+  --text:               var(--auror-ink);         /* primary copy */
+  --text-strong:        #000;                     /* maximum contrast */
+  --text-secondary:     var(--auror-ink-2);       /* dense body, button labels */
+  --text-muted:         var(--auror-muted);       /* meta, helper, captions */
+  --text-on-accent:     var(--auror-ink);         /* sits on amber */
+  --text-on-inverse:    #fff;                     /* sits on dark sb */
+
+  /* Accent */
+  --accent:             var(--auror-brand);
+  --accent-hover:       var(--auror-brand-dark);
+  --accent-soft:        var(--auror-brand-soft);
+  --accent-tint:        var(--auror-brand-tint);
+  --accent-ring:        var(--auror-brand-ring);
+
+  /* Status */
+  --success:            var(--auror-success);
+  --warn:               var(--auror-warn);
+  --danger:             var(--auror-danger);
+  --danger-soft:        var(--auror-danger-soft);
+  --info:               var(--auror-info);
+
+  /* Effects */
+  --shadow-sm:          var(--auror-shadow-sm);
+  --shadow-md:          var(--auror-shadow-md);
+  --shadow-lg:          var(--auror-shadow-lg);
+  --focus-ring:         var(--auror-focus);
+
+  /* Inverse / dark sidebar (always dark in both themes) */
+  --inverse-surface:    #0f1923;
+  --inverse-border:     rgba(255,255,255,.06);
+  --inverse-text:       #e8e8f0;
+  --inverse-text-muted: rgba(255,255,255,.35);
+
+  color-scheme: light;
+}
+
+/* =========================================================
+   AUROR Switch — single source of truth.
+   Used in design-system.html (Components) and settings.html.
+   Markup:
+     <label class="aurorSwitch">
+       <input type="checkbox">
+       <span class="track"><span class="thumb"></span></span>
+       <span>Label</span>           // optional, only when inline next to text
+     </label>
+   ========================================================= */
+.aurorSwitch{
+  --aurorSw-w: 44px;
+  --aurorSw-h: 24px;
+  --aurorSw-pad: 3px;
+  --aurorSw-thumb: 16px;
+  position: relative;
+  display: inline-flex; align-items: center; gap: 10px;
+  cursor: pointer; user-select: none;
+  font-size: 12px; color: var(--text-secondary);
+}
+.aurorSwitch input{
+  position: absolute; opacity: 0; pointer-events: none;
+  width: 0; height: 0;
+}
+.aurorSwitch .track{
+  box-sizing: border-box;
+  width: var(--aurorSw-w); height: var(--aurorSw-h);
+  flex-shrink: 0;
+  border-radius: 7px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  position: relative;
+  transition:
+    background var(--auror-dur-base) var(--auror-ease),
+    border-color var(--auror-dur-base) var(--auror-ease);
+}
+.aurorSwitch .thumb{
+  box-sizing: border-box;
+  position: absolute;
+  top: var(--aurorSw-pad);
+  left: var(--aurorSw-pad);
+  width: var(--aurorSw-thumb); height: var(--aurorSw-thumb);
+  border-radius: 4px;
+  background: var(--text-muted);
+  transition:
+    left var(--auror-dur-base) var(--auror-ease),
+    background var(--auror-dur-base) var(--auror-ease);
+}
+.aurorSwitch input:checked + .track{
+  background: var(--accent-soft);
+  border-color: var(--accent-ring);
+}
+.aurorSwitch input:checked + .track .thumb{
+  left: calc(var(--aurorSw-w) - var(--aurorSw-thumb) - var(--aurorSw-pad) - 2px);
+  background: var(--accent);
+}
+.aurorSwitch:hover .track{ border-color: var(--text-secondary); }
+.aurorSwitch input:focus-visible + .track{
+  box-shadow: var(--focus-ring);
+}
+
+/* =========================================================
+   DARK THEME — set <html data-theme="dark"> to activate
+   ========================================================= */
+[data-theme="dark"]{
+  /* Reposition raw tokens that need a different value in dark */
+  --auror-bg:           #181c22;
+  --auror-card:         #23272e;
+  --auror-canvas:       #1c2028;
+  --auror-line:         rgba(255,255,255,.08);
+  --auror-line-strong:  rgba(255,255,255,.18);
+  --auror-line-soft:    rgba(255,255,255,.05);
+
+  --auror-ink:          #e0e4ea;
+  --auror-ink-2:        #c4cbd4;
+  --auror-muted:        #8a93a0;
+  --auror-grid:         rgba(255,255,255,.07);
+  --auror-grid-strong:  rgba(255,255,255,.55);
+
+  --auror-shadow-sm:    0 2px 14px rgba(0,0,0,.45);
+  --auror-shadow-md:    0 8px 24px rgba(0,0,0,.5);
+  --auror-shadow-lg:    0 16px 36px rgba(0,0,0,.55);
+  --auror-focus:        0 0 0 3px rgba(245,160,0,.4);
+
+  /* Re-derive semantic surfaces */
+  --surface:            #15191f;
+  --surface-raised:     var(--auror-card);
+  --surface-sunken:     #1c2028;
+  --surface-canvas:     #2a2f37;        /* lighter than shell so the page shows */
+  --surface-overlay:    rgba(0,0,0,.6);
+
+  /* Brand soft/tint — re-tinted for dark */
+  --accent-soft:        rgba(245,160,0,.18);
+  --accent-tint:        rgba(245,160,0,.10);
+  --accent-ring:        rgba(245,160,0,.55);
+
+  /* Inverse stays dark — same values, but borders pop a little more */
+  --inverse-surface:    #0a121a;
+  --inverse-border:     rgba(255,255,255,.08);
+
+  color-scheme: dark;
+}

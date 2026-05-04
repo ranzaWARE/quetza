@@ -139,10 +139,10 @@ async function loadNotes() {
 
 function restoreDarkMode() {
   try {
-    const saved = localStorage.getItem('quetza_dark');
-    if (saved === '1') {
+    const saved = localStorage.getItem('auror-theme');
+    if (saved === 'dark') {
       S.dark = true;
-      APP.setAttribute('data-dk','1');
+      document.documentElement.setAttribute('data-theme','dark');
       if (S.color === '#111') setColor('#fff');
     }
   } catch {}
@@ -1430,9 +1430,9 @@ function setupToolbar() {
 
   document.getElementById('DKB').onclick = () => {
     S.dark = !S.dark;
-    S.dark ? APP.setAttribute('data-dk','1') : APP.removeAttribute('data-dk');
+    S.dark ? document.documentElement.setAttribute('data-theme','dark') : document.documentElement.removeAttribute('data-theme');
     applyDarkColor();
-    try { localStorage.setItem('quetza_dark', S.dark ? '1' : '0'); } catch {}
+    try { localStorage.setItem('auror-theme', S.dark ? 'dark' : 'light'); } catch {}
     markDirty('all'); redraw();
   };
 

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cp /tmp/auror/tokens.css /home/ranza/Scaricati/quetza/quetza/backend/public/css/tokens.css)",
+      "Bash(mkdir -p /home/ranza/Scaricati/quetza/quetza/backend/public/fonts)",
+      "Bash(cp /tmp/auror/fonts/Inter-VariableFont_opsz_wght.ttf /tmp/auror/fonts/Inter-Italic-VariableFont_opsz_wght.ttf /home/ranza/Scaricati/quetza/quetza/backend/public/fonts/)"
+    ]
+  }
+}

@@ -6,6 +6,16 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Quetza</title>
+<script>
+  (function(){
+    try{
+      var t = localStorage.getItem('auror-theme');
+      if(!t){ t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+      if(t === 'dark') document.documentElement.setAttribute('data-theme','dark');
+    }catch(e){}
+  })();
+</script>
+<link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/app.css">
   <!-- Blocca zoom browser su iOS Safari (ignora user-scalable in alcuni casi) -->
   <meta name="HandheldFriendly" content="true">
