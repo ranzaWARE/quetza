@@ -107,9 +107,10 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font);}
 .b.on{background:var(--accent-soft);color:var(--auror-brand-dark);border-color:var(--accent-ring)}
 .b.red{color:var(--acc)}
 .b.red:hover{background:rgba(192,57,43,.08);border-color:#fecaca}
-.bp{padding:0 9px;width:auto;font-size:.7rem;font-weight:600;gap:4px}
-.bp.dk{background:var(--surface-raised);color:var(--text-secondary);border-color:var(--border)}
-.bp.dk:hover{background:var(--surface-sunken);color:var(--text)}
+.bp{width:32px;min-width:32px;padding:0}
+.bp.dk .ic-moon{display:none}
+[data-theme="dark"] .bp.dk .ic-sun{display:none}
+[data-theme="dark"] .bp.dk .ic-moon{display:block}
 /* Salva = brand giallo primary */
 .bp.ar{background:var(--brand);color:#111827;border-color:var(--brand-dark);font-weight:700}
 .bp.ar:hover{background:var(--brand-dark)}
