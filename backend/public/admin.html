@@ -14,6 +14,7 @@
   })();
 </script>
 <link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/components.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--auror-font);background:var(--surface);color:var(--text);min-height:100vh}
@@ -57,7 +58,7 @@ button{font-family:inherit;cursor:pointer;transition:all var(--auror-dur-base) v
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
 .form-group{display:flex;flex-direction:column;gap:4px}
 label{font-size:.76rem;font-weight:500;color:var(--text-secondary)}
-input[type=text],input[type=password],input[type=url],select{padding:7px 10px;border:1px solid var(--border);border-radius:var(--auror-r);font-size:.82rem;font-family:inherit;color:var(--text);background:var(--surface-raised);outline:none;transition:border-color var(--auror-dur-base) var(--auror-ease)}
+input[type=text],input[type=password],input[type=url],select{height:var(--auror-control-h);padding:0 10px;border:1px solid var(--border);border-radius:var(--auror-r);font-size:var(--auror-fs-13);font-family:inherit;color:var(--text);background:var(--surface-raised);outline:none;transition:border-color var(--auror-dur-base) var(--auror-ease),box-shadow var(--auror-dur-base) var(--auror-ease)}
 input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)}
 .toggle-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border-soft)}
 .toggle-row:last-child{border-bottom:none}

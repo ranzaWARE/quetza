@@ -14,6 +14,7 @@
   })();
 </script>
 <link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/components.css">
 <style>
   *{ box-sizing: border-box; }
   html, body{ margin: 0; padding: 0; height: 100%; }
@@ -123,43 +124,10 @@
   .formPane{ display: none; }
   .formPane.active{ display: block; }
   .field{ margin-bottom: 12px; }
-  .field label{
-    display: block;
-    font-size: 12px; font-weight: 600;
-    color: var(--text-secondary);
-    margin-bottom: 5px;
-  }
-  .input{
-    width: 100%;
-    padding: 9px 12px;
-    border-radius: var(--auror-r);
-    border: 1px solid var(--border);
-    background: var(--surface-raised);
-    color: var(--text);
-    font-family: inherit; font-size: 14px;
-    transition: border-color var(--auror-dur-base) var(--auror-ease),
-                box-shadow var(--auror-dur-base) var(--auror-ease);
-  }
-  .input:focus{
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: var(--focus-ring);
-  }
-
-  .primaryBtn{
-    width: 100%;
-    padding: 10px 14px;
-    border-radius: var(--auror-r);
-    border: 1px solid var(--accent);
-    background: var(--accent);
-    color: var(--text-on-accent);
-    font-family: inherit; font-size: 14px; font-weight: 600;
-    cursor: pointer;
-    transition: background var(--auror-dur-base) var(--auror-ease);
-    margin-top: 4px;
-  }
-  .primaryBtn:hover{ background: var(--accent-hover); border-color: var(--accent-hover); }
-  .primaryBtn:disabled{ opacity: 0.6; cursor: not-allowed; }
+  .field label{ display: block; margin-bottom: 5px; }
+  /* Use .aurorInput and .aurorBtn.primary from components.css */
+  .aurorInput{ height: auto; padding: 9px 12px; font-size: 14px; }
+  .aurorBtn.primary{ width: 100%; padding: 11px 14px; font-size: 14px; justify-content: center; margin-top: 4px; }
 
   .infoNote{
     background: var(--surface-sunken);
@@ -254,13 +222,13 @@
     <form class="formPane active" id="form-local" autocomplete="on">
       <div class="field">
         <label for="u">Username</label>
-        <input class="input" type="text" id="u" autocomplete="username" placeholder="nome.cognome" required autofocus>
+        <input class="aurorInput" type="text" id="u" autocomplete="username" placeholder="nome.cognome" required autofocus>
       </div>
       <div class="field">
         <label for="p">Password</label>
-        <input class="input" type="password" id="p" autocomplete="current-password" placeholder="••••••••" required>
+        <input class="aurorInput" type="password" id="p" autocomplete="current-password" placeholder="••••••••" required>
       </div>
-      <button class="primaryBtn" type="submit" id="btn">Accedi</button>
+      <button class="aurorBtn primary" type="submit" id="btn">Accedi</button>
     </form>
 
     <!-- OIDC -->
@@ -269,7 +237,7 @@
         Single sign-on via Keycloak.<br>
         Verrai reindirizzato al provider per autenticarti.
       </div>
-      <button class="primaryBtn" type="submit">Accedi con Keycloak SSO</button>
+      <button class="aurorBtn primary" type="submit">Accedi con Keycloak SSO</button>
     </form>
 
     <!-- LDAP -->
@@ -279,13 +247,13 @@
       </div>
       <div class="field">
         <label for="ldapUser">Username</label>
-        <input class="input" type="text" id="ldapUser" placeholder="DOMAIN\\user o user@domain" autocomplete="username" required>
+        <input class="aurorInput" type="text" id="ldapUser" placeholder="DOMAIN\\user o user@domain" autocomplete="username" required>
       </div>
       <div class="field">
         <label for="ldapPwd">Password</label>
-        <input class="input" type="password" id="ldapPwd" placeholder="••••••••" autocomplete="current-password" required>
+        <input class="aurorInput" type="password" id="ldapPwd" placeholder="••••••••" autocomplete="current-password" required>
       </div>
-      <button class="primaryBtn" type="submit">Accedi via LDAP</button>
+      <button class="aurorBtn primary" type="submit">Accedi via LDAP</button>
     </form>
 
     <div class="footer">Usa le credenziali aziendali</div>

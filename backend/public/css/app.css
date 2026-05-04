@@ -118,21 +118,23 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 .R2::-webkit-scrollbar{display:none}
 .sp{width:1px;height:14px;background:var(--tbr);margin:0 3px;flex-shrink:0}
 
-/* Pulsanti toolbar */
-.b{height:28px;min-width:28px;border:1px solid transparent;border-radius:var(--r-sm);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted);padding:0 4px;flex-shrink:0;transition:background .12s,border-color .12s,color .12s,transform .02s;white-space:nowrap;font-family:inherit}
-.b:hover{background:var(--bh);color:var(--text);border-color:var(--line)}
+/* Pulsanti toolbar — base icon button */
+.b{height:28px;min-width:28px;border:1px solid transparent;border-radius:var(--r-sm);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted);padding:0 4px;flex-shrink:0;transition:background var(--auror-dur-base) var(--auror-ease),border-color var(--auror-dur-base) var(--auror-ease),color var(--auror-dur-base) var(--auror-ease),transform var(--auror-dur-fast) ease;white-space:nowrap;font-family:inherit}
+.b:hover{background:var(--accent-tint);color:var(--text);border-color:var(--border)}
 .b:active{transform:translateY(1px)}
-.b.on{background:var(--sb);color:#fff;border-color:var(--sb)}
-.b.red{color:var(--acc)}
-.b.red:hover{background:rgba(192,57,43,.08);border-color:#fecaca}
-.bp{padding:0 9px;width:auto;font-size:.7rem;font-weight:600;gap:4px}
-.bp.dk{background:var(--sb);color:#fff;border-color:var(--sb)}
-.bp.dk:hover{background:#1a2635}
-.bp.a2{background:var(--acc2);color:#fff;border-color:var(--acc2)}
-.bp.a2:hover{background:#1a5276}
-/* Salva = brand giallo primary */
-.bp.ar{background:var(--brand);color:#111827;border-color:var(--brand-dark);font-weight:700}
-.bp.ar:hover{background:var(--brand-dark)}
+/* Active tool — amber soft, AUROR pattern */
+.b.on{background:var(--accent-soft);color:var(--accent-hover);border-color:var(--accent-ring)}
+.b.red{color:var(--danger)}
+.b.red:hover{background:rgba(185,28,28,.06);border-color:var(--danger-soft)}
+/* Text button in toolbar (R1 row) */
+.bp{padding:0 9px;width:auto;font-size:var(--auror-fs-12);font-weight:600;gap:4px;border:1px solid var(--border);background:var(--surface-raised);color:var(--text-secondary)}
+.bp:hover{background:var(--surface-sunken);color:var(--text);border-color:var(--border)}
+/* Dark-mode toggle — neutral outlined */
+.bp.dk{background:var(--surface-raised);color:var(--text-secondary);border-color:var(--border)}
+.bp.dk:hover{background:var(--surface-sunken);color:var(--text)}
+/* Salva = brand amber primary */
+.bp.ar{background:var(--accent);color:var(--text-on-accent);border-color:var(--accent-hover);font-weight:700}
+.bp.ar:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
 
 .sw{width:16px;height:16px;border-radius:50%;border:2px solid transparent;cursor:pointer;flex-shrink:0;transition:transform .12s}
 .sw:hover{transform:scale(1.2)}
@@ -180,8 +182,16 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 .sc{position:absolute;top:0;width:2px;background:var(--acc);height:100%;pointer-events:none}
 .at2{font-size:.63rem;color:rgba(255,255,255,.4);white-space:nowrap;font-variant-numeric:tabular-nums}
 
-/* ── Canvas area ────────────────────────────────────────── */
-.CA{position:absolute;inset:0;background:var(--bg);border-radius:var(--r)}
+/* ── Canvas area — AUROR canvas con grid ────────────────── */
+.CA{
+  position:absolute;inset:0;
+  background:var(--surface-canvas);
+  background-image:
+    linear-gradient(to right, var(--auror-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--auror-grid) 1px, transparent 1px);
+  background-size:16px 16px;
+  border-radius:var(--r);
+}
 
 /* CO: rail orizzontale, scroll gestito da JS */
 .CO{
@@ -243,16 +253,16 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 
 /* ── Mode pill ──────────────────────────────────────────── */
 .MP{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);padding:3px 12px;border-radius:var(--r);font-size:.66rem;font-weight:600;pointer-events:none;opacity:0;transition:opacity .2s;z-index:60;white-space:nowrap}
-.MP.pen{background:var(--sb);color:#fff;opacity:.85}
-.MP.touch{background:var(--acc2);color:#fff;opacity:.85}
-.MP.palm{background:#e67e22;color:#fff;opacity:.85}
+.MP.pen{background:var(--accent-soft);color:var(--accent-hover);border:1px solid var(--accent-ring);opacity:.95}
+.MP.touch{background:var(--surface-raised);color:var(--text-secondary);border:1px solid var(--border);opacity:.95}
+.MP.palm{background:rgba(230,126,34,.15);color:#d35400;border:1px solid rgba(230,126,34,.4);opacity:.95}
 
 /* ── Toast ──────────────────────────────────────────────── */
-.TT{position:absolute;bottom:80px;right:16px;padding:6px 14px;border-radius:var(--r);font-size:.72rem;font-weight:600;background:#1e8449;color:#fff;opacity:0;transition:opacity .3s;pointer-events:none;z-index:300;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+.TT{position:absolute;bottom:80px;right:16px;padding:6px 14px;border-radius:var(--r);font-size:var(--auror-fs-12);font-weight:600;background:var(--success);color:#fff;opacity:0;transition:opacity var(--auror-dur-slow) ease;pointer-events:none;z-index:300;box-shadow:var(--shadow-sm)}
 .TT.on{opacity:1}
 
 /* ── Modali ─────────────────────────────────────────────── */
-.MW{position:absolute;inset:0;background:rgba(17,24,39,.45);z-index:100;display:flex;align-items:center;justify-content:center;border-radius:var(--r)}
+.MW{position:absolute;inset:0;background:var(--surface-overlay);z-index:100;display:flex;align-items:center;justify-content:center;border-radius:var(--r)}
 .MW.off{display:none}
 .MD{background:var(--card);border-radius:var(--r-lg);padding:22px;width:290px;border:1px solid var(--line);box-shadow:0 20px 40px rgba(17,24,39,.18)}
 .MD h3{font-size:.95rem;font-weight:700;color:var(--text);margin-bottom:4px}
@@ -273,11 +283,11 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 .TB,.R1,.R2,.AB,#SB{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 
 /* ── Shape recognition ──────────────────────────────────── */
-#SRB.on{background:#e67e22;color:#fff;border-color:#e67e22}
-#SRB.on:hover{background:#d35400}
+#SRB.on{background:var(--accent-soft);color:var(--accent-hover);border-color:var(--accent-ring)}
+#SRB.on:hover{background:var(--accent-soft)}
 
-/* ── Lasso ──────────────────────────────────────────────── */
-[data-t="lasso"].on{background:var(--acc2);color:#fff;border-color:var(--acc2)}
+/* ── Lasso — active = amber, come tutti gli strumenti AUROR */
+[data-t="lasso"].on{background:var(--accent-soft);color:var(--accent-hover);border-color:var(--accent-ring)}
 
 /* ── Search box ─────────────────────────────────────────── */
 .srch{display:flex;align-items:center;gap:6px;margin:0 7px 4px;padding:5px 8px;background:rgba(255,255,255,.07);border-radius:var(--r-sm);border:1px solid rgba(255,255,255,.08)}
@@ -306,7 +316,7 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 .CV-text { cursor: text !important; }
 
 /* ── Context menu nota ───────────────────────────────────── */
-#_nm button:hover { background: rgba(255,255,255,.1); }
+#_nm button:hover { background: var(--surface-sunken); }
 /* ── Navigazione pagine ─────────────────────────────────── */
 .pg-nav{
   position:absolute;top:50%;transform:translateY(-50%);
@@ -345,7 +355,15 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 }
 .pg-add:hover{background:var(--brand-dark);transform:scale(1.1)}
 /* ── Canvas area ─────────────────────────────────────────────── */
-.CA{position:absolute;inset:0;background:var(--bg);border-radius:var(--r)}
+.CA{
+  position:absolute;inset:0;
+  background:var(--surface-canvas);
+  background-image:
+    linear-gradient(to right, var(--auror-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--auror-grid) 1px, transparent 1px);
+  background-size:16px 16px;
+  border-radius:var(--r);
+}
 .CO{position:absolute;inset:0;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
 .CW{display:none}
 
