@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  quetza:
+    build:
+      context: ./backend
+      target: development
+    container_name: quetza-dev
+    restart: "no"
+    ports:
+      - "8080:3000"
+      - "8443:3443"
+    volumes:
+      - ./backend:/app          # sorgente montata live → nodemon vede le modifiche
+      - /app/node_modules       # preserva node_modules dell'immagine
+      - quetza_dev_data:/app/data
+      - quetza_dev_certs:/app/certs
+    environment:
+      - NODE_ENV=development
+      - DB_PATH=/app/data/quetza.db
+      - SESSION_SECRET=dev-secret-non-per-prod
+      - SERVER_IP=127.0.0.1
+      - LDAP_ENABLED=false
+
+  filebrowser:
+    image: filebrowser/filebrowser:latest
+    container_name: quetza-filebrowser
+    restart: "no"
+    ports:
+      - "8888:80"
+    volumes:
+      - ./backend:/srv/backend
+    command: --noauth --root /srv
+
+volumes:
+  quetza_dev_data:
+  quetza_dev_certs:

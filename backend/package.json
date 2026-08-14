@@ -7,6 +7,9 @@
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  },
   "dependencies": {
     "better-sqlite3": "^9.4.3",
     "connect-sqlite3": "^0.9.13",

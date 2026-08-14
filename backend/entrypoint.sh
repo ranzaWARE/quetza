@@ -16,4 +16,8 @@ BACKUP_CRON="${BACKUP_CRON:-0 2 * * *}"
 echo "$BACKUP_CRON /app/backup.sh >> /app/data/backup.log 2>&1" | crontab -
 crond -b 2>/dev/null || true
 
-exec node server.js
+if [ "$NODE_ENV" = "development" ]; then
+  exec npx nodemon --watch . --ext js,json --ignore data/ --ignore certs/ --ignore node_modules/ server.js
+else
+  exec node server.js
+fi
