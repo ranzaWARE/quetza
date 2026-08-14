@@ -14,15 +14,39 @@ const auth     = require('./auth');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
+const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
 const DB_DIR = path.dirname(process.env.DB_PATH || path.join(__dirname, 'data', 'quetza.db'));
+
+const CERT_PATH = process.env.CERT_PATH || '/app/certs/server.crt';
+const KEY_PATH  = process.env.KEY_PATH  || '/app/certs/server.key';
+const HAS_CERTS = fs.existsSync(CERT_PATH) && fs.existsSync(KEY_PATH);
+
+// Dietro nginx/reverse proxy il rate limiter deve leggere X-Forwarded-For,
+// altrimenti tutti gli utenti condividono il contatore dell'IP del proxy.
+// Numero di hop fidati; 0 = nessun proxy (default sicuro: 1 hop, il nostro nginx).
+const TRUST_PROXY = Number(process.env.TRUST_PROXY ?? 1);
+if (TRUST_PROXY > 0) app.set('trust proxy', TRUST_PROXY);
+
+// Senza SESSION_SECRET si genera un segreto casuale a ogni avvio: le sessioni
+// non sopravvivono al riavvio, ma non si usa mai un segreto noto e pubblico.
+let SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SESSION_SECRET || SESSION_SECRET.length < 16) {
+  SESSION_SECRET = crypto.randomBytes(48).toString('hex');
+  console.warn('[quetza] SESSION_SECRET assente o troppo corto — generato segreto casuale temporaneo. Le sessioni verranno invalidate a ogni riavvio.');
+}
 
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 app.use(session({
   store: new SQLiteStore({ db: 'sessions.db', dir: DB_DIR }),
-  secret: process.env.SESSION_SECRET || 'dev-secret-change-in-production',
+  secret: SESSION_SECRET,
   resave: false, saveUninitialized: false,
-  cookie: { secure: false, httpOnly: true, maxAge: 14*24*60*60*1000 }
+  cookie: {
+    // Il cookie va marcato Secure solo se il browser parla davvero HTTPS,
+    // altrimenti in HTTP puro non verrebbe mai inviato indietro.
+    secure: HAS_CERTS || process.env.FORCE_SECURE_COOKIE === 'true',
+    httpOnly: true, sameSite: 'lax', maxAge: 14*24*60*60*1000
+  }
 }));
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -36,9 +60,29 @@ app.use('/api/notes/:id/audio', uploadLimiter);
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200*1024*1024 } });
 
+// I browser mandano Accept: text/html,…,*/* — quindi req.accepts('json') è
+// vero anche per una normale navigazione e restituiva JSON grezzo al posto di
+// un redirect. Discrimina invece sul path.
+const isApi = (req) => req.path.startsWith('/api/');
+
 function requireAuth(req, res, next) {
+  if (!req.session?.user) {
+    if (isApi(req)) return res.status(401).json({ error: 'Non autenticato' });
+    return res.redirect('/login.html');
+  }
+  // Password da cambiare: nessuna API utilizzabile finché non è stata cambiata.
+  // /api/me e /api/change-password restano accessibili per pilotare il modale.
+  if (req.session.user.must_change_password) {
+    if (isApi(req)) return res.status(403).json({ error: 'Password da cambiare', must_change_password: true });
+    return res.redirect('/');   // l'app mostra il modale di cambio password
+  }
+  next();
+}
+
+// Autenticato ma senza il blocco "cambia password" — solo per /api/me e logout
+function requireSession(req, res, next) {
   if (req.session?.user) return next();
-  if (req.accepts('json')) return res.status(401).json({ error: 'Non autenticato' });
+  if (isApi(req)) return res.status(401).json({ error: 'Non autenticato' });
   res.redirect('/login.html');
 }
 
@@ -62,12 +106,27 @@ app.post('/api/login', async (req, res) => {
   }
 
   try {
-    const user = await auth.authenticate(username, password);
+    const user = await auth.authenticate(username, password, req.body.method);
+    user.must_change_password = db.mustChangePassword(user.username) ? 1 : 0;
     req.session.user = user;
-    res.json({ ok: true, user });
+    res.json({ ok: true, user, must_change_password: user.must_change_password });
   } catch(err) {
     res.status(401).json({ error: 'Credenziali non valide' });
   }
+});
+
+// Cambio password dell'utente autenticato (anche con must_change_password attivo)
+app.post('/api/change-password', requireSession, (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const u = req.session.user;
+  if (u.source !== 'local') return res.status(400).json({ error: 'Password gestita dal provider esterno (LDAP/SSO)' });
+  if (!newPassword || newPassword.length < 8) return res.status(400).json({ error: 'La nuova password deve avere almeno 8 caratteri' });
+  if (!db.verifyPassword(u.username, currentPassword||'')) return res.status(401).json({ error: 'Password attuale non corretta' });
+  if (currentPassword === newPassword) return res.status(400).json({ error: 'La nuova password deve essere diversa da quella attuale' });
+
+  db.resetPassword(u.username, newPassword, false);
+  req.session.user.must_change_password = 0;
+  res.json({ ok: true });
 });
 
 // OIDC callback
@@ -88,7 +147,7 @@ app.get('/auth/callback', async (req, res) => {
     const username = payload.preferred_username || payload.sub;
     // Sincronizza nel DB
     let dbUser = db.getUserByUsername(username);
-    if (!dbUser) { try { db.createUser(username, null, payload.name||username, 0); } catch {} dbUser = db.getUserByUsername(username); }
+    if (!dbUser) { try { db.createUser(username, null, payload.name||username, 0, 'oidc'); } catch {} dbUser = db.getUserByUsername(username); }
     db.touchLogin(username);
     req.session.user = { username, displayName: payload.name||username, source:'oidc', is_admin: dbUser?.is_admin||0 };
     res.redirect('/');
@@ -106,7 +165,9 @@ app.get('/api/login-config', (req, res) => {
     ldap_enabled: db.getSetting('ldap_enabled') === 'true' || process.env.LDAP_ENABLED === 'true',
   });
 });
-app.get('/api/me', requireAuth, (req, res) => { res.json({ user: req.session.user }); });
+app.get('/api/me', requireSession, (req, res) => {
+  res.json({ user: req.session.user, must_change_password: req.session.user.must_change_password ? 1 : 0 });
+});
 
 // ── Notes API ─────────────────────────────────────────────────
 app.get('/api/notes', requireAuth, (req, res) => res.json(db.getNotesByUser(req.session.user.username)));
@@ -180,62 +241,77 @@ app.get('/api/notes/:id/transcript', requireAuth, (req, res) => {
   });
 });
 
+// ── Whisper ───────────────────────────────────────────────────
+// Le impostazioni salvate dal pannello admin hanno la precedenza sulle env,
+// altrimenti WHISPER_URL da docker-compose le renderebbe sempre inefficaci.
+function whisperConfig() {
+  return {
+    url:     db.getSetting('whisper_url')      || process.env.WHISPER_URL || 'http://quetza-whisper:9876',
+    model:   db.getSetting('whisper_model')    || process.env.WHISPER_MODEL || '',
+    hfToken: db.getSetting('whisper_hf_token') || process.env.HF_TOKEN || '',
+  };
+}
+
+async function whisperReachable(url) {
+  try {
+    const r = await fetch(`${url}/health`, { signal: AbortSignal.timeout(3000) });
+    return r.ok;
+  } catch { return false; }
+}
+
+// Invia l'audio di una nota al microservizio e salva il risultato.
+// Ogni sessione di registrazione viene inviata come file separato: concatenare
+// i buffer WebM produceva un flusso con più header di container, di cui ffmpeg
+// decodificava solo il primo (registrazioni in più riprese troncate).
+async function transcribeNote(noteId, username) {
+  const cfg = whisperConfig();
+  if (!(await whisperReachable(cfg.url))) {
+    const err = new Error('Servizio Whisper non disponibile. Controlla che il container quetza-whisper sia avviato.');
+    err.status = 503;
+    throw err;
+  }
+
+  const sessions = db.getAudio(noteId, username);
+  if (!sessions?.length) {
+    const err = new Error('Nessun audio da trascrivere');
+    err.status = 404;
+    throw err;
+  }
+
+  const form = new FormData();
+  sessions.forEach((s, i) => {
+    const mime = s.mime || 'audio/webm';
+    const ext  = mime.includes('mp4') ? 'mp4' : mime.includes('wav') ? 'wav' : 'webm';
+    // Stesso nome campo per tutte: il servizio le legge con getlist('audio')
+    form.append('audio', new Blob([s.data], { type: mime }), `session_${i}.${ext}`);
+  });
+  form.append('diarize', 'true');
+  if (cfg.model)   form.append('model', cfg.model);
+  if (cfg.hfToken) form.append('hf_token', cfg.hfToken);
+
+  const r = await fetch(`${cfg.url}/transcribe`, {
+    method: 'POST', body: form, signal: AbortSignal.timeout(300000)
+  });
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({ error: 'Errore sconosciuto' }));
+    const err = new Error(body.error || 'Errore trascrizione');
+    err.status = 500;
+    throw err;
+  }
+
+  const result = await r.json();
+  // Salva la trascrizione nel DB e ricostruisce l'indice FTS
+  db.saveWhisperText(noteId, result.text || '', result.segments || null);
+  return result;
+}
+
 // Whisper trascrizione con diarizzazione (via microservizio Python)
 app.post('/api/notes/:id/transcribe', requireAuth, async (req, res) => {
   const note = db.getNoteById(req.params.id, req.session.user.username);
   if (!note) return res.status(404).json({ error: 'Nota non trovata' });
-  const sessions = db.getAudio(req.params.id, req.session.user.username);
-  if (!sessions?.length) return res.status(404).json({ error: 'Nessun audio da trascrivere' });
 
-  const whisperUrl = process.env.WHISPER_URL || db.getSetting('whisper_url') || 'http://localhost:9876';
-
-  // Verifica che il servizio sia disponibile
   try {
-    const health = await fetch(`${whisperUrl}/health`, { signal: AbortSignal.timeout(3000) });
-    if (!health.ok) throw new Error('not ok');
-  } catch {
-    return res.status(503).json({ error: 'Servizio Whisper non disponibile. Controlla che il container quetza-whisper sia avviato.' });
-  }
-
-  // Manda l'audio al microservizio Python
-  try {
-    const audioBuffer = Buffer.concat(sessions.map(s => s.data));
-    const mime = sessions[0]?.mime || 'audio/webm';
-    const ext  = mime.includes('mp4') ? 'mp4' : mime.includes('wav') ? 'wav' : 'webm';
-
-    const { FormData, Blob } = await import('node:buffer').then(() => ({
-      FormData: globalThis.FormData || require('form-data'),
-      Blob: globalThis.Blob
-    })).catch(() => ({ FormData: require('form-data'), Blob: null }));
-
-    // Usa form-data per compatibilità Node.js < 18
-    // Usa FormData nativo (Node.js 18+)
-    const { FormData: FD, Blob: BL } = globalThis;
-    let r;
-    if (FD && BL) {
-      const form = new FD();
-      form.append('audio', new BL([audioBuffer], { type: mime }), `audio.${ext}`);
-      form.append('diarize', 'true');
-      r = await fetch(`${whisperUrl}/transcribe`, { method:'POST', body:form, signal:AbortSignal.timeout(300000) });
-    } else {
-      // Fallback form-data per Node < 18
-      const FormDataLib = require('form-data');
-      const form = new FormDataLib();
-      form.append('audio', audioBuffer, { filename:`audio.${ext}`, contentType:mime });
-      form.append('diarize', 'true');
-      r = await fetch(`${whisperUrl}/transcribe`, { method:'POST', body:form, headers:form.getHeaders(), signal:AbortSignal.timeout(300000) });
-    }
-
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({ error: 'Errore sconosciuto' }));
-      return res.status(500).json({ error: err.error || 'Errore trascrizione' });
-    }
-
-    const result = await r.json();
-
-    // Salva la trascrizione nel DB e ricostruisce l'indice FTS
-    db.saveWhisperText(req.params.id, result.text || '', result.segments || null);
-
+    const result = await transcribeNote(req.params.id, req.session.user.username);
     res.json({
       ok:       true,
       text:     result.text,
@@ -246,7 +322,7 @@ app.post('/api/notes/:id/transcribe', requireAuth, async (req, res) => {
     });
   } catch(e) {
     console.error('Transcribe error:', e.message);
-    res.status(500).json({ error: 'Errore durante la trascrizione: ' + e.message });
+    res.status(e.status || 500).json({ error: e.status ? e.message : 'Errore durante la trascrizione: ' + e.message });
   }
 });
 
@@ -254,12 +330,27 @@ app.post('/api/notes/:id/transcribe', requireAuth, async (req, res) => {
 const archiver = require('archiver');
 const AdmZip   = require('adm-zip');
 
+// Deserializza le colonne JSON per un manifest leggibile.
+// Deve coprire TUTTI i campi di contenuto: escluderne uno significa perderlo
+// al reimport (era il caso di text_items, pages_data e whisper_*).
+function noteForManifest(n) {
+  const parse = (v, fallback) => { try { return v ? JSON.parse(v) : fallback; } catch { return fallback; } };
+  return {
+    ...n,
+    strokes:          parse(n.strokes, []),
+    images:           parse(n.images, []),
+    text_items:       parse(n.text_items, []),
+    pages_data:       parse(n.pages_data, null),
+    whisper_segments: parse(n.whisper_segments, null),
+  };
+}
+
 app.get('/api/export', requireAuth, async (req, res) => {
   const username = req.session.user.username;
   const notes = db.getAllNotesForExport(username);
   res.set('Content-Type','application/zip').set('Content-Disposition',`attachment; filename="quetza-${username}-${new Date().toISOString().slice(0,10)}.zip"`);
   const arc = archiver('zip',{zlib:{level:6}}); arc.pipe(res);
-  arc.append(JSON.stringify(notes.map(n=>({...n,strokes:n.strokes?JSON.parse(n.strokes):[],images:n.images?JSON.parse(n.images):[]})),null,2),{name:'manifest.json'});
+  arc.append(JSON.stringify(notes.map(noteForManifest),null,2),{name:'manifest.json'});
   for (const note of notes) {
     if (!note.has_audio) continue;
     const audio = db.getAudio(note.id, username);
@@ -269,6 +360,33 @@ app.get('/api/export', requireAuth, async (req, res) => {
   arc.finalize();
 });
 
+// Ripristina TUTTE le sessioni audio di una nota (audio/<id>_0, _1, _2 …).
+// La versione precedente cercava solo _0, perdendo le registrazioni successive.
+// L'audio esistente viene rimosso prima, altrimenti un reimport duplicherebbe
+// le sessioni accodandole a quelle già presenti.
+function restoreAudioFromZip(zip, noteId, username) {
+  const found = [];
+  for (let i = 0; ; i++) {
+    const entry = ['webm','mp4','wav']
+      .map(ext => ({ ext, e: zip.getEntry(`audio/${noteId}_${i}.${ext}`) }))
+      .find(x => x.e);
+    if (!entry) break;
+    found.push(entry);
+  }
+  // Formato storico senza indice di sessione
+  if (!found.length) {
+    const legacy = ['webm','mp4','wav']
+      .map(ext => ({ ext, e: zip.getEntry(`audio/${noteId}.${ext}`) }))
+      .find(x => x.e);
+    if (legacy) found.push(legacy);
+  }
+  if (!found.length) return 0;
+
+  db.deleteAudio(noteId, username);
+  found.forEach(({ ext, e }) => db.saveAudio(noteId, username, e.getData(), `audio/${ext}`));
+  return found.length;
+}
+
 app.post('/api/import', requireAuth,
   multer({storage:multer.memoryStorage(),limits:{fileSize:2*1024*1024*1024}}).single('archive'),
   async (req, res) => {
@@ -277,14 +395,12 @@ app.post('/api/import', requireAuth,
       const zip = new AdmZip(req.file.buffer);
       const manifest = JSON.parse(zip.getEntry('manifest.json')?.getData().toString('utf8') || 'null');
       if (!manifest) return res.status(400).json({ error: 'ZIP non valido' });
+      const notes = Array.isArray(manifest) ? manifest : (manifest.notes || []);
       let imported=0, skipped=0;
-      for (const note of manifest) {
+      for (const note of notes) {
         if (!note.id||!note.title){skipped++;continue;}
         db.upsertNoteFromImport(note.id, req.session.user.username, note);
-        ['webm','mp4'].forEach((ext,i)=>{
-          const e=zip.getEntry(`audio/${note.id}_0.${ext}`)||zip.getEntry(`audio/${note.id}.${ext}`);
-          if(e) db.saveAudio(note.id,req.session.user.username,e.getData(),`audio/${ext}`);
-        });
+        restoreAudioFromZip(zip, note.id, req.session.user.username);
         imported++;
       }
       res.json({ ok: true, imported, skipped });
@@ -309,21 +425,38 @@ app.get('/api/shared/:token', (req, res) => {
   if (!share) return res.status(404).json({ error: 'Link non valido o scaduto' });
   const note = db.getNoteById(share.note_id, share.username);
   if (!note) return res.status(404).json({ error: 'Nota non trovata' });
-  res.json({ title:note.title, strokes:note.strokes, images:note.images, grid:note.grid, has_audio:note.has_audio, shared_by:share.username, expires_at:share.expires_at });
+  // pages_data e text_items servono alla vista condivisa per mostrare tutte le
+  // pagine e il testo digitato: con i soli strokes si vedeva una pagina sola.
+  res.json({
+    title: note.title, strokes: note.strokes, images: note.images,
+    text_items: note.text_items, pages_data: note.pages_data,
+    grid: note.grid, has_audio: note.has_audio,
+    shared_by: share.username, expires_at: share.expires_at
+  });
 });
-app.get('/api/shared/:token/audio/:session?', (req, res) => {
+// Due rotte esplicite invece del parametro opzionale ':session?', che Express 5
+// non supporta più: all'aggiornamento il server non sarebbe nemmeno partito.
+function sharedAudio(req, res) {
   const share = db.getShare(req.params.token);
   if (!share) return res.status(404).json({ error: 'Link non valido' });
   const sessions = db.getAudio(share.note_id, share.username);
   if (!sessions?.length) return res.status(404).json({ error: 'Audio non trovato' });
-  if (req.params.session!==undefined) {
-    const idx=parseInt(req.params.session);
-    if(idx>=sessions.length) return res.status(404).json({error:'Sessione non trovata'});
-    const a=sessions[idx]; res.set('Content-Type',a.mime||'audio/webm'); return res.send(a.data);
+
+  if (req.params.session !== undefined) {
+    const idx = parseInt(req.params.session);
+    if (!(idx >= 0) || idx >= sessions.length) return res.status(404).json({ error: 'Sessione non trovata' });
+    const a = sessions[idx];
+    res.set('Content-Type', a.mime || 'audio/webm');
+    return res.send(a.data);
   }
-  if (sessions.length===1){res.set('Content-Type',sessions[0].mime||'audio/webm');return res.send(sessions[0].data);}
-  res.json({sessions:sessions.map((s,i)=>({index:i,mime:s.mime}))});
-});
+  if (sessions.length === 1) {
+    res.set('Content-Type', sessions[0].mime || 'audio/webm');
+    return res.send(sessions[0].data);
+  }
+  res.json({ sessions: sessions.map((s, i) => ({ index: i, mime: s.mime })) });
+}
+app.get('/api/shared/:token/audio', sharedAudio);
+app.get('/api/shared/:token/audio/:session', sharedAudio);
 app.get('/share/:token', (req, res) => res.sendFile(path.join(__dirname,'public','share.html')));
 
 // ── Admin API ─────────────────────────────────────────────────
@@ -335,42 +468,17 @@ app.get('/api/admin/stats', requireAuth, requireAdmin, (req, res) => res.json(db
 // Non aspetta il risultato — risponde subito 202 e processa in background
 app.post('/api/notes/:id/transcribe-async', requireAuth, async (req, res) => {
   if (!req.params.id) return res.status(400).json({ error: 'ID mancante' });
+  const noteId   = req.params.id;
+  const username = req.session.user.username;
+
   // Risponde subito
   res.status(202).json({ ok: true, message: 'Trascrizione avviata in background' });
 
   // Processa in background senza await
   (async () => {
     try {
-      const whisperUrl = process.env.WHISPER_URL || db.getSetting('whisper_url') || 'http://quetza-whisper:9876';
-      const health = await fetch(`${whisperUrl}/health`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
-      if (!health?.ok) return;
-
-      const sessions = db.getAudio(req.params.id, req.session.user.username);
-      if (!sessions?.length) return;
-
-      const audioBuffer = Buffer.concat(sessions.map(s => s.data));
-      const mime = sessions[0]?.mime || 'audio/webm';
-      const ext  = mime.includes('mp4') ? 'mp4' : mime.includes('wav') ? 'wav' : 'webm';
-
-      const { FormData: FD, Blob: BL } = globalThis;
-      let r;
-      if (FD && BL) {
-        const form = new FD();
-        form.append('audio', new BL([audioBuffer], { type: mime }), `audio.${ext}`);
-        form.append('diarize', 'true');
-        r = await fetch(`${whisperUrl}/transcribe`, { method:'POST', body:form, signal:AbortSignal.timeout(300000) });
-      } else {
-        const FormDataLib = require('form-data');
-        const form = new FormDataLib();
-        form.append('audio', audioBuffer, { filename:`audio.${ext}`, contentType:mime });
-        form.append('diarize', 'true');
-        r = await fetch(`${whisperUrl}/transcribe`, { method:'POST', body:form, headers:form.getHeaders(), signal:AbortSignal.timeout(300000) });
-      }
-
-      if (!r.ok) return;
-      const result = await r.json();
-      db.saveWhisperText(req.params.id, result.text || '', result.segments || null);
-      console.log(`[whisper] Auto-transcribed note ${req.params.id} (${result.language}, diarized:${result.diarized})`);
+      const result = await transcribeNote(noteId, username);
+      console.log(`[whisper] Auto-transcribed note ${noteId} (${result.language}, diarized:${result.diarized})`);
     } catch(e) {
       console.warn('[whisper] Auto-transcription failed:', e.message);
     }
@@ -379,11 +487,17 @@ app.post('/api/notes/:id/transcribe-async', requireAuth, async (req, res) => {
 
 // Health check Whisper (proxy verso il container Python)
 app.get('/api/admin/whisper-health', requireAuth, requireAdmin, async (req, res) => {
-  const whisperUrl = process.env.WHISPER_URL || db.getSetting('whisper_url') || 'http://quetza-whisper:9876';
+  const cfg = whisperConfig();
   try {
-    const r = await fetch(`${whisperUrl}/health`, { signal: AbortSignal.timeout(4000) });
+    const r = await fetch(`${cfg.url}/health`, { signal: AbortSignal.timeout(4000) });
     const d = await r.json();
-    res.json(d);
+    // Il modello/token effettivi sono quelli che Quetza invierà al servizio,
+    // non solo quelli con cui il container è partito.
+    res.json({
+      ...d,
+      configured_model: cfg.model || d.whisper_model,
+      diarization: d.diarization || !!cfg.hfToken,
+    });
   } catch(e) {
     res.status(503).json({ ok: false, error: e.message });
   }
@@ -452,7 +566,7 @@ app.get('/api/admin/export', requireAuth, requireAdmin, async (req, res) => {
   const users = db.getUsers();
   res.set('Content-Type','application/zip').set('Content-Disposition',`attachment; filename="quetza-full-${new Date().toISOString().slice(0,10)}.zip"`);
   const arc = archiver('zip',{zlib:{level:6}}); arc.pipe(res);
-  arc.append(JSON.stringify({ users, notes: notes.map(n=>({...n,strokes:n.strokes?JSON.parse(n.strokes):[],images:n.images?JSON.parse(n.images):[]})) },null,2),{name:'manifest.json'});
+  arc.append(JSON.stringify({ users, notes: notes.map(noteForManifest) },null,2),{name:'manifest.json'});
   for (const note of notes) {
     if (!note.has_audio) continue;
     const audio = db.getAudio(note.id, null);
@@ -477,17 +591,22 @@ app.post('/api/admin/import', requireAuth, requireAdmin,
         for (const u of data.users) {
           if (!u.username) continue;
           const ex = db.getUserByUsername(u.username);
-          if (!ex) { try { db.createUser(u.username, 'changeme123', u.display_name||u.username, 0); usersImported++; } catch {} }
+          if (!ex) {
+            try {
+              db.createUser(u.username, 'changeme123', u.display_name||u.username, 0, u.source||'local');
+              // Password provvisoria: va cambiata al primo accesso
+              db.resetPassword(u.username, 'changeme123', true);
+              usersImported++;
+            } catch {}
+          }
         }
       }
       const notes = data.notes || data; // supporta entrambi i formati
       for (const note of notes) {
         if (!note.id||!note.title){skipped++;continue;}
-        db.upsertNoteFromImport(note.id, note.username||'admin', note);
-        ['webm','mp4'].forEach(ext=>{
-          const e=zip.getEntry(`audio/${note.id}_0.${ext}`)||zip.getEntry(`audio/${note.id}.${ext}`);
-          if(e) db.saveAudio(note.id, note.username||'admin', e.getData(), `audio/${ext}`);
-        });
+        const owner = note.username || 'admin';
+        db.upsertNoteFromImport(note.id, owner, note);
+        restoreAudioFromZip(zip, note.id, owner);
         imported++;
       }
       res.json({ ok:true, imported, skipped, usersImported });
@@ -502,16 +621,20 @@ app.get('/admin', requireAuth, requireAdmin, (req, res) => res.sendFile(path.joi
 app.get('*', (req, res) => res.sendFile(path.join(__dirname,'public','index.html')));
 
 // ── Server ────────────────────────────────────────────────────
-const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
-http.createServer((req,res)=>{
-  const host=(req.headers.host||'localhost').replace(String(PORT),String(HTTPS_PORT));
-  res.writeHead(301,{Location:`https://${host}${req.url}`}); res.end();
-}).listen(PORT);
+// Con i certificati: HTTPS su HTTPS_PORT + redirect da PORT.
+// Senza certificati: solo HTTP su PORT. Prima il redirect veniva avviato
+// comunque su PORT e poi app.listen(PORT) falliva con EADDRINUSE, quindi
+// senza certificati l'app non partiva affatto.
+if (HAS_CERTS) {
+  https.createServer({ cert: fs.readFileSync(CERT_PATH), key: fs.readFileSync(KEY_PATH) }, app)
+    .listen(HTTPS_PORT, () => console.log(`Quetza HTTPS :${HTTPS_PORT}`));
 
-const certPath='/app/certs/server.crt', keyPath='/app/certs/server.key';
-if (fs.existsSync(certPath)&&fs.existsSync(keyPath)) {
-  https.createServer({cert:fs.readFileSync(certPath),key:fs.readFileSync(keyPath)},app)
-    .listen(HTTPS_PORT,()=>console.log(`Quetza HTTPS :${HTTPS_PORT}`));
+  http.createServer((req, res) => {
+    const host = (req.headers.host || 'localhost').replace(String(PORT), String(HTTPS_PORT));
+    res.writeHead(301, { Location: `https://${host}${req.url}` });
+    res.end();
+  }).listen(PORT, () => console.log(`Quetza redirect HTTP :${PORT} → :${HTTPS_PORT}`));
 } else {
-  app.listen(PORT,()=>console.log(`Quetza HTTP :${PORT}`));
+  console.warn(`[quetza] Certificati non trovati (${CERT_PATH}) — avvio in HTTP puro. La registrazione audio richiede HTTPS o localhost.`);
+  app.listen(PORT, () => console.log(`Quetza HTTP :${PORT}`));
 }

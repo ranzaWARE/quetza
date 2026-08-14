@@ -19,8 +19,11 @@ body{font-family:var(--auror-font);background:var(--surface);min-height:100vh}
 #WC{width:100%;height:100%;display:block}
 .sc{position:absolute;top:0;width:2px;height:100%;background:#c0392b;pointer-events:none}
 .at{font-size:.65rem;color:var(--inverse-text-muted);white-space:nowrap;font-variant-numeric:tabular-nums}
-.wrap{display:flex;justify-content:center;padding:20px;background:var(--surface);min-height:calc(100vh - 100px)}
-#C{display:block;background:var(--surface-canvas);box-shadow:var(--shadow-md)}
+.wrap{display:flex;justify-content:center;padding:20px;background:var(--surface);min-height:calc(100vh - 100px);overflow:auto}
+#PAGES{display:flex;flex-direction:column;align-items:center;gap:18px}
+.pgWrap{position:relative}
+.pgCv{display:block;background:var(--surface-canvas);box-shadow:var(--shadow-md)}
+.pgNum{position:absolute;right:6px;bottom:4px;font-size:.62rem;color:rgba(0,0,0,.35);pointer-events:none}
 .err{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:12px;color:var(--text-muted);font-size:.9rem}
 .err svg{opacity:.2}
 .badge{font-size:.68rem;padding:2px 8px;border-radius:var(--auror-r);background:rgba(255,255,255,.1);color:var(--inverse-text-muted)}
@@ -60,20 +63,22 @@ body{font-family:var(--auror-font);background:var(--surface);min-height:100vh}
     <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
     <span id="ERRMSG">Link non valido o scaduto</span>
   </div>
-  <canvas id="C" style="display:none"></canvas>
+  <div id="PAGES"></div>
 </div>
 
 <script>
-const PW_L=794,PH_L=1123,PGAP=32,GSP=28;
-const CV=document.getElementById('C'),cx=CV.getContext('2d');
+const PW_L=794,PH_L=1123,GSP=28;
 const token=location.pathname.split('/').pop();
 let aCtx=null,aBuf=null,src=null,playing=false,playOff=0,playSt=0,raf=null,peaks=null;
-let zoom=1,pages=1;
+let zoom=1;
+// Ogni pagina ha il proprio canvas, come nell'editor: {strokes,textItems,images}
+let pagesData=[], grid='lines';
 
-function totalH(){return pages*PH_L+(pages-1)*PGAP;}
 function applyZoom(){
-  CV.style.width=Math.round(PW_L*zoom)+'px';
-  CV.style.height=Math.round(totalH()*zoom)+'px';
+  document.querySelectorAll('.pgCv').forEach(cv=>{
+    cv.style.width =Math.round(PW_L*zoom)+'px';
+    cv.style.height=Math.round(PH_L*zoom)+'px';
+  });
 }
 function fitW(){
   zoom=Math.max(.25,Math.min(2,(document.getElementById('WRAP').clientWidth-40)/PW_L));
@@ -82,18 +87,28 @@ function fitW(){
 
 // Drawing helpers (read-only, same as app.js)
 const SHAPES=new Set(['rect','ellipse','line','arrow']);
-function drawGrid(c,grid){
+function drawGrid(c){
   if(grid==='none')return;c.save();c.lineWidth=.5;
   const lc='rgba(0,0,0,.06)',dc='rgba(0,0,0,.18)';
-  for(let p=0;p<pages;p++){const py=p*(PH_L+PGAP);
-    if(grid==='lines'||grid==='grid'){c.strokeStyle=lc;for(let y=GSP;y<PH_L;y+=GSP){c.beginPath();c.moveTo(0,py+y);c.lineTo(PW_L,py+y);c.stroke();}if(grid==='grid')for(let x=GSP;x<PW_L;x+=GSP){c.beginPath();c.moveTo(x,py);c.lineTo(x,py+PH_L);c.stroke();}}
-    else{c.fillStyle=dc;for(let y=GSP;y<PH_L;y+=GSP)for(let x=GSP;x<PW_L;x+=GSP){c.beginPath();c.arc(x,py+y,1.2,0,Math.PI*2);c.fill();}}
-  }c.restore();
+  if(grid==='lines'||grid==='grid'){
+    c.strokeStyle=lc;
+    for(let y=GSP;y<PH_L;y+=GSP){c.beginPath();c.moveTo(0,y);c.lineTo(PW_L,y);c.stroke();}
+    if(grid==='grid')for(let x=GSP;x<PW_L;x+=GSP){c.beginPath();c.moveTo(x,0);c.lineTo(x,PH_L);c.stroke();}
+  }else if(grid==='dots'){
+    c.fillStyle=dc;
+    for(let y=GSP;y<PH_L;y+=GSP)for(let x=GSP;x<PW_L;x+=GSP){c.beginPath();c.arc(x,y,1.2,0,Math.PI*2);c.fill();}
+  }
+  c.restore();
 }
-function drawSeps(c){
-  c.save();
-  for(let p=0;p<pages-1;p++){const sy=(p+1)*PH_L+p*PGAP;c.fillStyle='rgba(0,0,0,.07)';c.fillRect(0,sy,PW_L,PGAP);c.setLineDash([8,6]);c.strokeStyle='rgba(0,0,0,.2)';c.lineWidth=1;c.beginPath();c.moveTo(0,sy+PGAP);c.lineTo(PW_L,sy+PGAP);c.stroke();c.setLineDash([]);c.fillStyle='rgba(0,0,0,.18)';c.font='11px system-ui';c.textAlign='right';c.fillText(`${p+1}/${pages}`,PW_L-10,sy-6);}
-  c.fillStyle='rgba(0,0,0,.18)';c.font='11px system-ui';c.textAlign='right';c.fillText(`${pages}/${pages}`,PW_L-10,totalH()-6);c.restore();
+function drawText(c,items){
+  (items||[]).forEach(ti=>{
+    if(!ti||!ti.text)return;
+    c.save();
+    c.font=`${ti.size||18}px 'Segoe UI',system-ui,sans-serif`;
+    c.fillStyle=ti.color||'#111827';
+    c.fillText(ti.text,ti.x,ti.y);
+    c.restore();
+  });
 }
 function drawSS(c,ss){
   ss.forEach(s=>{if(!s.pts||s.pts.length<2)return;c.save();
@@ -102,10 +117,28 @@ function drawSS(c,ss){
     else{c.strokeStyle=s.c;c.lineCap='round';c.lineJoin='round';c.beginPath();c.moveTo(s.pts[0].x,s.pts[0].y);for(let i=1;i<s.pts.length;i++){const p=s.pts[i],pr=s.pts[i-1];const lw=(s.sz||3)*(.5+(p.p||.5)*.8);const mx=(pr.x+p.x)/2,my=(pr.y+p.y)/2;c.lineWidth=lw;c.quadraticCurveTo(pr.x,pr.y,mx,my);}c.stroke();}
   c.restore();});
 }
-function redraw(){
-  cx.clearRect(0,0,PW_L,totalH());cx.fillStyle='#fff';
-  for(let p=0;p<pages;p++)cx.fillRect(0,p*(PH_L+PGAP),PW_L,PH_L);
-  drawGrid(cx,window._grid||'lines');drawSeps(cx);drawSS(cx,window._strokes||[]);
+// Costruisce un canvas per pagina e disegna griglia, tratti e testo
+function buildPages(){
+  const host=document.getElementById('PAGES');
+  host.innerHTML='';
+  pagesData.forEach((pg,i)=>{
+    const wrap=document.createElement('div');
+    wrap.className='pgWrap';
+    const cv=document.createElement('canvas');
+    cv.className='pgCv';cv.width=PW_L;cv.height=PH_L;
+    const c=cv.getContext('2d');
+    c.fillStyle='#fff';c.fillRect(0,0,PW_L,PH_L);
+    drawGrid(c);
+    drawSS(c,pg.strokes||[]);
+    drawText(c,pg.textItems||[]);
+    wrap.appendChild(cv);
+    if(pagesData.length>1){
+      const n=document.createElement('div');
+      n.className='pgNum';n.textContent=`${i+1} / ${pagesData.length}`;
+      wrap.appendChild(n);
+    }
+    host.appendChild(wrap);
+  });
 }
 
 // Audio
@@ -153,13 +186,14 @@ async function init(){
     document.getElementById('TITLE').textContent=note.title;
     const exp=note.expires_at?`Scade ${new Date(note.expires_at).toLocaleDateString('it-IT')}`:'Nessuna scadenza';
     document.getElementById('META').textContent=`Condiviso da ${note.shared_by} · ${exp}`;
-    window._strokes=note.strokes||[];
-    window._grid=note.grid||'lines';
-    pages=Math.max(1,Math.ceil(window._strokes.reduce((m,s)=>Math.max(m,...(s.pts||[]).map(p=>p.y)),0)/PH_L)+1);
-    CV.width=PW_L;CV.height=totalH();
-    CV.style.display='block';
-    requestAnimationFrame(()=>{fitW();redraw();});
-    window.addEventListener('resize',()=>{fitW();redraw();});
+    grid=note.grid||'lines';
+    // pages_data è la fonte di verità; le note vecchie hanno solo strokes flat
+    pagesData=(Array.isArray(note.pages_data)&&note.pages_data.length)
+      ? note.pages_data
+      : [{strokes:note.strokes||[],textItems:note.text_items||[],images:[]}];
+    buildPages();
+    requestAnimationFrame(fitW);
+    window.addEventListener('resize',fitW);
     if(note.has_audio)loadAudio(token);
   }catch(e){document.getElementById('ERR').style.display='flex';}
 }

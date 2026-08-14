@@ -1,0 +1,18 @@
+node_modules/
+package-lock.json
+
+# Configurazione locale con i segreti
+.env
+
+# Dati runtime (DB, certificati, backup)
+backend/data/
+backend/certs/
+*.db
+*.db-wal
+*.db-shm
+
+*.log
+.DS_Store
+
+__pycache__/
+*.pyc

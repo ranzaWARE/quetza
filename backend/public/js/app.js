@@ -17,9 +17,8 @@ const ZOOM_STEPS = [.25,.33,.5,.67,.75,.9,1,1.1,1.25,1.5,1.75,2,2.5,3];
 const S = {
   // Drawing
   tool: 'pen', color: '#111', size: 3,
-  curPage: 0,   // pagina corrente (0-based)
   strokes: [], undo: [], redo: [], cur: null, imgs: [],
-  grid: 'lines', pages: 1,
+  grid: 'lines',
   // Zoom / pan
   zoom: 1, pan: false, pY: 0, pSY: 0,
   // Palm rejection
@@ -35,8 +34,7 @@ const S = {
   shapeRecog: false,
   // Pagine: array di {strokes, textItems, images}
   pages: [{ strokes: [], textItems: [], images: [] }],
-  curPage: 0,
-  curPage: 0,   // pagina corrente (0-based)
+  curPage: 0,       // pagina corrente (0-based)
   textItems: [],    // {x, y, text, size, id}
   whisperSegments: null,  // array segmenti con start/end/text
   whisperPending: false,  // trascrizione in background in corso
@@ -104,8 +102,13 @@ async function init() {
     if (!r.ok) { window.location.href = '/login.html'; return; }
     const d = await r.json();
     S.user = d.user;
-    document.getElementById('UNAME').textContent = d.user.displayName || d.user.username;
+    const label = d.user.displayName || d.user.username;
+    document.getElementById('UNAME').textContent = label;
+    const uname2 = document.getElementById('UNAME2');   // pill nell'header
+    if (uname2) uname2.textContent = label;
     if (d.user.is_admin) { const al=document.getElementById('adminLink'); if(al) al.style.display='block'; }
+    // Password provvisoria: nessuna API è utilizzabile finché non viene cambiata
+    if (d.must_change_password) { showChangePasswordModal(true); return; }
   } catch { window.location.href = '/login.html'; return; }
 
   await loadNotes();
@@ -128,6 +131,58 @@ async function init() {
       } catch {}
     }
   })();
+}
+
+// ── Cambio password ───────────────────────────────────────
+// forced=true → l'utente ha una password provvisoria (seed admin o reset
+// amministratore) e non può usare l'app finché non la cambia.
+function showChangePasswordModal(forced) {
+  document.getElementById('_cpw')?.remove();
+  const m = document.createElement('div');
+  m.id = '_cpw';
+  m.className = 'MW';
+  m.innerHTML = `
+    <div class="MD" style="width:360px">
+      <h3>${forced ? 'Cambia la password' : 'Cambia password'}</h3>
+      <p class="ms">${forced
+        ? 'Stai usando una password provvisoria. Scegline una nuova per continuare.'
+        : 'Scegli una nuova password per il tuo account.'}</p>
+      <input type="password" id="_cpw_old" placeholder="Password attuale" autocomplete="current-password"
+             style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);font-size:.9rem;font-family:inherit;margin-bottom:8px">
+      <input type="password" id="_cpw_new" placeholder="Nuova password (min. 8 caratteri)" autocomplete="new-password"
+             style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);font-size:.9rem;font-family:inherit;margin-bottom:8px">
+      <input type="password" id="_cpw_new2" placeholder="Ripeti la nuova password" autocomplete="new-password"
+             style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);font-size:.9rem;font-family:inherit;margin-bottom:8px">
+      <div id="_cpw_err" style="color:var(--acc,#c0392b);font-size:.74rem;min-height:16px;margin-bottom:6px"></div>
+      <div class="ma">
+        ${forced ? '' : '<button class="mc" id="_cpw_canc">Annulla</button>'}
+        <button class="mk" id="_cpw_ok">Cambia password</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+
+  const err = m.querySelector('#_cpw_err');
+  m.querySelector('#_cpw_canc')?.addEventListener('click', () => m.remove());
+  m.querySelector('#_cpw_ok').onclick = async () => {
+    const oldPw = m.querySelector('#_cpw_old').value;
+    const nw    = m.querySelector('#_cpw_new').value;
+    const nw2   = m.querySelector('#_cpw_new2').value;
+    err.textContent = '';
+    if (nw.length < 8)  { err.textContent = 'La nuova password deve avere almeno 8 caratteri'; return; }
+    if (nw !== nw2)     { err.textContent = 'Le due password non coincidono'; return; }
+    try {
+      const r = await fetch('/api/change-password', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword: oldPw, newPassword: nw })
+      });
+      const d = await r.json();
+      if (!r.ok) { err.textContent = d.error || 'Errore'; return; }
+      m.remove();
+      if (forced) location.reload();   // ricarica: ora le API sono sbloccate
+      else toast('✓ Password aggiornata');
+    } catch(e) { err.textContent = 'Errore di rete'; }
+  };
+  setTimeout(() => m.querySelector('#_cpw_old').focus(), 50);
 }
 
 // ── Notes API ─────────────────────────────────────────────
@@ -268,10 +323,18 @@ async function duplicateNote(id) {
   // Crea nuova nota
   const nr = await fetch('/api/notes', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title: full.title + ' (copia)'})});
   const newNote = await nr.json();
-  // Copia contenuto
+  // Copia contenuto — pagine e testo inclusi, altrimenti la copia perdeva
+  // tutte le pagine oltre la prima e il testo digitato
+  const pagesData = (Array.isArray(full.pages_data) && full.pages_data.length)
+    ? full.pages_data
+    : [{ strokes: full.strokes || [], textItems: full.text_items || [], images: full.images || [] }];
   await fetch(`/api/notes/${newNote.id}/content`, {
     method:'PUT', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({strokes: full.strokes, images: full.images, thumbnail: full.thumbnail, grid: full.grid, canvasText: full.canvas_text})
+    body: JSON.stringify({
+      strokes: full.strokes, images: full.images, thumbnail: full.thumbnail,
+      grid: full.grid, canvasText: full.canvas_text,
+      textItems: full.text_items || [], pagesData: pagesData
+    })
   });
   await loadNotes();
   toast('Nota duplicata');
@@ -298,26 +361,42 @@ async function saveNote(silent = false) {
 
   // Estrai testo dal canvas (testo digitato)
   // Salva testo di tutte le pagine per la ricerca FTS
+  syncCurrentPage();
   const canvasText = S.pages.map(p => (p.textItems||[]).map(t=>t.text).join(' ')).join(' ');
-  // Pagina corrente aggiornata
-  curPg().strokes   = S.strokes;
-  curPg().textItems = S.textItems;
-  curPg().images    = S.imgs;
 
-  await fetch(`/api/notes/${S.curId}/content`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      strokes: S.strokes, images: S.imgs, thumbnail, grid: S.grid,
-      canvasText, textItems: S.textItems,
-      pagesData: S.pages
-    })
-  });
-  await fetch(`/api/notes/${S.curId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, grid: S.grid })
-  });
+  // Il salvataggio può fallire (rete, sessione scaduta): senza controllo
+  // la nota risultava "salvata" e S.dirty veniva azzerato comunque, perdendo
+  // silenziosamente il lavoro.
+  setNetStatus('syncing');
+  try {
+    const rc = await fetch(`/api/notes/${S.curId}/content`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        strokes: S.strokes, images: S.imgs, thumbnail, grid: S.grid,
+        canvasText, textItems: S.textItems,
+        pagesData: S.pages
+      })
+    });
+    if (!rc.ok) throw new Error(`salvataggio contenuto: HTTP ${rc.status}`);
+
+    const rm = await fetch(`/api/notes/${S.curId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, grid: S.grid })
+    });
+    if (!rm.ok) throw new Error(`salvataggio titolo: HTTP ${rm.status}`);
+  } catch (e) {
+    setNetStatus('offline');
+    S.dirty = true;                      // resta sporca: si ritenta al prossimo giro
+    clearTimeout(S.autoSaveTimer);
+    S.autoSaveTimer = setTimeout(() => saveNote(true), 15000);
+    toast('⚠ Salvataggio non riuscito — riprovo tra poco');
+    console.error('saveNote:', e);
+    renderNL();
+    return false;
+  }
+  setNetStatus('online');
 
   const idx = S.notes.findIndex(n => n.id === S.curId);
   if (idx >= 0) {
@@ -331,6 +410,7 @@ async function saveNote(silent = false) {
   renderNL();
   S.dirty = false;
   if (!silent) toast('✓ Salvato');
+  return true;
 }
 
 function genThumb() {
@@ -453,17 +533,17 @@ function applyDarkColor() {
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // Accessori pagina corrente
-function curPg()            { return S.pages[S.curPage] || (S.pages[S.curPage] = { strokes:[], textItems:[], images:[] }); }
-function allStrokes()        { return curPg().strokes; }
-function setStrokes(arr)     { curPg().strokes = arr; }
-function allTextItems()      { return curPg().textItems; }
-function allImages()         { return curPg().images; }
+function curPg() { return S.pages[S.curPage] || (S.pages[S.curPage] = { strokes:[], textItems:[], images:[] }); }
 
-function setColor(c) {
-  S.color = c;
-  document.querySelectorAll('.sw').forEach(s => {
-    s.classList.toggle('on', s.dataset.c === c);
-  });
+// Riversa lo stato di lavoro (S.strokes/textItems/imgs) nella pagina corrente.
+// Va chiamata prima di qualunque operazione che legga S.pages nel suo insieme:
+// salvataggio, cambio pagina, export PDF, duplicazione.
+function syncCurrentPage() {
+  const pg = curPg();
+  pg.strokes   = [...S.strokes];
+  pg.textItems = [...S.textItems];
+  pg.images    = [...S.imgs];
+  return pg;
 }
 
 // ── Draw helpers ──────────────────────────────────────────
@@ -640,18 +720,6 @@ function redraw(hTs) {
   if (S.lassoPath && S.lassoPath.length > 1) drawLassoPath(cx, S.lassoPath);
   if (S.cur && SHAPES.has(S.cur.t)) drawSS(cx, [S.cur]);
   // cursor crosshair già gestito da CSS in textMode
-
-  // Copia ogni pagina sul suo page-canvas nel CO
-  const dpr = window.devicePixelRatio || 1;
-  document.querySelectorAll('.page-canvas').forEach(pc => {
-    const p   = parseInt(pc.dataset.page);
-    const pct = pc.getContext('2d');
-    if (!pct) return;
-    pct.clearRect(0, 0, pc.width, pc.height);
-    // Copia la slice verticale della pagina p dal canvas principale
-    const srcY = p * (PH + PGAP) * dpr;
-    pct.drawImage(CV, 0, srcY, pc.width, pc.height, 0, 0, pc.width, pc.height);
-  });
 }
 
 function strokeBBox(s) {
@@ -742,7 +810,33 @@ function drawLassoPath(c, pts) {
 // Pan offset per la pagina corrente (reset ad ogni cambio pagina)
 let _panOffX = 0, _panOffY = 0;
 
-// function _applyPan rimossa
+// ── Stato del pan col mouse ───────────────────────────────
+// Deve stare a livello di modulo: i gestori pointer di setupCanvas() usano
+// startMPan/_spaceDown, che erano dichiarati dentro setupZoom() e quindi
+// invisibili da lì. Il risultato era un ReferenceError su ogni pointerdown
+// del canvas, cioè niente disegno con mouse/penna su desktop.
+let _mPan = false, _spaceDown = false;
+let _mPanStartX = 0, _mPanStartY = 0, _mPanStartOffX = 0, _mPanStartOffY = 0;
+
+function startMPan(clientX, clientY) {
+  _mPan = true;
+  _mPanStartX = clientX; _mPanStartY = clientY;
+  _mPanStartOffX = _panOffX; _mPanStartOffY = _panOffY;
+  CO.style.cursor = 'grabbing';
+  CV.style.cursor = 'grabbing';
+}
+function moveMPan(clientX, clientY) {
+  if (!_mPan) return;
+  _panOffX = _mPanStartOffX + (clientX - _mPanStartX);
+  _panOffY = _mPanStartOffY + (clientY - _mPanStartY);
+  _positionCanvas();   // _applyPan era stata rimossa senza sostituirne le chiamate
+}
+function endMPan() {
+  if (!_mPan) return;
+  _mPan = false;
+  CO.style.cursor = _spaceDown ? 'grab' : '';
+  CV.style.cursor = 'crosshair';
+}
 
 function setupZoom() {
   document.getElementById('ZI').onclick = () => {
@@ -770,31 +864,7 @@ function setupZoom() {
   }, { passive: false });
 
   // Pan con mouse: middle click o click destro + drag
-  let _mPan = false, _mPanX = 0, _mPanY = 0, _mPanItems = null, _mPanML = 0;
-  let _spaceDown = false;
-
-  let _mPanStartX = 0, _mPanStartY = 0, _mPanStartOffX = 0, _mPanStartOffY = 0;
-
-  function startMPan(clientX, clientY) {
-    _mPan = true;
-    _mPanStartX = clientX; _mPanStartY = clientY;
-    _mPanStartOffX = _panOffX; _mPanStartOffY = _panOffY;
-    CO.style.cursor = 'grabbing';
-    CV.style.cursor = 'grabbing';
-  }
-  function moveMPan(clientX, clientY) {
-    if (!_mPan) return;
-    _panOffX = _mPanStartOffX + (clientX - _mPanStartX);
-    _panOffY = _mPanStartOffY + (clientY - _mPanStartY);
-    _applyPan();
-  }
-  function endMPan() {
-    if (!_mPan) return;
-    _mPan = false;
-    CO.style.cursor = _spaceDown ? 'grab' : '';
-    CV.style.cursor = 'crosshair';
-  }
-
+  // (stato e helper sono a livello di modulo, vedi sopra)
   function panDown(e) {
     if (e.button === 1 || e.button === 2) { e.preventDefault(); startMPan(e.clientX, e.clientY); }
     if (e.button === 0 && _spaceDown)     { e.preventDefault(); startMPan(e.clientX, e.clientY); }
@@ -843,7 +913,7 @@ function applyZoom() {
     cx.setTransform(dpr, 0, 0, dpr, 0, 0);
     markDirty('all');
   }
-  // Canvas nascosto — visuale tramite page-canvas
+  // Dimensione CSS = dimensione logica × zoom (il canvas resta a risoluzione dpr)
   CV.style.width  = Math.round(logW * S.zoom) + 'px';
   CV.style.height = Math.round(logH * S.zoom) + 'px';
   ZL.textContent = Math.round(S.zoom * 100) + '%';
@@ -864,21 +934,6 @@ function _positionCanvas() {
   CV.style.left     = x + 'px';
   CV.style.top      = y + 'px';
   CV.style.transform = '';
-}
-
-// function rebuildPageViewports rimossa
-
-// function _centerPage rimossa
-
-// function showPage rimossa
-
-function updatePageNav() {
-  const prev = document.getElementById('PGPREV');
-  const next = document.getElementById('PGNEXT');
-  const num  = document.getElementById('PGNUM');
-  if (prev) prev.disabled = S.curPage === 0;
-  if (next) next.disabled = S.curPage >= S.pages.length - 1;
-  if (num)  num.textContent = (S.curPage + 1) + ' / ' + S.pages;
 }
 
 function zTo(z) {
@@ -1576,39 +1631,56 @@ function setupToolbar() {
     seekAudio(((e.clientX - r.left) / r.width) * S.aBuf.duration);
   };
 
-  // Keyboard shortcuts
+  setupKeyboard();
+}
+
+// ── Scorciatoie da tastiera ───────────────────────────────
+// Handler unico: prima ce n'erano due registrati in parallelo, e le frecce
+// comparivano due volte nello stesso handler, quindi un PageDown faceva
+// avanzare di due pagine invece che di una.
+function setupKeyboard() {
   document.addEventListener('keydown', e => {
+    // Non rubare i tasti mentre si scrive in un campo
+    const tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+
     const m = e.ctrlKey || e.metaKey;
-    if (m && e.key==='s')  { e.preventDefault(); saveNote(); }
-    if (m && e.key==='z')  { e.preventDefault(); document.getElementById('UDB').click(); }
-    if (m && (e.key==='y'||(e.shiftKey&&e.key==='Z'))) { e.preventDefault(); document.getElementById('RDB').click(); }
-    if (m && (e.key==='=' || e.key==='+')) { e.preventDefault(); document.getElementById('ZI').click(); }
-    if (m && e.key==='-')  { e.preventDefault(); document.getElementById('ZO').click(); }
-    if (m && e.key==='0')  { e.preventDefault(); fitW(); }
-    // Blocca zoom browser anche con Ctrl+scroll (già gestito nel wheel handler)
-    // ma alcuni browser usano anche questi tasti
-    if (m && (e.key==='ArrowUp'||e.key==='ArrowDown')) e.preventDefault();
-    if (m && e.key==='v')  { pasteImg(); }
-    if (!m) {
-      switch(e.key) {
-        case 'p': document.querySelector('[data-t="pen"]').click(); break;
-        case 'h': document.querySelector('[data-t="hl"]').click(); break;
-        case 'e': document.querySelector('[data-t="eraser"]').click(); break;
-        case 'r': document.querySelector('[data-t="rect"]').click(); break;
-        case 'l': document.querySelector('[data-t="line"]').click(); break;
-        case 'a': document.querySelector('[data-t="arrow"]').click(); break;
-        case 'o': document.querySelector('[data-t="ellipse"]').click(); break;
-        case 's': document.querySelector('[data-t="lasso"]').click(); break;
-        case 't': { const tb=document.getElementById('TXTB'); if(tb) tb.click(); } break;
-      }
+    if (m && e.key==='s')  { e.preventDefault(); saveNote(); return; }
+    if (m && e.key==='z')  { e.preventDefault(); document.getElementById('UDB').click(); return; }
+    if (m && (e.key==='y'||(e.shiftKey&&e.key==='Z'))) { e.preventDefault(); document.getElementById('RDB').click(); return; }
+    if (m && (e.key==='=' || e.key==='+')) { e.preventDefault(); document.getElementById('ZI').click(); return; }
+    if (m && e.key==='-')  { e.preventDefault(); document.getElementById('ZO').click(); return; }
+    if (m && e.key==='0')  { e.preventDefault(); fitW(); return; }
+    // Alcuni browser zoomano anche con Ctrl+frecce verticali
+    if (m && (e.key==='ArrowUp'||e.key==='ArrowDown')) { e.preventDefault(); return; }
+    if (m && e.key==='v')  { pasteImg(); return; }
+
+    // Cambio pagina: PageUp/PageDown, o Ctrl/Cmd + frecce orizzontali
+    if (e.key==='PageDown' || (m && e.key==='ArrowRight')) { e.preventDefault(); goPage(S.curPage + 1); return; }
+    if (e.key==='PageUp'   || (m && e.key==='ArrowLeft'))  { e.preventDefault(); goPage(S.curPage - 1); return; }
+    if (m) return;
+
+    switch(e.key) {
+      case 'p': document.querySelector('[data-t="pen"]')?.click(); return;
+      case 'h': document.querySelector('[data-t="hl"]')?.click(); return;
+      case 'e': document.querySelector('[data-t="eraser"]')?.click(); return;
+      case 'r': document.querySelector('[data-t="rect"]')?.click(); return;
+      case 'l': document.querySelector('[data-t="line"]')?.click(); return;
+      case 'a': document.querySelector('[data-t="arrow"]')?.click(); return;
+      case 'o': document.querySelector('[data-t="ellipse"]')?.click(); return;
+      case 's': document.querySelector('[data-t="lasso"]')?.click(); return;
+      case 't': document.getElementById('TXTB')?.click(); return;
+      case 'ArrowRight': e.preventDefault(); goPage(S.curPage + 1); return;
+      case 'ArrowLeft':  e.preventDefault(); goPage(S.curPage - 1); return;
     }
-    if (e.key===' ' && e.target===document.body) { e.preventDefault(); document.getElementById('APB').click(); }
-    if (e.key==='Escape') { S.selectedIds.clear(); S.lassoPath=null; S.selDrag=false; S.cur=null; S.textMode=false; S._pendingText=null; CV.style.cursor='crosshair'; redraw(); }
-    if (e.key==='PageDown' || (m && e.key==='ArrowRight')) { e.preventDefault(); goPage(S.curPage + 1); }
-    if (e.key==='PageUp'   || (m && e.key==='ArrowLeft'))  { e.preventDefault(); goPage(S.curPage - 1); }
-    if (e.key==='ArrowRight' || e.key==='PageDown') { e.preventDefault(); goPage(S.curPage+1); }
-    if (e.key==='ArrowLeft'  || e.key==='PageUp')   { e.preventDefault(); goPage(S.curPage-1); }
-    if ((e.key==='Delete'||e.key==='Backspace') && document.activeElement===document.body) { deleteSelected(); }
+
+    if (e.key===' ' && e.target===document.body) { e.preventDefault(); document.getElementById('APB').click(); return; }
+    if (e.key==='Escape') {
+      S.selectedIds.clear(); S.lassoPath=null; S.selDrag=false;
+      S.cur=null; S.textMode=false; S._pendingText=null;
+      CV.style.cursor='crosshair'; redraw(); return;
+    }
+    if ((e.key==='Delete'||e.key==='Backspace') && document.activeElement===document.body) deleteSelected();
   });
 }
 
@@ -1712,34 +1784,45 @@ async function pasteImg() {
 }
 
 // ── PDF export ────────────────────────────────────────────
+// Ogni pagina di S.pages ha il proprio canvas in coordinate 0..PH.
+// La versione precedente ritagliava fette verticali da un canvas unico usando
+// PGAP (costante non più esistente → ReferenceError a ogni export) e leggeva
+// sempre S.strokes, cioè la sola pagina corrente ripetuta su tutte le pagine.
 function exportPDF(withGrid) {
+  if (!window.jspdf?.jsPDF) { toast('⚠ Libreria PDF non caricata'); return; }
   toast('⏳ Generazione PDF…');
   setTimeout(() => {
     try {
+      // Allinea la pagina corrente allo stato di S.pages prima di esportare
+      syncCurrentPage();
+
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      for (let p = 0; p < S.pages.length; p++) {
+
+      S.pages.forEach((pg, p) => {
         if (p > 0) pdf.addPage();
-        const off = document.createElement('canvas'); off.width = PW; off.height = PH;
-        const oc = off.getContext('2d'); oc.fillStyle = '#fff'; oc.fillRect(0, 0, PW, PH);
-        if (withGrid) drawGrid(oc, false);
-        const pt = p*(PH+PGAP), pb = pt+PH;
-        S.imgs.forEach(i => { if (i.y+i.h>pt && i.y<pb) oc.drawImage(i.el, i.x, i.y-pt, i.w, i.h); });
-        drawSS(oc, S.strokes.filter(s => s.pts && s.pts.some(q => q.y>=pt && q.y<=pb)).map(s => ({...s, pts: s.pts.map(q => ({...q, y: q.y-pt}))})));
+        const off = document.createElement('canvas');
+        off.width = PW; off.height = PH;
+        const oc = off.getContext('2d');
+        oc.fillStyle = '#fff'; oc.fillRect(0, 0, PW, PH);
+        if (withGrid) drawGrid(oc, false);   // sempre in versione chiara sul PDF
+
+        (pg.images || []).forEach(i => { if (i.el) oc.drawImage(i.el, i.x, i.y, i.w, i.h); });
+        drawSS(oc, pg.strokes || []);
+        (pg.textItems || []).forEach(ti => {
+          oc.font = `${ti.size||18}px 'Segoe UI',system-ui,sans-serif`;
+          oc.fillStyle = ti.color || '#111827';
+          oc.fillText(ti.text, ti.x, ti.y);
+        });
+
         pdf.addImage(off.toDataURL('image/jpeg', .95), 'JPEG', 0, 0, 210, 297, '', 'FAST');
-      }
+      });
+
       pdf.save(`${(NTT.value||'quetza').replace(/[^a-z0-9]/gi,'_')}.pdf`);
-      toast('✓ PDF esportato');
-    } catch(e) { toast('⚠ Errore export'); console.error(e); }
+      toast(`✓ PDF esportato (${S.pages.length} pagine)`);
+    } catch(e) { toast('⚠ Errore export: ' + e.message); console.error(e); }
   }, 100);
 }
-
-// ── Audio recording ───────────────────────────────────────
-// ── Upload queue resiliente ──────────────────────────────
-// I chunk vengono caricati in background; se la connessione cade
-// vengono ritentati automaticamente fino a 5 volte con backoff
-const uploadQueue = [];
-let uploadBusy = false;
 
 // ── Network status ───────────────────────────────────────
 function setNetStatus(state) {
@@ -1753,43 +1836,10 @@ function setNetStatus(state) {
   else if (state === 'syncing')  { lbl.textContent = 'sync…';   ban.classList.remove('on'); }
 }
 
-// Upload queue resiliente — chunk audio caricati in streaming
-async function flushUploadQueue() {
-  if (uploadBusy || !uploadQueue.length) return;
-  uploadBusy = true;
-  setNetStatus('syncing');
-  while (uploadQueue.length) {
-    const item = uploadQueue[0];
-    let ok = false;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        const fd = new FormData();
-        fd.append('chunk', item.blob, 'chunk.' + item.ext);
-        const r = await fetch(`/api/notes/${item.noteId}/audio/append`, { method: 'POST', body: fd });
-        if (r.ok) { ok = true; break; }
-      } catch {
-        await new Promise(r => setTimeout(r, Math.min(1000 * Math.pow(2, attempt), 15000)));
-      }
-    }
-    if (ok) uploadQueue.shift();
-    else { setNetStatus('offline'); break; }
-  }
-  uploadBusy = false;
-  if (!uploadQueue.length) setNetStatus('online');
-}
-
-function enqueueChunk(noteId, blob, ext) {
-  uploadQueue.push({ noteId, blob, ext });
-  flushUploadQueue();
-}
-
 async function checkServerReach() {
   try {
     const r = await fetch('/api/me', { method: 'GET', cache: 'no-store' });
-    if (r.ok || r.status === 401) {
-      if (uploadQueue.length > 0) { setNetStatus('syncing'); flushUploadQueue(); }
-      else setNetStatus('online');
-    } else { setNetStatus('offline'); }
+    setNetStatus((r.ok || r.status === 401 || r.status === 403) ? 'online' : 'offline');
   } catch { setNetStatus('offline'); }
 }
 
@@ -1799,122 +1849,10 @@ function setupPages() {
   const next = document.getElementById('PGNEXT');
   const add  = document.getElementById('PGADD');
   const num  = document.getElementById('PGNUM');
-  if (!prev) return;
-
-  prev.onclick = () => goPage(S.curPage - 1);
-  next.onclick = () => goPage(S.curPage + 1);
-  add.onclick  = () => { S.pages.push({ strokes: [], textItems: [], images: [] }); goPage(S.pages.length - 1); scheduleAutoSave(); };
-  num.onclick  = () => {
-    const p = prompt(`Vai a pagina (1-${S.pages}):`, S.curPage + 1);
-    if (p && !isNaN(p)) goPage(parseInt(p) - 1);
-  };
-  updatePageNav();
-}
-
-function goPage(idx, animate = true) {
-  if (idx < 0 || idx >= S.pages) return;
-  if (idx === S.curPage) return;
-  S.curPage = idx;
-  scrollToPage(idx);
-  updatePageNav();
-  markDirty('all'); redraw();
-}
-
-function scrollToPage(idx) { showPage(idx, true); }
-
-function updatePageNav() {
-  const prev = document.getElementById('PGPREV');
-  const next = document.getElementById('PGNEXT');
-  const num  = document.getElementById('PGNUM');
-  if (!prev) return;
-  prev.disabled = S.curPage === 0;
-  next.disabled = S.curPage >= S.pages.length - 1;
-  num.textContent = `${S.curPage + 1} / ${S.pages}`;
-}
-
-// Auto-pagina rimossa
-
-// setupScrollSnap rimosso
-
-function setupPages() {
-  const prev = document.getElementById('PGPREV');
-  const next = document.getElementById('PGNEXT');
-  const add  = document.getElementById('PGADD');
-  const num  = document.getElementById('PGNUM');
-  if (!prev) return;
-
-  prev.onclick = () => goPage(S.curPage - 1);
-  next.onclick = () => goPage(S.curPage + 1);
-  if (add) add.onclick = () => {
-    S.pages.push({ strokes: [], textItems: [], images: [] });
-    applyZoom();
-    redraw();
-    goPage(S.pages.length - 1);
-    scheduleAutoSave();
-  };
-  if (num) num.onclick = () => {
-    const p = prompt('Vai a pagina (1-' + S.pages + '):', S.curPage + 1);
-    if (p && !isNaN(p)) goPage(parseInt(p) - 1);
-  };
-  updatePageNav();
-}
-
-function goPage(idx) {
-  if (idx < 0 || idx >= S.pages) return;
-  _panOffX = 0; _panOffY = 0;
-  showPage(idx);
-}
-
-// Tastiera: frecce e scorciatoie
-(function setupKeyboard() {
-  document.addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-    const m = e.ctrlKey || e.metaKey;
-    if (m && e.key === 's')  { e.preventDefault(); saveNote(); }
-    if (m && e.key === 'z')  { e.preventDefault(); document.getElementById('UDB').click(); }
-    if (m && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) { e.preventDefault(); document.getElementById('RDB').click(); }
-    if (m && (e.key === '=' || e.key === '+')) { e.preventDefault(); zTo(S.zoom * 1.2); }
-    if (m && e.key === '-')  { e.preventDefault(); zTo(S.zoom / 1.2); }
-    if (m && e.key === '0')  { e.preventDefault(); fitW(); }
-    if (m && e.key === 'v')  { pasteImg(); }
-    if (!m) {
-      switch (e.key) {
-        case 'p': document.querySelector('[data-t="pen"]')?.click(); break;
-        case 'h': document.querySelector('[data-t="hl"]')?.click(); break;
-        case 'e': document.querySelector('[data-t="eraser"]')?.click(); break;
-        case 'r': document.querySelector('[data-t="rect"]')?.click(); break;
-        case 'l': document.querySelector('[data-t="line"]')?.click(); break;
-        case 'a': document.querySelector('[data-t="arrow"]')?.click(); break;
-        case 'o': document.querySelector('[data-t="ellipse"]')?.click(); break;
-        case 's': document.querySelector('[data-t="lasso"]')?.click(); break;
-        case 't': document.getElementById('TXTB')?.click(); break;
-      }
-    }
-    if (e.key === 'PageDown' || (e.key === 'ArrowRight' && m)) { e.preventDefault(); goPage(S.curPage + 1); }
-    if (e.key === 'PageUp'   || (e.key === 'ArrowLeft'  && m)) { e.preventDefault(); goPage(S.curPage - 1); }
-    if (e.key === 'Escape') {
-      S.selectedIds.clear(); S.lassoPath = null; S.selDrag = false;
-      S.cur = null; S.textMode = false; S._pendingText = null;
-      const pc = CO.querySelector('.page-canvas[data-page="' + S.curPage + '"]');
-      if (pc) pc.style.cursor = 'crosshair';
-      redraw();
-    }
-  });
-})();
-
-function setupPages() {
-  const prev = document.getElementById('PGPREV');
-  const next = document.getElementById('PGNEXT');
-  const add  = document.getElementById('PGADD');
-  const num  = document.getElementById('PGNUM');
   if (prev) prev.onclick = () => goPage(S.curPage - 1);
   if (next) next.onclick = () => goPage(S.curPage + 1);
   if (add)  add.onclick  = () => {
-    // Salva pagina corrente
-    curPg().strokes   = [...S.strokes];
-    curPg().textItems = [...S.textItems];
-    curPg().images    = [...S.imgs];
-    // Aggiungi nuova pagina vuota
+    syncCurrentPage();
     S.pages.push({ strokes: [], textItems: [], images: [] });
     goPage(S.pages.length - 1);
     scheduleAutoSave();
@@ -1930,13 +1868,9 @@ function goPage(idx) {
   if (idx < 0 || idx >= S.pages.length) return;
   if (idx === S.curPage) return;
 
-  // Salva stato pagina corrente
-  curPg().strokes   = [...S.strokes];
-  curPg().textItems = [...S.textItems];
-  curPg().images    = [...S.imgs];
-  curPg().undo      = [...S.undo];
+  // Salva stato pagina corrente (undo incluso, è per pagina)
+  syncCurrentPage().undo = [...S.undo];
 
-  // Cambia pagina
   S.curPage = idx;
   _panOffX = 0; _panOffY = 0;
 
@@ -2122,29 +2056,6 @@ function concatAudioBuffers(ctx, a, b) {
     }
   }
   return out;
-}
-
-// Converte AudioBuffer → Blob WAV (16-bit PCM, universale)
-function audioBufferToWav(buf) {
-  const numCh = buf.numberOfChannels;
-  const sr    = buf.sampleRate;
-  const len   = buf.length;
-  const ab    = new ArrayBuffer(44 + len * numCh * 2);
-  const v     = new DataView(ab);
-  const w     = (off, s) => { for (let i=0; i<s.length; i++) v.setUint8(off+i, s.charCodeAt(i)); };
-  w(0,'RIFF'); v.setUint32(4, 36+len*numCh*2, true);
-  w(8,'WAVE'); w(12,'fmt '); v.setUint32(16,16,true);
-  v.setUint16(20,1,true); v.setUint16(22,numCh,true);
-  v.setUint32(24,sr,true); v.setUint32(28,sr*numCh*2,true);
-  v.setUint16(32,numCh*2,true); v.setUint16(34,16,true);
-  w(36,'data'); v.setUint32(40,len*numCh*2,true);
-  const ch = Array.from({length:numCh},(_,c)=>buf.getChannelData(c));
-  let off = 44;
-  for (let i=0; i<len; i++) for (let c=0; c<numCh; c++) {
-    const s = Math.max(-1,Math.min(1,ch[c][i]));
-    v.setInt16(off, s<0?s*0x8000:s*0x7FFF, true); off+=2;
-  }
-  return new Blob([ab], { type: 'audio/wav' });
 }
 
 async function deleteAudio() {
@@ -2349,14 +2260,6 @@ function deleteSelected() {
   S.selectedIds.clear();
   S.undo.push([...S.strokes]); S.redo = [];
   scheduleAutoSave(); redraw();
-}
-
-function moveSelected(dx, dy) {
-  S.selectedIds.forEach(idx => {
-    const s = S.strokes[idx];
-    if (!s || !s.pts) return;
-    s.pts = s.pts.map(p => ({...p, x: p.x+dx, y: p.y+dy}));
-  });
 }
 
 function finalizeLasso(poly, additive) {
