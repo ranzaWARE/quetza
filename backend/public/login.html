@@ -319,10 +319,13 @@
     var err = document.getElementById('errBanner');
     btn.disabled = true; err.classList.remove('show');
     try {
+      // method:'local' forza l'autenticazione sull'account locale anche quando
+      // LDAP è attivo — senza, il tab "Locale" veniva comunque instradato su LDAP
+      // e l'admin locale diventava irraggiungibile se l'AD non rispondeva.
       var r = await fetch('/api/login', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ username: document.getElementById('u').value.trim(), password: document.getElementById('p').value })
+        body: JSON.stringify({ username: document.getElementById('u').value.trim(), password: document.getElementById('p').value, method: 'local' })
       });
       var d = await r.json();
       if (r.ok) window.location.href = '/';

@@ -7,7 +7,10 @@ Esposto su :9876, usato internamente da Quetza Node.
 import os
 import io
 import json
+import shutil
+import subprocess
 import tempfile
+import threading
 import logging
 from pathlib import Path
 from flask import Flask, request, jsonify
@@ -22,89 +25,135 @@ WHISPER_MODEL = os.environ.get('WHISPER_MODEL', 'small')
 HF_TOKEN      = os.environ.get('HF_TOKEN', '')
 LANGUAGE      = os.environ.get('LANGUAGE', 'it')
 
-# Lazy-load modelli al primo uso
-_whisper = None
-_diarize = None
+# Cache dei modelli caricati, per nome/token: il modello può essere cambiato
+# dal pannello admin di Quetza e arriva come campo della richiesta, quindi
+# non è più un singolo modello fissato all'avvio del container.
+_whisper_cache = {}
+_diarize_cache = {}
+_model_lock = threading.Lock()
 
-def get_whisper():
-    global _whisper
-    if _whisper is None:
-        from faster_whisper import WhisperModel
-        log.info(f'Loading Whisper model: {WHISPER_MODEL}')
-        device = 'cpu'
-        compute = 'int8'
-        _whisper = WhisperModel(
-            WHISPER_MODEL,
-            device=device,
-            compute_type=compute,
-            download_root=MODEL_DIR
-        )
-        log.info('Whisper model loaded')
-    return _whisper
+# Una sola trascrizione alla volta: il server è threaded (per non bloccare
+# /health durante un job lungo) ma i modelli sono pesanti in RAM e CPU.
+_work_lock = threading.Lock()
 
-def get_diarizer():
-    global _diarize
-    if _diarize is None:
-        if not HF_TOKEN:
-            raise RuntimeError('HF_TOKEN non configurato — necessario per pyannote')
-        from pyannote.audio import Pipeline
-        import torch
-        log.info('Loading pyannote diarization pipeline...')
-        _diarize = Pipeline.from_pretrained(
-            'pyannote/speaker-diarization-3.1',
-            use_auth_token=HF_TOKEN,
-            cache_dir=MODEL_DIR
-        )
-        _diarize.to(torch.device('cpu'))
-        log.info('Pyannote pipeline loaded')
-    return _diarize
+def get_whisper(model_name=None):
+    name = model_name or WHISPER_MODEL
+    with _model_lock:
+        if name not in _whisper_cache:
+            from faster_whisper import WhisperModel
+            log.info(f'Loading Whisper model: {name}')
+            _whisper_cache[name] = WhisperModel(
+                name,
+                device='cpu',
+                compute_type='int8',
+                download_root=MODEL_DIR
+            )
+            log.info(f'Whisper model loaded: {name}')
+        return _whisper_cache[name]
+
+def get_diarizer(hf_token=None):
+    token = hf_token or HF_TOKEN
+    if not token:
+        raise RuntimeError('HF_TOKEN non configurato — necessario per pyannote')
+    with _model_lock:
+        if token not in _diarize_cache:
+            from pyannote.audio import Pipeline
+            import torch
+            log.info('Loading pyannote diarization pipeline...')
+            pipeline = Pipeline.from_pretrained(
+                'pyannote/speaker-diarization-3.1',
+                use_auth_token=token,
+                cache_dir=MODEL_DIR
+            )
+            pipeline.to(torch.device('cpu'))
+            _diarize_cache[token] = pipeline
+            log.info('Pyannote pipeline loaded')
+        return _diarize_cache[token]
 
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({
         'ok': True,
         'whisper_model': WHISPER_MODEL,
+        'loaded_models': sorted(_whisper_cache.keys()),
         'diarization': bool(HF_TOKEN),
+        'busy': _work_lock.locked(),
         'language': LANGUAGE
     })
+
+def merge_audio(paths, workdir):
+    """
+    Unisce più sessioni di registrazione in un unico file WAV mono 16 kHz.
+
+    I blob WebM di sessioni diverse non si possono concatenare a livello di byte:
+    ognuno ha il proprio header di container e ffmpeg decodificherebbe solo il
+    primo. Il filtro concat di ffmpeg lavora sui flussi decodificati, quindi
+    regge anche sessioni con formati diversi (webm/mp4).
+    """
+    out = os.path.join(workdir, 'merged.wav')
+
+    if len(paths) == 1:
+        cmd = ['ffmpeg', '-nostdin', '-y', '-i', paths[0],
+               '-ac', '1', '-ar', '16000', '-vn', out]
+    else:
+        cmd = ['ffmpeg', '-nostdin', '-y']
+        for p in paths:
+            cmd += ['-i', p]
+        streams = ''.join(f'[{i}:a]' for i in range(len(paths)))
+        cmd += ['-filter_complex', f'{streams}concat=n={len(paths)}:v=0:a=1[out]',
+                '-map', '[out]', '-ac', '1', '-ar', '16000', out]
+
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0 or not os.path.exists(out):
+        tail = (proc.stderr or '').strip().splitlines()[-4:]
+        raise RuntimeError('ffmpeg: ' + ' | '.join(tail))
+    return out
 
 @app.route('/transcribe', methods=['POST'])
 def transcribe():
     """
     POST /transcribe
-    Body: multipart/form-data con campo 'audio' (file audio qualsiasi formato)
-    Opzionale: 'diarize=true' per attivare la diarizzazione
+    Body: multipart/form-data con uno o più campi 'audio' (una per sessione
+    di registrazione, in ordine cronologico).
+    Opzionali: 'diarize=true', 'model' (modello Whisper), 'hf_token'.
     """
-    if 'audio' not in request.files:
+    audio_files = request.files.getlist('audio')
+    if not audio_files:
         return jsonify({'error': 'Campo audio mancante'}), 400
 
-    audio_file = request.files['audio']
-    do_diarize = request.form.get('diarize', 'true').lower() == 'true' and bool(HF_TOKEN)
+    model_name = (request.form.get('model') or '').strip() or None
+    hf_token   = (request.form.get('hf_token') or '').strip() or HF_TOKEN
+    do_diarize = request.form.get('diarize', 'true').lower() == 'true' and bool(hf_token)
 
-    # Salva su file temporaneo (ffmpeg richiede un file)
-    suffix = Path(audio_file.filename or 'audio.wav').suffix or '.wav'
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        audio_file.save(tmp.name)
-        tmp_path = tmp.name
-
+    workdir = tempfile.mkdtemp(prefix='quetza_')
     try:
-        if do_diarize:
-            result = transcribe_with_diarization(tmp_path)
-        else:
-            result = transcribe_only(tmp_path)
+        paths = []
+        for i, f in enumerate(audio_files):
+            suffix = Path(f.filename or 'audio.wav').suffix or '.wav'
+            p = os.path.join(workdir, f'session_{i}{suffix}')
+            f.save(p)
+            paths.append(p)
+
+        log.info(f'Transcribe: {len(paths)} sessione/i, model={model_name or WHISPER_MODEL}, diarize={do_diarize}')
+
+        with _work_lock:
+            audio_path = merge_audio(paths, workdir)
+            if do_diarize:
+                result = transcribe_with_diarization(audio_path, model_name, hf_token)
+            else:
+                result = transcribe_only(audio_path, model_name)
+
+        result['sessions'] = len(paths)
         return jsonify(result)
     except Exception as e:
         log.error(f'Transcription error: {e}', exc_info=True)
         return jsonify({'error': str(e)}), 500
     finally:
-        try:
-            os.unlink(tmp_path)
-        except:
-            pass
+        shutil.rmtree(workdir, ignore_errors=True)
 
-def transcribe_only(audio_path):
+def transcribe_only(audio_path, model_name=None):
     """Trascrizione semplice senza diarizzazione."""
-    model = get_whisper()
+    model = get_whisper(model_name)
     segments, info = model.transcribe(
         audio_path,
         language=LANGUAGE,
@@ -129,13 +178,11 @@ def transcribe_only(audio_path):
         'language': info.language
     }
 
-def transcribe_with_diarization(audio_path):
+def transcribe_with_diarization(audio_path, model_name=None, hf_token=None):
     """Trascrizione + diarizzazione: chi ha detto cosa."""
-    import torch
-
     # 1. Diarizzazione: chi parla quando
     log.info('Running diarization...')
-    diarizer = get_diarizer()
+    diarizer = get_diarizer(hf_token)
     diarization = diarizer(audio_path)
 
     # Raccogli i turni dei parlanti
@@ -149,7 +196,7 @@ def transcribe_with_diarization(audio_path):
 
     # 2. Trascrizione Whisper su tutto l'audio
     log.info('Running Whisper transcription...')
-    model = get_whisper()
+    model = get_whisper(model_name)
     segments, info = model.transcribe(
         audio_path,
         language=LANGUAGE,
@@ -236,4 +283,8 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 9876))
     log.info(f'Quetza Whisper Service starting on :{port}')
     log.info(f'Model: {WHISPER_MODEL} | Language: {LANGUAGE} | Diarization: {bool(HF_TOKEN)}')
-    app.run(host='0.0.0.0', port=port, threaded=False)
+    # threaded=True: con il server single-thread una trascrizione da 5 minuti
+    # bloccava anche /health, facendo fallire l'healthcheck di Docker e quindi
+    # marcando il container come unhealthy durante il lavoro. Il carico resta
+    # comunque serializzato da _work_lock.
+    app.run(host='0.0.0.0', port=port, threaded=True)

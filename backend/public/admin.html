@@ -307,6 +307,9 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)
     <div class="form-group">
       <label>Nuova password</label>
       <input type="password" id="resetPwInput">
+      <small style="display:block;margin-top:4px;color:var(--text-muted)">
+        L'utente dovrà cambiarla al primo accesso.
+      </small>
     </div>
     <div id="resetPwAlert" style="margin-top:8px"></div>
     <div class="modal-footer">
@@ -379,7 +382,7 @@ function renderUsers() {
       <td><strong>${u.username}</strong></td>
       <td>${u.display_name}</td>
       <td>${u.is_admin?'<span class="badge badge-admin">Admin</span>':'<span class="badge badge-user">Utente</span>'}</td>
-      <td>${u.is_active?'<span class="badge badge-active">Attivo</span>':'<span class="badge badge-inactive">Disattivo</span>'}</td>
+      <td>${u.is_active?'<span class="badge badge-active">Attivo</span>':'<span class="badge badge-inactive">Disattivo</span>'}${u.must_change_password?' <span class="badge badge-inactive" title="Deve cambiare la password al prossimo accesso">pw provvisoria</span>':''}</td>
       <td><span class="badge badge-${u.source}">${u.source}</span></td>
       <td class="sz">${fmtDate(u.last_login)}</td>
       <td style="white-space:nowrap">
@@ -448,6 +451,7 @@ async function doResetPw() {
   const r = await fetch(`/api/admin/users/${currentResetUser}/reset-password`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
   if (!r.ok) return alert_('resetPwAlert',(await r.json()).error);
   closeModal('resetPwModal');
+  await load();
 }
 
 function loadSettings() {

@@ -36,12 +36,11 @@ async function ldapAuthenticate(username, password) {
             userClient.destroy();
             if (err) return reject(new Error('Password non valida'));
             const uname = get('sAMAccountName') || username;
-            // Sincronizza utente nel DB locale (per potergli assegnare is_admin)
+            // Sincronizza utente nel DB locale (per potergli assegnare is_admin).
+            // source='ldap' → nessun hash locale, non può fare login locale.
             const existing = db.getUserByUsername(uname);
             if (!existing) {
-              try { db.createUser(uname, null, get('displayName')||get('cn')||uname, 0); } catch {}
-              // Aggiorna source a ldap
-              db.updateUser(uname, {});
+              try { db.createUser(uname, null, get('displayName')||get('cn')||uname, 0, 'ldap'); } catch {}
             }
             db.touchLogin(uname);
             const dbUser = db.getUserByUsername(uname);
@@ -69,14 +68,37 @@ async function localAuthenticate(username, password) {
   if (!db.verifyPassword(username, password)) throw new Error('Credenziali non valide');
   db.touchLogin(username);
   const user = db.getUserByUsername(username);
-  return { username: user.username, displayName: user.display_name, source: 'local', is_admin: user.is_admin };
+  return {
+    username: user.username, displayName: user.display_name, source: 'local',
+    is_admin: user.is_admin, must_change_password: user.must_change_password ? 1 : 0,
+  };
+}
+
+// Esiste un account locale con password utilizzabile?
+function hasLocalCredentials(username) {
+  const u = db.getUserByUsername(username);
+  return !!(u && u.source === 'local' && u.password_hash && u.is_active);
 }
 
 // ── Main entry point ──────────────────────────────────────────
-async function authenticate(username, password) {
+// method === 'local' → forza l'autenticazione locale (tab "Locale" del login).
+// Con LDAP attivo si tenta prima LDAP, poi si ricade sull'account locale se
+// ne esiste uno con password: senza questo fallback un LDAP irraggiungibile
+// o mal configurato rendeva irraggiungibile anche l'admin locale.
+async function authenticate(username, password, method) {
   const ldapEnabled = db.getSetting('ldap_enabled') === 'true' || process.env.LDAP_ENABLED === 'true';
-  if (ldapEnabled) return ldapAuthenticate(username, password);
-  return localAuthenticate(username, password);
+
+  if (method === 'local' || !ldapEnabled) return localAuthenticate(username, password);
+
+  try {
+    return await ldapAuthenticate(username, password);
+  } catch (err) {
+    if (hasLocalCredentials(username)) {
+      console.warn(`[auth] LDAP fallito per "${username}" (${err.message}) — fallback su account locale`);
+      return localAuthenticate(username, password);
+    }
+    throw err;
+  }
 }
 
-module.exports = { authenticate, getKeycloakConfig, ldapAuthenticate, localAuthenticate };
+module.exports = { authenticate, getKeycloakConfig, ldapAuthenticate, localAuthenticate, hasLocalCredentials };

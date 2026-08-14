@@ -28,7 +28,7 @@
   </style>
 </head>
 <body>
-<div id="OFFBANNER">⚠ Connessione assente — le modifiche vengono salvate in locale e sincronizzate al ripristino</div>
+<div id="OFFBANNER">⚠ Connessione assente — il salvataggio verrà ritentato automaticamente. Non chiudere la pagina.</div>
 <div id="W">
 
 <!-- APP HEADER (stile Stego) -->
@@ -337,7 +337,8 @@
 </div><!-- /MN --><!-- /#BODY -->
 </div><!-- /#W -->
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- jsPDF servito in locale: la LAN interna non raggiunge i CDN esterni -->
+<script src="/vendor/jspdf.umd.min.js"></script>
 <script src="/js/app.js"></script>
 </body>
 </html>
