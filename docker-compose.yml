@@ -16,18 +16,21 @@ services:
     environment:
       - NODE_ENV=production
       - DB_PATH=/app/data/quetza.db
-      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET obbligatorio — vedi .env.example}
-      - SERVER_IP=${SERVER_IP:-127.0.0.1}
+      # Generato con `openssl rand -hex 32`. Cambiala prima di andare in
+      # produzione: invalida tutte le sessioni, quindi va fatto in una
+      # finestra di manutenzione.
+      - SESSION_SECRET=3f6be300f39a0a7b8ed6130e4c9e7dfc9cd3dc8b3a9998840110a32bc7c34e48
+      - SERVER_IP=127.0.0.1
       # Numero di reverse proxy davanti all'app (0 = nessuno).
       # Serve al rate limiter per distinguere gli IP reali dei client.
-      - TRUST_PROXY=${TRUST_PROXY:-1}
-      - LDAP_ENABLED=${LDAP_ENABLED:-false}
-      - LDAP_URL=${LDAP_URL:-ldap://192.168.1.10:389}
-      - LDAP_BIND_DN=${LDAP_BIND_DN}
-      - LDAP_BIND_PASSWORD=${LDAP_BIND_PASSWORD}
-      - LDAP_SEARCH_BASE=${LDAP_SEARCH_BASE:-DC=graphimecc,DC=local}
-      - LDAP_SEARCH_FILTER=${LDAP_SEARCH_FILTER:-(sAMAccountName={{username}})}
-      - LDAP_TLS_REJECT_UNAUTHORIZED=${LDAP_TLS_REJECT_UNAUTHORIZED:-false}
+      - TRUST_PROXY=1
+      - LDAP_ENABLED=false
+      - LDAP_URL=ldap://192.168.1.10:389
+      - LDAP_BIND_DN=CN=svc_quetza,OU=ServiceAccounts,DC=graphimecc,DC=local
+      - LDAP_BIND_PASSWORD=
+      - LDAP_SEARCH_BASE=DC=graphimecc,DC=local
+      - LDAP_SEARCH_FILTER=(sAMAccountName={{username}})
+      - LDAP_TLS_REJECT_UNAUTHORIZED=false
       # URL interno del servizio Whisper
       - WHISPER_URL=http://quetza-whisper:9876
     depends_on:
@@ -44,9 +47,9 @@ services:
     volumes:
       - whisper_models:/app/models
     environment:
-      - WHISPER_MODEL=${WHISPER_MODEL:-small}
-      - HF_TOKEN=${HF_TOKEN:-}
-      - LANGUAGE=${LANGUAGE:-it}
+      - WHISPER_MODEL=small
+      - HF_TOKEN=
+      - LANGUAGE=it
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9876/health"]
       interval: 30s
@@ -73,7 +76,7 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      - SERVER_IP=${SERVER_IP:-127.0.0.1}
+      - SERVER_IP=127.0.0.1
     volumes:
       - nginx_certs:/etc/nginx/certs
     depends_on:
