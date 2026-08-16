@@ -22,6 +22,11 @@
 
     function park() {
       var b = bounds();
+      // Lo stage può essere osservato mentre è ancora display:none (schermata
+      // non attiva): il primo fire del ResizeObserver arriva a size 0. Senza
+      // questa guardia, clamp(0,0,0) inchioda la barra a 0,0 per sempre —
+      // clamp mantiene un valore già "dentro i limiti", non lo ricentra.
+      if (b.w <= 0 || b.h <= 0) return;
       var w = bar.offsetWidth, h = bar.offsetHeight;
       bar.style.left = clamp(bar.offsetLeft, 0, Math.max(0, b.w - w)) + 'px';
       bar.style.top = clamp(bar.offsetTop, 0, Math.max(0, b.h - h)) + 'px';

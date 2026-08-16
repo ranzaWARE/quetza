@@ -121,19 +121,19 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 /* ── Toolbar ─────────────────────────────────────────────── */
 .TB{
   position:absolute;
-  top:10px;left:50%;transform:translateX(-50%);
+  top:8px;left:50%;transform:translateX(-50%);
   z-index:50;
   background:var(--card);
   border-radius:var(--r);
   border:1px solid var(--line);
   box-shadow:0 4px 20px rgba(17,24,39,.12);
-  width:calc(100% - 20px);max-width:900px;
+  width:calc(100% - 16px);max-width:1180px;
   user-select:none;-webkit-user-select:none;
   overflow:hidden;
 }
 .R1,.R2{user-select:none;-webkit-user-select:none}
-.R1{display:flex;align-items:center;gap:5px;padding:6px 10px;border-bottom:1px solid var(--tbr)}
-.tti{flex:1;border:none;outline:none;font-size:.88rem;font-weight:600;color:var(--ink);background:transparent;padding:2px 4px}
+.R1{display:flex;align-items:center;gap:4px;padding:5px 8px;border-bottom:1px solid var(--tbr)}
+.tti{flex:1;border:none;outline:none;font-size:.86rem;font-weight:600;color:var(--ink);background:transparent;padding:2px 4px;min-width:0}
 .R2{display:flex;align-items:center;gap:2px;padding:4px 8px;overflow-x:auto;scrollbar-width:none}
 .R2::-webkit-scrollbar{display:none}
 .sp{width:1px;height:14px;background:var(--tbr);margin:0 3px;flex-shrink:0}
@@ -147,8 +147,9 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 .b.red{color:var(--danger)}
 .b.red:hover{background:rgba(185,28,28,.06);border-color:var(--danger-soft)}
 /* Text button in toolbar (R1 row) */
-/* Action buttons R1 — icon-only, AUROR iconBtn pattern */
-.bp{width:32px;min-width:32px;padding:0}
+/* Action buttons R1 — icon-only, AUROR iconBtn pattern (bordo visibile, come .sbb) */
+.bp{width:32px;min-width:32px;padding:0;border-color:var(--border-strong)}
+.bp:hover{border-color:var(--accent-ring)}
 .bp.dk .ic-moon,.bp.dk .ic-eink{display:none}
 [data-theme="dark"] .bp.dk .ic-sun{display:none}
 [data-theme="dark"] .bp.dk .ic-moon{display:block}
@@ -157,11 +158,22 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 /* Salva = brand amber primary */
 .bp.ar{background:var(--accent);color:var(--text-on-accent);border-color:var(--accent-hover)}
 .bp.ar:hover{background:var(--accent-hover)}
+/* Trascrivi = badge "AI", non un'icona */
+.aiBtn{width:auto;min-width:30px;padding:0 8px;border-color:var(--border-strong)}
+.aiLabel{font-size:.66rem;font-weight:800;letter-spacing:.03em}
+.aiBtn[data-pending] .aiLabel{opacity:.6}
+.aiBtn[data-ready]{background:var(--accent-soft);color:var(--accent-hover);border-color:var(--accent-ring)}
 
 .sw{width:16px;height:16px;border-radius:50%;border:2px solid transparent;cursor:pointer;flex-shrink:0;transition:transform .12s}
 .sw:hover{transform:scale(1.2)}
 .sw.on{box-shadow:0 0 0 2px var(--tb),0 0 0 3.5px var(--brand)}
-#SZR{width:52px;accent-color:var(--brand);flex-shrink:0}
+/* Pulsante "altri colori" — apre la tavolozza AUROR */
+.swMore{width:20px;height:20px;border-radius:50%;border:1px solid var(--border-strong);background:var(--surface);color:var(--muted);cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:color .12s,border-color .12s}
+.swMore:hover{color:var(--accent-hover);border-color:var(--accent-ring)}
+/* Pulsante spessore — apre lo slider verticale a comparsa */
+.sizeBtn{height:24px;padding:0 8px;border-radius:var(--r-sm);border:1px solid var(--border-strong);background:var(--surface);color:var(--text);cursor:pointer;display:flex;align-items:center;gap:5px;font-size:.7rem;font-family:inherit;flex-shrink:0;transition:border-color .12s}
+.sizeBtn:hover{border-color:var(--accent-ring)}
+.sizeDot{width:8px;height:8px;border-radius:50%;background:currentColor;flex-shrink:0}
 #SZV{font-size:.66rem;color:var(--muted);min-width:16px}
 #GSL{padding:3px 5px;border:1px solid var(--tbr);border-radius:var(--r-sm);font-size:.7rem;background:var(--tb);color:var(--ink);cursor:pointer}
 .zg{display:flex;align-items:center;background:var(--bh);border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0}
@@ -178,12 +190,10 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 
 /* ── Canvas area — AUROR canvas con grid ────────────────── */
 .CA{
+  /* Sfondo pieno, senza pattern — la griglia ha senso solo sul foglio
+     (disegnata da drawGrid() sul canvas), non sul "tavolo" attorno */
   position:absolute;inset:0;
-  background:var(--surface-canvas);
-  background-image:
-    linear-gradient(to right, var(--auror-grid) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--auror-grid) 1px, transparent 1px);
-  background-size:16px 16px;
+  background:var(--surface);
   border-radius:var(--r);
 }
 
@@ -272,6 +282,44 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 .mk{padding:6px 13px;border:1px solid var(--brand-dark);border-radius:var(--r-sm);background:var(--brand);color:var(--text-on-accent);cursor:pointer;font-size:.8rem;font-weight:700;font-family:inherit;transition:background .12s}
 .mk:hover{background:var(--brand-dark)}
 
+/* ── Color picker — pattern AUROR (design-system.html #components) ────── */
+.cpSV{
+  position:relative;width:100%;aspect-ratio:1/1;border-radius:var(--r-sm);
+  overflow:hidden;border:1px solid var(--line);cursor:crosshair;margin-top:10px;
+  background:linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,hsl(0,95%,52%));
+}
+.cpSVCursor{
+  position:absolute;width:12px;height:12px;border-radius:2px;
+  border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.45);
+  transform:translate(-50%,-50%);pointer-events:none;
+}
+.cpHue{
+  position:relative;height:12px;border-radius:6px;margin-top:10px;cursor:pointer;
+  border:1px solid var(--line);
+  background:linear-gradient(to right,#ef4444,#f59e0b,#eab308,#84cc16,#10b981,#06b6d4,#3b82f6,#8b5cf6,#ec4899,#ef4444);
+}
+.cpHueCursor{
+  position:absolute;top:50%;width:8px;height:18px;border-radius:3px;
+  border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.45);
+  transform:translate(-50%,-50%);pointer-events:none;
+}
+.cpSwatches{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin-top:10px}
+.cpSwatches button{aspect-ratio:1;border-radius:4px;border:1px solid var(--line);cursor:pointer;padding:0}
+.cpHexRow{display:grid;grid-template-columns:32px 1fr;gap:8px;align-items:center;margin-top:10px}
+.cpPreview{width:32px;height:32px;border-radius:var(--r);border:1px solid var(--line)}
+.cpHexInput{height:32px;border:1px solid var(--line);border-radius:var(--r);padding:0 10px;font-family:var(--auror-mono);font-size:.8rem;background:var(--tb);color:var(--ink)}
+
+/* ── Size popover — a comparsa dal pulsante spessore ───────────────────── */
+.sizePop{
+  position:fixed;z-index:400;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--r);box-shadow:var(--shadow-lg);
+  padding:10px 8px;display:flex;flex-direction:column;align-items:center;gap:8px;
+}
+.sizePop input[type=range]{
+  writing-mode:vertical-lr;direction:rtl;width:20px;height:110px;accent-color:var(--brand);cursor:pointer;
+}
+.sizePop .sizePopV{font-size:.72rem;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+
 /* ── iOS Safari ─────────────────────────────────────────── */
 #C,.CO,.CW{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;touch-action:none}
 .TB,.R1,.R2,.aurorAudioBar{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
@@ -289,14 +337,6 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 .srch svg{color:var(--muted);flex-shrink:0}
 .srch input{flex:1;background:transparent;border:none;outline:none;font-size:.82rem;color:var(--text);width:100%;font-family:inherit}
 .srch input::placeholder{color:var(--muted)}
-
-/* ── Network status ─────────────────────────────────────── */
-.netst{display:flex;align-items:center;gap:5px;font-size:.65rem;color:var(--muted);flex-shrink:0;padding:0 6px}
-.netdot{width:7px;height:7px;border-radius:50%;background:#1e8449;transition:background .4s,box-shadow .4s;flex-shrink:0}
-.netdot.online{background:#27ae60}
-.netdot.offline{background:#c0392b;animation:netpulse 1.5s infinite}
-.netdot.syncing{background:#e67e22;animation:netpulse 1s infinite}
-@keyframes netpulse{0%,100%{box-shadow:0 0 0 0 rgba(192,57,43,.4)}50%{box-shadow:0 0 0 4px rgba(192,57,43,0)}}
 
 /* ── Offline banner ─────────────────────────────────────── */
 #OFFBANNER{display:none;position:fixed;top:10px;left:10px;right:10px;background:var(--acc);color:#fff;font-size:.76rem;font-weight:600;text-align:center;padding:6px;z-index:9999;border-radius:var(--r-sm);animation:slidedown .25s ease}
@@ -346,12 +386,10 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 .pg-add:hover{background:var(--brand-dark);transform:scale(1.1)}
 /* ── Canvas area ─────────────────────────────────────────────── */
 .CA{
+  /* Sfondo pieno, senza pattern — la griglia ha senso solo sul foglio
+     (disegnata da drawGrid() sul canvas), non sul "tavolo" attorno */
   position:absolute;inset:0;
-  background:var(--surface-canvas);
-  background-image:
-    linear-gradient(to right, var(--auror-grid) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--auror-grid) 1px, transparent 1px);
-  background-size:16px 16px;
+  background:var(--surface);
   border-radius:var(--r);
 }
 .CO{position:absolute;inset:0;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}

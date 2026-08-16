@@ -273,9 +273,11 @@ async function openNote(id) {
   GSL.value = S.grid;
   NTT.value = n.title;
 
-  // Reset audio UI
+  // Reset audio UI — nascosta di default: si vede solo se la nota ha già
+  // un audio, oppure quando l'utente la richiama col pulsante in toolbar.
   S.aBuf = null; S.peaks = null; S.playOff = 0;
   AB.dataset.state = 'idle';
+  AB.style.display = 'none';
   wx.clearRect(0, 0, WC.width, WC.height);
   TSel.classList.remove('on');
 
@@ -287,6 +289,7 @@ async function openNote(id) {
       if (S.aBuf) {
         buildPeaks();
         AB.dataset.state = 'playback';
+        AB.style.display = 'flex';
         drawWave(0); updAT(0); TSel.classList.add('on');
       }
     } catch (e) { console.warn('Audio load failed:', e); }
@@ -315,12 +318,20 @@ async function newNote() {
   const r = await fetch('/api/notes', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title: 'Nuova nota' })
+    body: JSON.stringify({ title: defaultNoteTitle() })
   });
   const n = await r.json();
   S.notes.unshift(n);
   renderNL();
   await openNote(n.id);
+}
+
+// Titolo di default con data/ora — evita "Nuova nota" generico in libreria
+function defaultNoteTitle() {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: '2-digit' });
+  const timeStr = now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  return `Nota ${dateStr} ${timeStr}`;
 }
 
 async function deleteNote(id) {
@@ -364,13 +375,11 @@ function scheduleAutoSave() {
 
 async function saveNote(silent = false) {
   if (!S.curId) return;
-  // Titolo automatico se ancora "Nuova nota"
+  // Titolo automatico se vuoto (newNote() imposta già data/ora alla creazione,
+  // ma resta una rete di sicurezza per note create diversamente)
   let title = NTT.value.trim();
-  if (!title || title === 'Nuova nota') {
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: '2-digit' });
-    const timeStr = now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-    title = `Nota ${dateStr} ${timeStr}`;
+  if (!title) {
+    title = defaultNoteTitle();
     NTT.value = title;
   }
   const thumbnail = genThumb();
@@ -539,7 +548,16 @@ function showNoteMenu(n, anchor) {
 
 function setColor(c) {
   S.color = c;
-  document.querySelectorAll('.sw').forEach(s => s.classList.toggle('on', s.dataset.c === c));
+  let matched = false;
+  document.querySelectorAll('.sw').forEach(s => {
+    const on = s.dataset.c.toLowerCase() === c.toLowerCase();
+    s.classList.toggle('on', on);
+    if (on) matched = true;
+  });
+  // Colore scelto dalla tavolozza (non una delle 3 fisse): tinge l'icona
+  // "altri colori" così resta visibile quale colore è davvero attivo
+  const more = document.getElementById('COLORMORE');
+  if (more) more.style.color = matched ? '' : c;
 }
 function applyDarkColor() {
   const bk = document.getElementById('SW_BK');
@@ -550,6 +568,136 @@ function applyDarkColor() {
     if (bk) { bk.dataset.c = '#111'; bk.style.background = '#111'; }
     if (S.color === '#fff') setColor('#111');
   }
+}
+
+// ── Color picker — pattern AUROR: quadrato SV + striscia tonalità + hex ──
+const CP_PRESETS = ['#111111','#ffffff','#c0392b','#e67e22','#f5a000','#1e8449','#2471a3','#8e44ad'];
+let cpHue = 0, cpSat = 0, cpVal = 0.07; // stato corrente del picker (0..360 / 0..1 / 0..1)
+
+function hsvToHex(h, s, v) {
+  const c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c;
+  let r, g, b;
+  if (h < 60) { r=c; g=x; b=0; } else if (h < 120) { r=x; g=c; b=0; }
+  else if (h < 180) { r=0; g=c; b=x; } else if (h < 240) { r=0; g=x; b=c; }
+  else if (h < 300) { r=c; g=0; b=x; } else { r=x; g=0; b=c; }
+  const R = Math.round((r+m)*255), G = Math.round((g+m)*255), B = Math.round((b+m)*255);
+  return '#' + [R,G,B].map(n => n.toString(16).padStart(2,'0')).join('');
+}
+function hexToHsv(hex) {
+  hex = hex.replace('#','');
+  if (hex.length === 3) hex = hex.split('').map(c=>c+c).join('');
+  const r = parseInt(hex.slice(0,2),16)/255, g = parseInt(hex.slice(2,4),16)/255, b = parseInt(hex.slice(4,6),16)/255;
+  const max = Math.max(r,g,b), min = Math.min(r,g,b), d = max - min;
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = 60 * (((g-b)/d) % 6);
+    else if (max === g) h = 60 * ((b-r)/d + 2);
+    else h = 60 * ((r-g)/d + 4);
+  }
+  if (h < 0) h += 360;
+  return { h, s: max === 0 ? 0 : d/max, v: max };
+}
+
+function paintCP() {
+  const hex = hsvToHex(cpHue, cpSat, cpVal);
+  document.getElementById('CPSV').style.background =
+    `linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,hsl(${cpHue},100%,50%))`;
+  document.getElementById('CPSVCUR').style.left = (cpSat*100)+'%';
+  document.getElementById('CPSVCUR').style.top  = ((1-cpVal)*100)+'%';
+  document.getElementById('CPHUECUR').style.left = (cpHue/360*100)+'%';
+  document.getElementById('CPPREVIEW').style.background = hex;
+  document.getElementById('CPHEX').value = hex.toUpperCase();
+}
+
+function openColorPicker() {
+  const start = /^#[0-9a-f]{6}$/i.test(S.color) ? S.color : '#111111';
+  const hsv = hexToHsv(start);
+  cpHue = hsv.h; cpSat = hsv.s; cpVal = hsv.v;
+  const sw = document.getElementById('CPSWATCH');
+  sw.innerHTML = '';
+  CP_PRESETS.forEach(c => {
+    const b = document.createElement('button');
+    b.style.background = c;
+    b.title = c;
+    b.onclick = () => { const h = hexToHsv(c); cpHue=h.h; cpSat=h.s; cpVal=h.v; paintCP(); };
+    sw.appendChild(b);
+  });
+  paintCP();
+  document.getElementById('COLORM').classList.remove('off');
+}
+
+function setupColorPicker() {
+  const sv = document.getElementById('CPSV');
+  const hue = document.getElementById('CPHUE');
+
+  function dragSV(e) {
+    const r = sv.getBoundingClientRect();
+    cpSat = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    cpVal = 1 - Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
+    paintCP();
+  }
+  sv.addEventListener('pointerdown', e => {
+    e.preventDefault(); sv.setPointerCapture(e.pointerId); dragSV(e);
+    sv.onpointermove = dragSV;
+  });
+  sv.addEventListener('pointerup', () => { sv.onpointermove = null; });
+
+  function dragHue(e) {
+    const r = hue.getBoundingClientRect();
+    cpHue = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * 360;
+    paintCP();
+  }
+  hue.addEventListener('pointerdown', e => {
+    e.preventDefault(); hue.setPointerCapture(e.pointerId); dragHue(e);
+    hue.onpointermove = dragHue;
+  });
+  hue.addEventListener('pointerup', () => { hue.onpointermove = null; });
+
+  document.getElementById('CPHEX').addEventListener('change', e => {
+    const v = e.target.value.trim();
+    if (/^#?[0-9a-f]{6}$/i.test(v)) {
+      const h = hexToHsv(v.startsWith('#') ? v : '#'+v);
+      cpHue = h.h; cpSat = h.s; cpVal = h.v;
+      paintCP();
+    }
+  });
+
+  document.getElementById('COLORMORE').onclick = openColorPicker;
+  document.getElementById('CPCANC').onclick = () => document.getElementById('COLORM').classList.add('off');
+  document.getElementById('CPOK').onclick = () => {
+    setColor(hsvToHex(cpHue, cpSat, cpVal));
+    if (S.tool === 'eraser') document.querySelector('[data-t="pen"]').click();
+    document.getElementById('COLORM').classList.add('off');
+  };
+}
+
+// ── Popover verticale per lo spessore — a comparsa dal pulsante in toolbar ──
+function openSizePopover(anchor) {
+  document.getElementById('_szp')?.remove();
+  const pop = document.createElement('div');
+  pop.id = '_szp';
+  pop.className = 'sizePop';
+  const r = anchor.getBoundingClientRect();
+  pop.style.left = Math.round(r.left) + 'px';
+  pop.style.top  = Math.round(r.bottom + 6) + 'px';
+  pop.innerHTML = `
+    <span class="sizePopV" id="_szpv">${S.size}</span>
+    <input type="range" min="1" max="24" step="1" value="${S.size}" id="_szpr">
+  `;
+  document.body.appendChild(pop);
+  const input = pop.querySelector('#_szpr');
+  const label = pop.querySelector('#_szpv');
+  input.oninput = () => {
+    S.size = parseInt(input.value);
+    label.textContent = S.size;
+    SZV.textContent = S.size;
+  };
+  setTimeout(() => document.addEventListener('click', function close(e) {
+    if (!pop.contains(e.target) && e.target !== anchor && !anchor.contains(e.target)) {
+      pop.remove();
+      document.removeEventListener('click', close);
+    }
+  }), 0);
 }
 
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -579,8 +727,9 @@ function maxY() {
 function drawGrid(c, dk) {
   if (S.grid === 'none') return;
   c.save(); c.lineWidth = .5;
-  const lc = dk ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.06)';
-  const dc = dk ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.18)';
+  // Prima troppo tenue (.06/.18) — quasi invisibile su schermo
+  const lc = dk ? 'rgba(255,255,255,.14)' : 'rgba(0,0,0,.14)';
+  const dc = dk ? 'rgba(255,255,255,.32)' : 'rgba(0,0,0,.32)';
   if (S.grid === 'lines' || S.grid === 'grid') {
     c.strokeStyle = lc;
     for (let y = GSP; y < PH; y += GSP) { c.beginPath(); c.moveTo(0, y); c.lineTo(PW, y); c.stroke(); }
@@ -1507,13 +1656,18 @@ function setupToolbar() {
   });
   document.querySelectorAll('.sw').forEach(s => {
     s.onclick = () => {
-      document.querySelectorAll('.sw').forEach(x => x.classList.remove('on'));
-      s.classList.add('on'); S.color = s.dataset.c;
+      setColor(s.dataset.c);
       if (S.tool === 'eraser') document.querySelector('[data-t="pen"]').click();
     };
   });
-  SZR.oninput = () => { S.size = parseInt(SZR.value); SZV.textContent = S.size; };
+  setupColorPicker();
+  SZR.onclick = () => openSizePopover(SZR);
   GSL.onchange = () => { S.grid = GSL.value; markDirty('all'); redraw(); };
+
+  // Barra audio nascosta di default — questo pulsante la richiama/nasconde
+  document.getElementById('AUDIOTOGGLE').onclick = () => {
+    AB.style.display = (AB.style.display === 'none') ? 'flex' : 'none';
+  };
 
   // Due pulsanti (libreria + editor) condividono lo stesso ciclo tema:
   // chiaro → scuro → e-ink → chiaro.
@@ -1871,14 +2025,11 @@ function exportPDF(withGrid) {
 
 // ── Network status ───────────────────────────────────────
 function setNetStatus(state) {
-  const dot = document.getElementById('NETDOT');
-  const lbl = document.getElementById('NETLBL');
+  // Il pallino/etichetta "online" nella toolbar è stato rimosso — resta solo
+  // il banner offline, l'unico feedback che conta davvero (errore bloccante).
   const ban = document.getElementById('OFFBANNER');
-  if (!dot) return;
-  dot.className = 'netdot ' + state;
-  if (state === 'online')        { lbl.textContent = 'online';  ban.classList.remove('on'); }
-  else if (state === 'offline')  { lbl.textContent = 'offline'; ban.classList.add('on'); }
-  else if (state === 'syncing')  { lbl.textContent = 'sync…';   ban.classList.remove('on'); }
+  if (!ban) return;
+  ban.classList.toggle('on', state === 'offline');
 }
 
 async function checkServerReach() {
@@ -2530,28 +2681,30 @@ async function autoTranscribe() {
   }
 }
 
+// Pulsante "AI" — la scritta resta sempre la stessa, lo stato si legge da
+// data-pending/data-ready (stile in app.css) e dal title (tooltip).
 function updateTranscribeBtn() {
   const btn = document.getElementById('TRANSCB');
   if (!btn) return;
+  btn.removeAttribute('data-pending');
+  btn.removeAttribute('data-ready');
+  btn.style.opacity = '1';
   if (S.whisperPending) {
-    btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg> Elaborazione…';
-    btn.style.opacity = '0.7';
+    btn.setAttribute('data-pending', '');
+    btn.title = 'Trascrizione in corso…';
     btn.disabled = true;
   } else if (S.whisperSegments || document.getElementById('_tp')) {
-    btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg> Trascrizione';
-    btn.style.opacity = '1';
+    btn.setAttribute('data-ready', '');
+    btn.title = 'Trascrizione pronta — clicca per rivedere';
     btn.disabled = false;
   } else if (!S.aBuf) {
     // Nessun audio registrato — niente da trascrivere
-    btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg> Trascrivi';
     btn.style.opacity = '.4';
     btn.disabled = false;
     btn.title = 'Registra un audio prima di trascrivere';
   } else {
-    btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg> Trascrivi';
-    btn.style.opacity = '1';
     btn.disabled = false;
-    btn.title = 'Trascrivi audio con Whisper';
+    btn.title = 'Trascrivi audio con Whisper (AI)';
   }
 }
 
