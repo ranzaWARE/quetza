@@ -9,17 +9,25 @@ const { JSDOM } = require('jsdom');
 
 const APP = path.join(__dirname, '..', 'public', 'js', 'app.js');
 
-// ID richiesti a livello di modulo da app.js
+// ID richiesti a livello di modulo o dalle funzioni di setup di app.js.
+// Va tenuto allineato quando si aggiungono nuovi elementi con getElementById
+// a livello di modulo — altrimenti resta corretto solo per i percorsi già
+// testati (syncCurrentPage/goPage/exportPDF) e si rompe silenziosamente al
+// primo test che ne esercita altri (es. openNote, setupToolbar).
 const IDS = ['C','CO','CW','LIBRARY','EDITOR','BACKB','NTT','W','MP','TT','WC','PW','SC','ATM',
              'AH','ARC','APL','RTM','ZL','SZR','SZV','GSL','UNAME','PGPREV',
              'PGNEXT','PGADD','PGNUM','UDB','RDB','SRB','CLB','SVB','PSB','PDFB',
-             'PM','PCA','POK','RCB','APB','DELAUD','TXTB','TRANSCB','NL','newB',
+             'PM','PCA','POK','RCB','APB','DELAUD','TXTB','TRANSCB','NL','newB','newVoiceB',
              'logoutB','exportB','importFile','ZI','ZO','ZF','TXTI','TXTM','TXTSZ',
              'TXTSZV','TXTCANC','TXTOK','SHAREB','SHAREM','SHARECANCB','SHARECREB','SHAREEXP',
-             'SHARELIST','NETDOT','NETLBL','OFFBANNER','SORT','SRCH','adminLink','PAUSEB','APPHDR','brandLogo'];
+             'SHARELIST','OFFBANNER','SORT','SRCH','adminLink','PAUSEB','APPHDR','brandLogo',
+             'AB','AUDIOTOGGLE','AOSTARTPAGE',
+             'COLORMORE','COLORM','CPSV','CPSVCUR','CPHUE','CPHUECUR','CPSWATCH','CPHEX','CPPREVIEW','CPCANC','CPOK'];
 
 const html = `<!doctype html><html><body>
+  <div class="CA">
   ${IDS.map(id => id === 'C' || id === 'WC' ? `<canvas id="${id}"></canvas>` : `<div id="${id}"></div>`).join('\n')}
+  </div>
   <input id="ge_a" type="radio" name="ge" value="no" checked>
 </body></html>`;
 

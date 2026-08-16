@@ -373,7 +373,7 @@ async function duplicateNote(id) {
   // Carica il contenuto completo
   const full = await fetch(`/api/notes/${id}`).then(r => r.json());
   // Crea nuova nota
-  const nr = await fetch('/api/notes', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title: full.title + ' (copia)'})});
+  const nr = await fetch('/api/notes', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title: full.title + ' (copia)', voiceFirst: !!full.voice_first})});
   const newNote = await nr.json();
   // Copia contenuto — pagine e testo inclusi, altrimenti la copia perdeva
   // tutte le pagine oltre la prima e il testo digitato

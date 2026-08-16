@@ -418,7 +418,7 @@ function getSharesForNote(noteId, username) {
 // un ciclo export→import perdeva pagine, testo digitato e trascrizioni.
 const EXPORT_COLS = `id, title, grid, strokes, images, thumbnail, has_audio,
                      canvas_text, text_items, pages_data, whisper_text, whisper_segments,
-                     created_at, updated_at, username`;
+                     voice_first, created_at, updated_at, username`;
 
 function getAllNotesForExport(username) {
   return username
@@ -438,19 +438,20 @@ function upsertNoteFromImport(id, username, note) {
   db.prepare(`
     INSERT INTO notes (id, username, title, strokes, images, thumbnail, grid, has_audio,
                        canvas_text, text_items, pages_data, whisper_text, whisper_segments,
-                       created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       voice_first, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET title=excluded.title, strokes=excluded.strokes, images=excluded.images,
       thumbnail=excluded.thumbnail, grid=excluded.grid, has_audio=excluded.has_audio,
       canvas_text=excluded.canvas_text, text_items=excluded.text_items,
       pages_data=excluded.pages_data, whisper_text=excluded.whisper_text,
-      whisper_segments=excluded.whisper_segments, updated_at=excluded.updated_at
+      whisper_segments=excluded.whisper_segments, voice_first=excluded.voice_first,
+      updated_at=excluded.updated_at
   `).run(id, username, note.title||'Senza titolo',
     asJsonText(note.strokes, '[]'), asJsonText(note.images, '[]'),
     note.thumbnail||null, note.grid||'lines', note.has_audio?1:0,
     note.canvas_text||null, asJsonText(note.text_items, '[]'),
     asJsonText(note.pages_data, null), note.whisper_text||null,
-    asJsonText(note.whisper_segments, null),
+    asJsonText(note.whisper_segments, null), note.voice_first?1:0,
     note.created_at||new Date().toISOString(), note.updated_at||new Date().toISOString());
   rebuildFts(id);
 }
