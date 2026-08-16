@@ -82,6 +82,18 @@ def get_diarizer(hf_token=None):
                 use_auth_token=token,
                 cache_dir=MODEL_DIR
             )
+            if pipeline is None:
+                # pyannote non solleva un'eccezione sul fallimento: logga un
+                # warning interno e ritorna None. La causa quasi sempre è che
+                # il token non ha accettato le condizioni d'uso di ENTRAMBI
+                # pyannote/speaker-diarization-3.1 e pyannote/segmentation-3.0
+                # (la diarizzazione dipende dal secondo come sotto-modello).
+                raise RuntimeError(
+                    "Pipeline.from_pretrained ha restituito None — il token HuggingFace "
+                    "probabilmente non ha accesso al modello. Accetta le condizioni d'uso "
+                    "su huggingface.co per pyannote/speaker-diarization-3.1 E "
+                    "pyannote/segmentation-3.0 con lo stesso account del token."
+                )
             pipeline.to(torch.device('cpu'))
             _diarize_cache[token] = pipeline
             log.info('Pyannote pipeline loaded')

@@ -44,6 +44,13 @@ services:
     container_name: quetza-whisper
     restart: unless-stopped
     # Nessuna porta esposta all'esterno — solo rete interna Docker
+    # DNS espliciti: il resolver embedded di Docker a volte non risolve host
+    # esterni (es. huggingface.co) anche quando l'host li raggiunge — causa
+    # comune di "cannot find the requested files in the local cache" al primo
+    # download del modello di diarizzazione.
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     volumes:
       - whisper_models:/app/models
     environment:
