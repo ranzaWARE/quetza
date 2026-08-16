@@ -1,5 +1,10 @@
 faster-whisper==1.1.0
 pyannote.audio==3.3.2
+# pyannote.audio 3.3.2 chiama internamente hf_hub_download(use_auth_token=...):
+# le versioni più recenti di huggingface_hub hanno rimosso quel parametro
+# (rinominato in `token`), quindi senza pin la diarizzazione fallisce con
+# "hf_hub_download() got an unexpected keyword argument 'use_auth_token'".
+huggingface_hub==0.25.2
 torch==2.2.2
 torchaudio==2.2.2
 flask==3.0.3
