@@ -55,15 +55,18 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
   display:flex;align-items:center;justify-content:space-between;
   padding:0 16px;gap:12px;flex-shrink:0;z-index:100;
 }
-.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:.95rem;letter-spacing:.3px;color:var(--text);min-width:0}
-.brandFallback{display:flex;align-items:center;gap:8px}
+.brand{display:flex;align-items:center;gap:10px;color:var(--text);min-width:0}
+.brandFallback{display:flex;align-items:center;gap:10px}
+/* Riquadro dedicato al logo — spazio proprio, non un'icona a ruota libera */
+.brandMark{width:30px;height:30px;flex-shrink:0;border-radius:var(--r);background:var(--surface-sunken);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.brandWord{font-weight:800;font-size:.95rem;letter-spacing:-.01em}
 .brandLogo{display:block;width:auto;max-width:min(38vw,220px);max-height:28px;object-fit:contain}
 .appHeader.hasCustomLogo .brandFallback{display:none}
 .headerRight{display:flex;align-items:center;gap:8px}
 .hpill{font-size:.72rem;padding:4px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--card);color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:5px}
 a.hpill:hover{color:var(--accent-hover);border-color:var(--accent-ring);background:var(--accent-tint)}
-.sbb{background:none;border:1px solid transparent;cursor:pointer;color:var(--muted);width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:var(--r-sm);transition:background var(--auror-dur-base) var(--auror-ease),color var(--auror-dur-base) var(--auror-ease)}
-.sbb:hover{color:var(--text);background:var(--accent-tint)}
+.sbb{background:var(--surface-raised);border:1px solid var(--line);cursor:pointer;color:var(--muted);width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:var(--r-sm);transition:background var(--auror-dur-base) var(--auror-ease),color var(--auror-dur-base) var(--auror-ease),border-color var(--auror-dur-base) var(--auror-ease)}
+.sbb:hover{color:var(--text);background:var(--accent-tint);border-color:var(--border)}
 .sbb .ic-moon,.sbb .ic-eink{display:none}
 [data-theme="dark"] .sbb .ic-sun{display:none}
 [data-theme="dark"] .sbb .ic-moon{display:block}
