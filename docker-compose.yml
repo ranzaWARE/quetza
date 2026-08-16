@@ -9,7 +9,7 @@ services:
     restart: unless-stopped
     ports:
       - "8081:3000"
-      - "8443:3443"
+      - "8444:3443"
     volumes:
       - quetza_data:/app/data
       - quetza_certs:/app/certs
