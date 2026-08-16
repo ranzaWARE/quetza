@@ -1284,7 +1284,19 @@ function setupCanvas() {
     if (!_touchRaf) _touchRaf = requestAnimationFrame(flushGesture);
   }
 
+  // touchType (per distinguere pennino da dito) esiste solo su Safari: su
+  // tablet non-Safari (Chromium, la maggior parte degli e-ink) ogni tocco,
+  // compreso quello della penna stessa, viene scambiato per un dito e fa
+  // partire il pan — invisibile a zoom 100% (niente da scorrere), evidente
+  // da zoomati. S.activePointers viene popolato dal pointerdown della penna
+  // su CV: se la penna sta scrivendo, ignora qualunque touch come pan.
+  function penIsActive() {
+    for (const t of S.activePointers.values()) if (t === 'pen') return true;
+    return false;
+  }
+
   CO.addEventListener('touchstart', e => {
+    if (penIsActive()) return;
     const fingers = Array.from(e.touches).filter(t => t.touchType !== 'stylus');
     if (!fingers.length) return;
     e.preventDefault();
@@ -1334,6 +1346,7 @@ function setupCanvas() {
   }, { passive: false });
 
   CO.addEventListener('touchmove', e => {
+    if (penIsActive()) return;
     const fingers = Array.from(e.touches).filter(t => t.touchType !== 'stylus');
     if (!fingers.length) return;
     e.preventDefault();
