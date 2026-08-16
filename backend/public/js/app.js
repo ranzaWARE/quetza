@@ -1322,6 +1322,14 @@ function setupCanvas() {
   // si scrive velocemente. I Touch Events hanno priorità più alta
   // e non vengono mai droppati dal sistema.
   // touchType === 'stylus' distingue Apple Pencil dal dito.
+  //
+  // touchType è una proprietà esclusiva di WebKit/Safari: su ogni altro
+  // browser (Chrome/Edge su tablet Windows, Chrome su Android, ecc.)
+  // Touch.touchType è sempre undefined, quindi questo blocco scambierebbe
+  // ogni tocco di penna per un dito, attivando il palm rejection e
+  // bloccando il disegno. Va quindi registrato solo dove serve davvero.
+  const SUPPORTS_STYLUS_TOUCH = typeof Touch !== 'undefined' && 'touchType' in Touch.prototype;
+  if (SUPPORTS_STYLUS_TOUCH) {
 
   CV.addEventListener('touchstart', e => {
     // Palm rejection: traccia i tocchi con le dita
@@ -1455,6 +1463,8 @@ function setupCanvas() {
   CV.addEventListener('touchcancel', () => {
     S.cur = null; S.pan = false; S._stylusId = null; S.palmActive = false;
   }, { passive: true });
+
+  } // SUPPORTS_STYLUS_TOUCH
 
   // Blocca menu contestuale Safari iOS (long press con Apple Pencil)
   CO.addEventListener('contextmenu', e => e.preventDefault(), { passive: false });
