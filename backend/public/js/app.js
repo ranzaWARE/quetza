@@ -291,6 +291,7 @@ async function openNote(id) {
       }
     } catch (e) { console.warn('Audio load failed:', e); }
   }
+  updateTranscribeBtn();
 
   // Sincronizza strokes/textItems/imgs con pagina 0
   const pg0 = curPg();
@@ -1585,6 +1586,9 @@ function setupToolbar() {
       if (document.getElementById('_tp')) { document.getElementById('_tp').remove(); return; }
       // Se in elaborazione
       if (S.whisperPending) { toast('⏳ Trascrizione in corso, attendi…'); return; }
+      // Senza audio la richiesta fallisce silenziosamente lato server
+      // (solo un console.warn, nessun feedback all'utente) — meglio bloccarla qui.
+      if (!S.aBuf) { toast('⚠ Nessun audio da trascrivere — registra prima'); return; }
       try {
         const r = await fetch(`/api/notes/${S.curId}/transcript`);
         const d = await r.json();
@@ -2093,6 +2097,8 @@ function concatAudioBuffers(ctx, a, b) {
 async function deleteAudio() {
   if (S.playing) stopAudio();
   S.aBuf = null; S.peaks = null; S.playOff = 0;
+  S.whisperSegments = null;
+  document.getElementById('_tp')?.remove();
   AB.dataset.state = 'idle';
   wx.clearRect(0, 0, WC.width, WC.height);
   TSel.classList.remove('on');
@@ -2102,6 +2108,7 @@ async function deleteAudio() {
     if (idx >= 0) S.notes[idx].has_audio = 0;
     renderNL();
   }
+  updateTranscribeBtn();
   toast('Audio eliminato');
 }
 
@@ -2534,10 +2541,17 @@ function updateTranscribeBtn() {
     btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg> Trascrizione';
     btn.style.opacity = '1';
     btn.disabled = false;
+  } else if (!S.aBuf) {
+    // Nessun audio registrato — niente da trascrivere
+    btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg> Trascrivi';
+    btn.style.opacity = '.4';
+    btn.disabled = false;
+    btn.title = 'Registra un audio prima di trascrivere';
   } else {
     btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg> Trascrivi';
     btn.style.opacity = '1';
     btn.disabled = false;
+    btn.title = 'Trascrivi audio con Whisper';
   }
 }
 

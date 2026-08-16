@@ -368,7 +368,10 @@ function getAudio(noteId, username) {
 
 function deleteAudio(noteId, username) {
   db.prepare(`DELETE FROM audio WHERE note_id = ? AND username = ?`).run(noteId, username);
-  db.prepare(`UPDATE notes SET has_audio = 0 WHERE id = ?`).run(noteId);
+  // Una trascrizione orfana (audio cancellato ma testo Whisper rimasto in DB)
+  // riapparirebbe alla riapertura della nota, riferita a un audio inesistente.
+  db.prepare(`UPDATE notes SET has_audio = 0, whisper_text = NULL, whisper_segments = NULL WHERE id = ?`).run(noteId);
+  try { rebuildFts(noteId); } catch(e) { console.warn('FTS rebuild after deleteAudio:', e.message); }
 }
 
 function appendAudioChunk(noteId, username, chunk, mime) {
