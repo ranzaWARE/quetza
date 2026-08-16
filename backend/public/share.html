@@ -100,7 +100,7 @@ document.getElementById('themeToggle').onclick = () => {
   try { localStorage.setItem('auror-theme', next); } catch {}
 };
 
-const PW_L=794,PH_L=1123,GSP=28;
+const PW_L=794,PH_L=1123,GSP=19; // A4 @96dpi, griglia standard 5mm — stesse costanti di app.js
 const token=location.pathname.split('/').pop();
 let aCtx=null,aBuf=null,src=null,playing=false,playOff=0,playSt=0,raf=null,peaks=null;
 let zoom=1;

@@ -177,7 +177,7 @@ app.get('/api/notes/:id', requireAuth, (req, res) => {
   res.json(n);
 });
 app.post('/api/notes', requireAuth, (req, res) => {
-  const n = db.createNote(uuidv4(), req.session.user.username, req.body.title||'Nuova nota');
+  const n = db.createNote(uuidv4(), req.session.user.username, req.body.title||'Nuova nota', !!req.body.voiceFirst);
   res.status(201).json(n);
 });
 app.patch('/api/notes/:id', requireAuth, (req, res) => {

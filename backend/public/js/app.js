@@ -10,7 +10,7 @@
 const PW = 794;   // A4 width @ 96dpi
 const PH = 1123;  // A4 height @ 96dpi
 // PGAP rimosso — pagine separate con canvas proprio
-const GSP = 28;   // grid spacing
+const GSP = 19;   // grid spacing — standard 5mm @ 96dpi (96/25.4*5 ≈ 18.9), come PW/PH
 const ZOOM_STEPS = [.25,.33,.5,.67,.75,.9,1,1.1,1.25,1.5,1.75,2,2.5,3];
 
 // ── State ─────────────────────────────────────────────────
@@ -61,6 +61,7 @@ const S = {
 const CV   = document.getElementById('C');
 const cx   = CV.getContext('2d');
 const CO   = document.getElementById('CO');
+const CA   = document.querySelector('.CA');
 
 // Canvas offscreen: griglia pre-renderizzata (non cambia mai durante il disegno)
 // e strokes statici (tutto tranne il tratto corrente)
@@ -267,11 +268,14 @@ async function openNote(id) {
     S.pages = [{ strokes: n.strokes || [], textItems: n.text_items || [], images: n.images || [] }];
   }
   S.curPage = 0;
+  S.forceCanvasView = false;         // rivalutato per la nota che si sta aprendo
+  S.voiceFirst = !!n.voice_first;    // marcatore persistente, non solo "pagine vuote"
   S.whisperSegments = Array.isArray(n.whisper_segments) ? n.whisper_segments : null;
   S.grid    = n.grid || 'lines';
   S.undo = []; S.redo = []; S.selectedIds.clear(); S.cur = null;
   GSL.value = S.grid;
   NTT.value = n.title;
+  updateAudioOnlyView();
 
   // Reset audio UI — nascosta di default: si vede solo se la nota ha già
   // un audio, oppure quando l'utente la richiama col pulsante in toolbar.
@@ -324,6 +328,27 @@ async function newNote() {
   S.notes.unshift(n);
   renderNL();
   await openNote(n.id);
+}
+
+// Nota vocale: stessa nota di sempre — pagine e trascrizione funzionano
+// identiche — solo la barra audio è già in vista invece che nascosta, così
+// il primo gesto naturale è premere REC. Si può comunque scrivere in
+// qualsiasi momento: il canvas resta lì, "+pagina" resta sempre accessibile
+// anche a registrazione in corso.
+async function newVoiceNote() {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: '2-digit' });
+  const timeStr = now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  const r = await fetch('/api/notes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: `Registrazione ${dateStr} ${timeStr}`, voiceFirst: true })
+  });
+  const n = await r.json();
+  S.notes.unshift(n);
+  renderNL();
+  await openNote(n.id);
+  AB.style.display = 'flex';
 }
 
 // Titolo di default con data/ora — evita "Nuova nota" generico in libreria
@@ -714,6 +739,27 @@ function syncCurrentPage() {
   pg.textItems = [...S.textItems];
   pg.images    = [...S.imgs];
   return pg;
+}
+
+// ── Nota vocale: nessun foglio in vista finché non c'è davvero contenuto ──
+function pagesAreEmpty() {
+  return S.pages.every(pg =>
+    (!pg.strokes   || pg.strokes.length   === 0) &&
+    (!pg.textItems || pg.textItems.length === 0) &&
+    (!pg.images    || pg.images.length    === 0)
+  );
+}
+
+// Il suggerimento si vede solo per note nate come "Nota vocale" (S.voiceFirst,
+// marcatore persistente sulla nota) — un controllo sulle sole pagine vuote
+// non basterebbe: anche una nota normale appena creata è vuota allo stesso
+// modo, e deve invece mostrare subito il foglio bianco come sempre.
+// S.forceCanvasView (impostato da "Inizia a scrivere") vince sempre: una
+// volta rivelato il foglio in questa sessione, resta visibile anche se
+// ancora vuoto — altrimenti sparirebbe di nuovo al primo ricalcolo.
+function updateAudioOnlyView() {
+  const showHint = S.voiceFirst && pagesAreEmpty() && !S.forceCanvasView;
+  CA.classList.toggle('audioOnly', showHint);
 }
 
 // ── Draw helpers ──────────────────────────────────────────
@@ -1669,6 +1715,15 @@ function setupToolbar() {
     AB.style.display = (AB.style.display === 'none') ? 'flex' : 'none';
   };
 
+  // Nota vocale: "Inizia a scrivere" rivela il foglio, una volta per tutte
+  // per questa sessione — fitW() va rifatto perché mentre .CO era nascosto
+  // le sue dimensioni erano 0 e lo zoom non poteva calcolarsi.
+  document.getElementById('AOSTARTPAGE').onclick = () => {
+    S.forceCanvasView = true;
+    updateAudioOnlyView();
+    requestAnimationFrame(() => requestAnimationFrame(fitW));
+  };
+
   // Due pulsanti (libreria + editor) condividono lo stesso ciclo tema:
   // chiaro → scuro → e-ink → chiaro.
   document.querySelectorAll('.dkToggle').forEach(btn => btn.onclick = () => {
@@ -1884,6 +1939,7 @@ function setupKeyboard() {
 // ── Libreria ──────────────────────────────────────────────
 function setupLibrary() {
   document.getElementById('newB').onclick = newNote;
+  document.getElementById('newVoiceB').onclick = newVoiceNote;
 
   // Torna alla libreria: salva se necessario, poi cambia schermata
   document.getElementById('BACKB').onclick = async () => {

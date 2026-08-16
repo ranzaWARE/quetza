@@ -98,6 +98,11 @@ try { db.exec(`ALTER TABLE notes ADD COLUMN whisper_text TEXT`); } catch {}
 try { db.exec(`ALTER TABLE notes ADD COLUMN text_items TEXT`); } catch {}
 try { db.exec(`ALTER TABLE notes ADD COLUMN whisper_segments TEXT`); } catch {}
 try { db.exec(`ALTER TABLE notes ADD COLUMN pages_data TEXT`); } catch {}
+// Nota creata dal flusso "Nota vocale": il client nasconde il foglio finché
+// non ha davvero contenuto — un controllo su strokes vuoti da solo non
+// basta, altrimenti anche una nota normale appena creata (vuota anch'essa)
+// mostrerebbe il suggerimento invece del foglio bianco atteso.
+try { db.exec(`ALTER TABLE notes ADD COLUMN voice_first INTEGER NOT NULL DEFAULT 0`); } catch {}
 
 // Indice FTS — ricrea se schema cambiato (rimuove vecchia versione con content table)
 try {
@@ -291,8 +296,9 @@ function getNoteById(id, username) {
   };
 }
 
-function createNote(id, username, title) {
-  db.prepare(`INSERT INTO notes (id, username, title, strokes, images) VALUES (?, ?, ?, '[]', '[]')`).run(id, username, title);
+function createNote(id, username, title, voiceFirst) {
+  db.prepare(`INSERT INTO notes (id, username, title, strokes, images, voice_first) VALUES (?, ?, ?, '[]', '[]', ?)`)
+    .run(id, username, title, voiceFirst ? 1 : 0);
   return getNoteById(id, username);
 }
 
