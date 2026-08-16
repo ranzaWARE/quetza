@@ -65,8 +65,8 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 .headerRight{display:flex;align-items:center;gap:8px}
 .hpill{font-size:.72rem;padding:4px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--card);color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:5px}
 a.hpill:hover{color:var(--accent-hover);border-color:var(--accent-ring);background:var(--accent-tint)}
-.sbb{background:var(--surface-raised);border:1px solid var(--line);cursor:pointer;color:var(--muted);width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:var(--r-sm);transition:background var(--auror-dur-base) var(--auror-ease),color var(--auror-dur-base) var(--auror-ease),border-color var(--auror-dur-base) var(--auror-ease)}
-.sbb:hover{color:var(--text);background:var(--accent-tint);border-color:var(--border)}
+.sbb{background:var(--surface);border:1px solid var(--border-strong);cursor:pointer;color:var(--muted);width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:var(--r-sm);transition:background var(--auror-dur-base) var(--auror-ease),color var(--auror-dur-base) var(--auror-ease),border-color var(--auror-dur-base) var(--auror-ease)}
+.sbb:hover{color:var(--text);background:var(--accent-tint);border-color:var(--accent-ring)}
 .sbb .ic-moon,.sbb .ic-eink{display:none}
 [data-theme="dark"] .sbb .ic-sun{display:none}
 [data-theme="dark"] .sbb .ic-moon{display:block}

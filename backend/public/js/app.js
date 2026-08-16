@@ -122,7 +122,12 @@ async function init() {
     for (const src of ['assets/logo.svg','assets/logo.png','assets/logo.webp','assets/logo.jpg']) {
       try {
         const r = await fetch(src, { method: 'HEAD' });
-        if (r.ok) { logo.src = src; logo.hidden = false; hdr.classList.add('hasCustomLogo'); break; }
+        // Il server ha una route catch-all che risponde 200 con index.html per
+        // qualunque path inesistente: senza controllare il Content-Type, il
+        // probe "trova" sempre un logo al primo tentativo e nasconde il
+        // brand mark reale mostrando un'immagine rotta al suo posto.
+        const ct = r.headers.get('Content-Type') || '';
+        if (r.ok && ct.startsWith('image/')) { logo.src = src; logo.hidden = false; hdr.classList.add('hasCustomLogo'); break; }
       } catch {}
     }
   })();
