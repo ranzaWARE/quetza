@@ -10,11 +10,11 @@ const { JSDOM } = require('jsdom');
 const APP = path.join(__dirname, '..', 'public', 'js', 'app.js');
 
 // ID richiesti a livello di modulo da app.js
-const IDS = ['C','CO','CW','SB','ED','EM','NTT','W','MP','TT','WC','PW','SC','ATM',
-             'AH','ARC','APL','RTM','ZL','SZR','SZV','GSL','UNAME','UNAME2','PGPREV',
-             'PGNEXT','PGADD','PGNUM','UDB','RDB','SRB','CLB','SVB','DKB','PSB','PDFB',
-             'PM','PCA','POK','RCB','APB','DELAUD','TXTB','TRANSCB','NL','newB','sbC',
-             'sbO','logoutB','exportB','importFile','ZI','ZO','ZF','TXTI','TXTM','TXTSZ',
+const IDS = ['C','CO','CW','LIBRARY','EDITOR','BACKB','NTT','W','MP','TT','WC','PW','SC','ATM',
+             'AH','ARC','APL','RTM','ZL','SZR','SZV','GSL','UNAME','PGPREV',
+             'PGNEXT','PGADD','PGNUM','UDB','RDB','SRB','CLB','SVB','PSB','PDFB',
+             'PM','PCA','POK','RCB','APB','DELAUD','TXTB','TRANSCB','NL','newB',
+             'logoutB','exportB','importFile','ZI','ZO','ZF','TXTI','TXTM','TXTSZ',
              'TXTSZV','TXTCANC','TXTOK','SHAREB','SHAREM','SHARECANCB','SHARECREB','SHAREEXP',
              'SHARELIST','NETDOT','NETLBL','OFFBANNER','SORT','SRCH','adminLink','PAUSEB','APPHDR','brandLogo'];
 

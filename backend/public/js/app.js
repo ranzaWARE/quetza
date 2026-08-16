@@ -73,9 +73,8 @@ let _gridDirty   = true;  // la griglia va ridisegnata
 let _strokeDirty = true;  // gli strokes statici vanno ridisegnati
 let _rafPending  = false; // un RAF è già in coda
 const CW   = document.getElementById('CW');
-const SB   = document.getElementById('SB');
-const ED   = document.getElementById('ED');
-const EM   = document.getElementById('EM');
+const LIBRARY = document.getElementById('LIBRARY');
+const EDITOR  = document.getElementById('EDITOR');
 const NTT  = document.getElementById('NTT');
 const APP  = document.getElementById('W');
 const TSel = { classList: { add:()=>{}, remove:()=>{} }, clientHeight: 0 };
@@ -104,9 +103,7 @@ async function init() {
     S.user = d.user;
     const label = d.user.displayName || d.user.username;
     document.getElementById('UNAME').textContent = label;
-    const uname2 = document.getElementById('UNAME2');   // pill nell'header
-    if (uname2) uname2.textContent = label;
-    if (d.user.is_admin) { const al=document.getElementById('adminLink'); if(al) al.style.display='block'; }
+    if (d.user.is_admin) { const al=document.getElementById('adminLink'); if(al) al.style.display='flex'; }
     // Password provvisoria: nessuna API è utilizzabile finché non viene cambiata
     if (d.must_change_password) { showChangePasswordModal(true); return; }
   } catch { window.location.href = '/login.html'; return; }
@@ -114,7 +111,7 @@ async function init() {
   await loadNotes();
   restoreDarkMode();
   setupToolbar();
-  setupSidebar();
+  setupLibrary();
   setupZoom();
   setupCanvas();
   setupPages();
@@ -237,6 +234,19 @@ async function loadAllAudioSessions(noteId) {
   }
 }
 
+// ── Navigazione tra schermate ────────────────────────────
+// Libreria ed editor sono due schermate a tutto schermo, mai
+// visibili insieme: così, con una nota aperta, il canvas ha
+// tutto lo spazio disponibile invece di condividerlo con la lista.
+function showEditor() {
+  LIBRARY.classList.remove('on');
+  EDITOR.classList.add('on');
+}
+function showLibrary() {
+  EDITOR.classList.remove('on');
+  LIBRARY.classList.add('on');
+}
+
 async function openNote(id) {
   if (S.recOn) stopRec();
   if (S.playing) stopAudio();
@@ -283,7 +293,7 @@ async function openNote(id) {
   S.textItems = pg0.textItems ? [...pg0.textItems] : [];
   S.imgs      = pg0.images    ? [...pg0.images]    : [];
 
-  EM.style.display = 'none'; ED.className = 'on';
+  showEditor();
   CV.width = PW; CV.height = PH; markDirty('all');
   renderNL();
   updatePageNav();
@@ -311,7 +321,7 @@ async function deleteNote(id) {
   if (!confirm('Eliminare questa nota?')) return;
   await fetch(`/api/notes/${id}`, { method: 'DELETE' });
   S.notes = S.notes.filter(n => n.id !== id);
-  if (S.curId === id) { S.curId = null; S.strokes = []; S.textItems = []; ED.className = ''; EM.style.display = ''; }
+  if (S.curId === id) { S.curId = null; S.strokes = []; S.textItems = []; showLibrary(); }
   renderNL();
 }
 
@@ -446,58 +456,67 @@ function renderNL() {
   let notes = sortedNotes();
   if (q) notes = notes.filter(n => n.title.toLowerCase().includes(q));
   if (!notes.length) {
-    el.innerHTML = `<div style="padding:16px 8px;text-align:center;color:var(--mu);font-size:.72rem">${q ? 'Nessun risultato' : 'Nessuna nota'}</div>`;
+    el.innerHTML = `<div class="empty-msg">${q ? 'Nessun risultato' : 'Nessuna nota — creane una per iniziare'}</div>`;
     return;
   }
-  notes.forEach(n => {
-    const isDirty = n.id === S.curId && S.dirty;
-    const d = document.createElement('div');
-    d.className = 'ni' + (n.id === S.curId ? ' on' : '');
-    const date = new Date(n.updated_at||n.created_at).toLocaleDateString('it-IT',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
-    d.innerHTML = `
-      <div style="display:flex;align-items:baseline;gap:4px">
-        <div class="nt" style="flex:1" title="Doppio click per rinominare">${esc(n.title)}${isDirty?'<span style="color:var(--brand);margin-left:3px;font-size:.6rem">●</span>':''}</div>
-        <button class="ndl" title="Altro" style="opacity:.5;font-size:.7rem">⋯</button>
-      </div>
-      <div class="nd">${date}</div>
-      ${n.has_audio?'<div class="na">⏺ audio</div>':''}
-      ${n.thumbnail?`<div class="nth"><img src="${n.thumbnail}" alt=""></div>`:''}
-    `;
-    // Doppio click → rinomina inline
-    d.querySelector('.nt').ondblclick = e => {
-      e.stopPropagation();
-      const input = document.createElement('input');
-      input.value = n.title;
-      input.style.cssText = 'width:100%;background:transparent;border:none;border-bottom:1px solid var(--brand);font-size:.74rem;font-weight:500;color:var(--sb-fg);outline:none;padding:0';
-      d.querySelector('.nt').replaceWith(input);
-      input.focus(); input.select();
-      const commit = async () => {
-        const newTitle = input.value.trim() || n.title;
-        n.title = newTitle;
-        await fetch(`/api/notes/${n.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:newTitle})});
-        if (n.id===S.curId) NTT.value = newTitle;
-        renderNL();
-      };
-      input.onblur = commit;
-      input.onkeydown = e => { if(e.key==='Enter') input.blur(); if(e.key==='Escape'){input.value=n.title;input.blur();} };
+  notes.forEach(n => el.appendChild(buildNoteCard(n)));
+}
+
+const NOTE_ICON = `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
+
+// Card nella griglia libreria — usata sia per la lista normale sia per i
+// risultati di ricerca full-text (che hanno un sottoinsieme dei campi nota).
+function buildNoteCard(n) {
+  const isDirty = n.id === S.curId && S.dirty;
+  const d = document.createElement('div');
+  d.className = 'noteCard' + (n.id === S.curId ? ' on' : '');
+  const date = new Date(n.updated_at||n.created_at).toLocaleDateString('it-IT',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+  d.innerHTML = `
+    <div class="thumb">${n.thumbnail ? `<img src="${n.thumbnail}" alt="">` : NOTE_ICON}</div>
+    <div class="meta">
+      <div class="title" title="Doppio click per rinominare">${esc(n.title)}${isDirty?'<span class="dirty">●</span>':''}</div>
+      <div class="date">${date}</div>
+      ${n.has_audio?'<div class="audioBadge">⏺ audio</div>':''}
+    </div>
+    <button class="menuBtn" title="Altro">⋯</button>
+  `;
+  // Doppio click sul titolo → rinomina inline
+  d.querySelector('.title').ondblclick = e => {
+    e.stopPropagation();
+    const input = document.createElement('input');
+    input.value = n.title;
+    input.className = 'aurorInput';
+    input.style.cssText = 'height:auto;padding:2px 4px;font-size:.8rem;font-weight:600';
+    d.querySelector('.title').replaceWith(input);
+    input.focus(); input.select();
+    const commit = async () => {
+      const newTitle = input.value.trim() || n.title;
+      n.title = newTitle;
+      await fetch(`/api/notes/${n.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:newTitle})});
+      if (n.id===S.curId) NTT.value = newTitle;
+      renderNL();
     };
-    // Menu contestuale (⋯)
-    d.querySelector('.ndl').onclick = e => {
-      e.stopPropagation();
-      showNoteMenu(n, e.target);
-    };
-    d.onclick = () => openNote(n.id);
-    el.appendChild(d);
-  });
+    input.onblur = commit;
+    input.onkeydown = e => { if(e.key==='Enter') input.blur(); if(e.key==='Escape'){input.value=n.title;input.blur();} };
+  };
+  // Menu contestuale (⋯)
+  d.querySelector('.menuBtn').onclick = e => {
+    e.stopPropagation();
+    showNoteMenu(n, e.currentTarget);
+  };
+  d.onclick = () => openNote(n.id);
+  return d;
 }
 
 function showNoteMenu(n, anchor) {
   document.getElementById('_nm')?.remove();
   const m = document.createElement('div');
   m.id = '_nm';
-  m.style.cssText = 'position:fixed;background:#1a2635;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:4px;z-index:500;min-width:130px;box-shadow:0 8px 24px rgba(0,0,0,.4)';
+  m.className = 'aurorCtxMenu';
+  m.style.cssText = 'position:fixed;z-index:500';
   const r = anchor.getBoundingClientRect();
-  m.style.left = (r.right+4)+'px'; m.style.top = r.top+'px';
+  m.style.right = (window.innerWidth - r.right) + 'px';
+  m.style.top   = (r.bottom + 4) + 'px';
   const items = [
     ['Duplica', () => duplicateNote(n.id)],
     ['Elimina', () => deleteNote(n.id)],
@@ -505,9 +524,6 @@ function showNoteMenu(n, anchor) {
   items.forEach(([label, fn]) => {
     const b = document.createElement('button');
     b.textContent = label;
-    b.style.cssText = 'display:block;width:100%;text-align:left;padding:6px 10px;border:none;background:transparent;color:#e8e8f0;font-size:.78rem;border-radius:5px;cursor:pointer;font-family:inherit';
-    b.onmouseenter = () => b.style.background='rgba(255,255,255,.1)';
-    b.onmouseleave = () => b.style.background='transparent';
     b.onclick = () => { m.remove(); fn(); };
     m.appendChild(b);
   });
@@ -1493,13 +1509,14 @@ function setupToolbar() {
   SZR.oninput = () => { S.size = parseInt(SZR.value); SZV.textContent = S.size; };
   GSL.onchange = () => { S.grid = GSL.value; markDirty('all'); redraw(); };
 
-  document.getElementById('DKB').onclick = () => {
+  // Due pulsanti (libreria + editor) condividono lo stesso stato tema
+  document.querySelectorAll('.dkToggle').forEach(btn => btn.onclick = () => {
     S.dark = !S.dark;
     S.dark ? document.documentElement.setAttribute('data-theme','dark') : document.documentElement.removeAttribute('data-theme');
     applyDarkColor();
     try { localStorage.setItem('auror-theme', S.dark ? 'dark' : 'light'); } catch {}
     markDirty('all'); redraw();
-  };
+  });
 
   document.getElementById('UDB').onclick = () => {
     if (S.undo.length < 2) { S.strokes = []; S.undo = []; }
@@ -1694,11 +1711,19 @@ function setupKeyboard() {
   });
 }
 
-// ── Sidebar ───────────────────────────────────────────────
-function setupSidebar() {
-  document.getElementById('sbC').onclick = () => { SB.classList.add('off'); document.getElementById('sbO').style.display='flex'; };
-  document.getElementById('sbO').onclick = () => { SB.classList.remove('off'); document.getElementById('sbO').style.display='none'; };
+// ── Libreria ──────────────────────────────────────────────
+function setupLibrary() {
   document.getElementById('newB').onclick = newNote;
+
+  // Torna alla libreria: salva se necessario, poi cambia schermata
+  document.getElementById('BACKB').onclick = async () => {
+    if (S.recOn) stopRec();
+    if (S.playing) stopAudio();
+    if (S.dirty) await saveNote(true);
+    S.curId = null; S.strokes = []; S.textItems = [];
+    showLibrary();
+    renderNL();
+  };
 
   // Ordinamento
   const sortSel = document.getElementById('SORT');
@@ -1757,12 +1782,6 @@ function setupSidebar() {
     e.target.value = '';
   };
 
-  // Logout dall'header (stile Stego)
-  const logoutB2 = document.getElementById('logoutB2');
-  if (logoutB2) logoutB2.onclick = async () => {
-    await fetch('/api/logout', { method: 'POST' });
-    location.reload();
-  };
   document.getElementById('logoutB').onclick = async () => {
     if (S.recOn) stopRec();
     await saveNote();
@@ -2362,7 +2381,7 @@ function seekToSegment(sec) {
 function renderFTSResults(results, q) {
   const el = document.getElementById('NL');
   // Rimuovi sezione FTS precedente
-  el.querySelectorAll('.fts-section').forEach(e => e.remove());
+  el.querySelectorAll('.fts-section, .fts-card').forEach(e => e.remove());
   if (!results.length) return;
   // Filtra quelli non già visibili per titolo
   const visibleIds = new Set(S.notes.filter(n => n.title.toLowerCase().includes(q.toLowerCase())).map(n => n.id));
@@ -2370,14 +2389,17 @@ function renderFTSResults(results, q) {
   if (!extra.length) return;
   const sep = document.createElement('div');
   sep.className = 'fts-section';
-  sep.style.cssText = 'padding:6px 8px 2px;font-size:.64rem;color:rgba(255,255,255,.4);font-weight:600;text-transform:uppercase;letter-spacing:.05em;border-top:1px solid rgba(255,255,255,.06);margin-top:6px';
-  sep.textContent = 'Nel contenuto';
+  sep.textContent = 'Trovate nel contenuto';
   el.appendChild(sep);
   extra.forEach(r => {
-    const d = document.createElement('div');
-    d.className = 'ni fts-section' + (r.id === S.curId ? ' on' : '');
-    d.innerHTML = `<div class="nt">${esc(r.title)}</div><div class="nd" style="font-style:italic;color:rgba(255,255,255,.3);font-size:.65rem">${r.snippet||''}</div>`;
-    d.onclick = () => openNote(r.id);
+    const d = buildNoteCard(r);
+    d.classList.add('fts-card');
+    if (r.snippet) {
+      const sn = document.createElement('div');
+      sn.className = 'snippet';
+      sn.innerHTML = r.snippet;
+      d.querySelector('.meta').appendChild(sn);
+    }
     el.appendChild(d);
   });
 }
