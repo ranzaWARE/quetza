@@ -42,9 +42,14 @@ app.use(session({
   secret: SESSION_SECRET,
   resave: false, saveUninitialized: false,
   cookie: {
-    // Il cookie va marcato Secure solo se il browser parla davvero HTTPS,
-    // altrimenti in HTTP puro non verrebbe mai inviato indietro.
-    secure: HAS_CERTS || process.env.FORCE_SECURE_COOKIE === 'true',
+    // 'auto' = express-session decide per ogni richiesta guardando req.secure
+    // (che considera anche X-Forwarded-Proto grazie a trust proxy). Un
+    // booleano statico legato a HAS_CERTS romperebbe una delle due porte:
+    // se true, il browser scarta il cookie sulle richieste HTTP; se false,
+    // niente Secure nemmeno su HTTPS. Ora l'app risponde su entrambe le
+    // porte con lo stesso server — serve che il cookie si adatti di volta
+    // in volta, non una scelta fissa all'avvio.
+    secure: 'auto',
     httpOnly: true, sameSite: 'lax', maxAge: 14*24*60*60*1000
   }
 }));
@@ -621,19 +626,21 @@ app.get('/admin', requireAuth, requireAdmin, (req, res) => res.sendFile(path.joi
 app.get('*', (req, res) => res.sendFile(path.join(__dirname,'public','index.html')));
 
 // ── Server ────────────────────────────────────────────────────
-// Con i certificati: HTTPS su HTTPS_PORT + redirect da PORT.
-// Senza certificati: solo HTTP su PORT. Prima il redirect veniva avviato
-// comunque su PORT e poi app.listen(PORT) falliva con EADDRINUSE, quindi
-// senza certificati l'app non partiva affatto.
+// Con i certificati: HTTPS su HTTPS_PORT E la stessa app in HTTP puro su
+// PORT (non più solo un redirect) — utile su LAN dove il certificato è
+// self-signed e genera avvisi, o quando semplicemente non serve TLS.
+// Il cookie di sessione si adatta da solo (cookie.secure:'auto', sopra),
+// quindi login e sessione funzionano correttamente su entrambe le porte.
+// Nota: la registrazione audio (getUserMedia) resta bloccata dal browser
+// su HTTP non-localhost — è una restrizione di sicurezza del browser
+// stesso, non qualcosa che il server possa aggirare.
+// Senza certificati: solo HTTP su PORT.
 if (HAS_CERTS) {
   https.createServer({ cert: fs.readFileSync(CERT_PATH), key: fs.readFileSync(KEY_PATH) }, app)
     .listen(HTTPS_PORT, () => console.log(`Quetza HTTPS :${HTTPS_PORT}`));
 
-  http.createServer((req, res) => {
-    const host = (req.headers.host || 'localhost').replace(String(PORT), String(HTTPS_PORT));
-    res.writeHead(301, { Location: `https://${host}${req.url}` });
-    res.end();
-  }).listen(PORT, () => console.log(`Quetza redirect HTTP :${PORT} → :${HTTPS_PORT}`));
+  http.createServer(app)
+    .listen(PORT, () => console.log(`Quetza HTTP :${PORT} (registrazione audio non disponibile qui — richiede HTTPS o localhost)`));
 } else {
   console.warn(`[quetza] Certificati non trovati (${CERT_PATH}) — avvio in HTTP puro. La registrazione audio richiede HTTPS o localhost.`);
   app.listen(PORT, () => console.log(`Quetza HTTP :${PORT}`));
