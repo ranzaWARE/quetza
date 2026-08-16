@@ -44,6 +44,24 @@
 
 .aurorBtn[disabled]{ opacity: .5; cursor: not-allowed; }
 
+[data-theme="eink"] .aurorBtn,
+[data-theme="eink"] .aurorInput,
+[data-theme="eink"] .aurorSelect,
+[data-theme="eink"] .iconBtnSm,
+[data-theme="eink"] .aurorTag,
+[data-theme="eink"] .badgeSm,
+[data-theme="eink"] .aurorKbd{
+  background: #fff; border-color: #000; box-shadow: none;
+}
+[data-theme="eink"] .aurorBtn.primary{ background: #000; color: #fff; border-color: #000; }
+[data-theme="eink"] .aurorBtn.primary:hover{ background: #000; }
+[data-theme="eink"] .aurorBtn.active{ background: #000; color: #fff; box-shadow: none; }
+[data-theme="eink"] .aurorBtn.danger{ border-width: 2px; }
+[data-theme="eink"] .aurorBtn:hover,
+[data-theme="eink"] .iconBtnSm:hover{ background: #ededed; }
+[data-theme="eink"] .aurorBtn[disabled]{ opacity: 1; color: #4a4a4a; border-style: dashed; }
+[data-theme="eink"] .aurorCtxMenu{ box-shadow: none; border-color: #000; }
+
 /* Small icon button (28×28, always bordered) */
 .iconBtnSm{
   width: 28px; height: 28px; padding: 0;

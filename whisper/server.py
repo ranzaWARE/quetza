@@ -18,6 +18,23 @@ from flask import Flask, request, jsonify
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 log = logging.getLogger(__name__)
 
+# pyannote.audio 3.3.2 chiama internamente hf_hub_download(use_auth_token=...),
+# ma le versioni recenti di huggingface_hub hanno rimosso quel parametro
+# (rinominato in `token`), causando "unexpected keyword argument". Pinnare
+# huggingface_hub a una versione vecchia è fragile (dipende da quale versione
+# esatta lo aveva ancora, e da lì in poi rompe altro). Questo shim intercetta
+# la vecchia keyword e la traduce, indipendentemente dalla versione installata.
+# Va fatto PRIMA che pyannote importi hf_hub_download (import lazy in
+# get_diarizer), così il suo `from huggingface_hub import hf_hub_download`
+# vede già la versione patchata.
+import huggingface_hub as _hf_hub
+_orig_hf_hub_download = _hf_hub.hf_hub_download
+def _hf_hub_download_compat(*args, **kwargs):
+    if 'use_auth_token' in kwargs and 'token' not in kwargs:
+        kwargs['token'] = kwargs.pop('use_auth_token')
+    return _orig_hf_hub_download(*args, **kwargs)
+_hf_hub.hf_hub_download = _hf_hub_download_compat
+
 app = Flask(__name__)
 
 MODEL_DIR     = os.environ.get('MODEL_DIR', '/app/models')
