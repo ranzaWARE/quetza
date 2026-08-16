@@ -11,7 +11,7 @@
     try{
       var t=localStorage.getItem('auror-theme');
       if(!t){t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
-      if(t==='dark') document.documentElement.setAttribute('data-theme','dark');
+      if(t==='dark'||t==='eink') document.documentElement.setAttribute('data-theme',t);
     }catch(e){}
   })();
 </script>
@@ -56,9 +56,10 @@
       <img id="brandLogo" class="brandLogo" alt="" hidden>
     </div>
     <div class="headerRight">
-      <button class="sbb dkToggle" title="Cambia tema">
+      <button class="sbb dkToggle" title="Cambia tema (chiaro / scuro / e-ink)">
         <svg class="ic-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
         <svg class="ic-moon" width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg class="ic-eink" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h4"/></svg>
       </button>
       <a href="/admin" id="adminLink" class="hpill" style="display:none;text-decoration:none">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
@@ -137,9 +138,10 @@
         <div class="netdot" id="NETDOT"></div>
         <span id="NETLBL">online</span>
       </div>
-      <button class="b bp dk dkToggle" title="Cambia tema">
+      <button class="b bp dk dkToggle" title="Cambia tema (chiaro / scuro / e-ink)">
         <svg class="ic-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
         <svg class="ic-moon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg class="ic-eink" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h4"/></svg>
       </button>
       <button class="b bp" id="SHAREB" title="Condividi nota">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
@@ -237,37 +239,41 @@
     </div>
   </div><!-- /TB -->
 
-  <!-- AUDIO BAR CARD flottante -->
-  <div class="AB">
-    <button class="rb" id="RCB" title="Registra / Ferma">
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="12" r="6"/></svg>
+  <!-- AUDIO BAR flottante — mobile, ridimensionabile (js/audio-bar.js) -->
+  <div class="aurorAudioBar" id="AB" data-state="idle" data-ab-auto
+       style="left:calc(50% - 230px); top:calc(100% - 56px); width:460px">
+    <span class="abGrip" title="Sposta"></span>
+    <button class="recBtn" id="RCB" type="button" title="Registra / Ferma" aria-label="Registra">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6"/></svg>
     </button>
-    <div class="am">
-      <div class="ah" id="AH">Premi REC per registrare in sincronia con la scrittura</div>
-      <div class="ar2" id="ARC" style="display:none">
-        <div class="rd"></div>
-        <span class="rt" id="RTM">0:00</span>
-        <span class="rmsg">in registrazione — scrivi pure</span>
-        <button class="pb2" id="PAUSEB" title="Pausa / Riprendi" style="display:none;margin-left:6px;background:rgba(255,255,255,.2)">
-          <svg width="8" height="8" viewBox="0 0 24 24" fill="white"><rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/></svg>
+    <div class="abBody">
+      <div class="abIdle" id="AH">Premi REC per registrare in sincronia con la scrittura</div>
+      <div class="abRec" id="ARC">
+        <span class="recDot"></span>
+        <span class="recTime" id="RTM">0:00</span>
+        <button class="abBtn abBtn--fill abBtn--main" id="PAUSEB" type="button" title="Pausa / Riprendi" aria-label="Pausa" style="display:none">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/></svg>
         </button>
       </div>
-      <div class="apl" id="APL" style="display:none">
-        <div class="aro">
-          <button class="pb2" id="APB" title="Play / Pausa (Spazio)">
-            <svg width="8" height="8" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
-          </button>
-          <div class="pw" id="PW">
-            <canvas id="WC"></canvas>
-            <div class="sc" id="SC" style="left:0%"></div>
-          </div>
-          <span class="at2" id="ATM">0:00 / 0:00</span>
-          <button class="b" id="DELAUD" title="Elimina audio" style="color:#c0392b;flex-shrink:0">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
-          </button>
-
+      <div class="abPlay" id="APL">
+        <button class="abBtn abBtn--fill abBtn--main" id="APB" type="button" title="Play / Pausa (Spazio)" aria-label="Riproduci">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="5,3 19,12 5,21"/></svg>
+        </button>
+        <div class="abWave" id="PW">
+          <canvas id="WC"></canvas>
+          <div class="abScrub" id="SC" style="left:0%"></div>
         </div>
+        <span class="abTime" id="ATM">0:00 / 0:00</span>
+        <button class="abBtn abBtn--discard abBtn--sm" id="DELAUD" type="button" data-ab-discard title="Elimina audio" aria-label="Elimina registrazione">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
       </div>
+    </div>
+    <span class="abResize" title="Ridimensiona"></span>
+    <div class="abConfirm" role="alertdialog" aria-label="Conferma eliminazione">
+      <span>Eliminare la registrazione?</span>
+      <button class="abConfirmBtn" type="button" data-ab-cancel>Annulla</button>
+      <button class="abConfirmBtn abConfirmBtn--discard" type="button" data-ab-confirm>Elimina</button>
     </div>
   </div>
 
@@ -326,6 +332,7 @@
 
 <!-- jsPDF servito in locale: la LAN interna non raggiunge i CDN esterni -->
 <script src="/vendor/jspdf.umd.min.js"></script>
+<script src="/js/audio-bar.js"></script>
 <script src="/js/app.js"></script>
 </body>
 </html>

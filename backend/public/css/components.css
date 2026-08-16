@@ -166,3 +166,195 @@
   background: var(--surface-raised);
   display: inline-block;
 }
+
+/* ── Audio bar (.aurorAudioBar) ──────────────────────────────
+   Floating voice-capture strip. One shell, three states via [data-state]:
+   idle / recording / playback. It is a movable object, not a docked bar —
+   the user grabs it, parks it anywhere over the canvas, and narrows it
+   until only the transport is left. Everything past the controls degrades
+   away as width drops (container queries), so there is no broken state.
+
+   Markup contract:
+     <div class="aurorAudioBar" data-state="idle" style="left:..;top:..;width:..">
+       <span class="abGrip"></span>   drag handle
+       <button class="recBtn">        record / stop
+       <div class="abBody">           state rows
+       <span class="abResize"></span> width handle
+
+   Behaviour lives in js/audio-bar.js — CSS alone positions and sizes it. */
+.aurorAudioBar{
+  position: absolute;
+  display: flex; align-items: center; gap: 6px;
+  width: 460px; min-width: 132px; max-width: 100%;
+  padding: 5px 6px 5px 4px;
+  background: var(--inverse-surface);
+  color: var(--inverse-text);
+  border: 1px solid var(--inverse-border);
+  border-radius: var(--auror-r);
+  box-shadow: var(--shadow-lg);
+  user-select: none;
+  container-type: inline-size;
+  z-index: 60;
+}
+.aurorAudioBar[data-dragging]{ cursor: grabbing; box-shadow: var(--shadow-lg); }
+
+/* Grip and width handle — the two ends of the bar. Same object, same
+   treatment: a continuous rule the pointer can take hold of. Only the axis
+   they act on differs, which the cursor says. */
+.aurorAudioBar .abGrip,
+.aurorAudioBar .abResize{
+  flex-shrink: 0; width: 11px; height: 22px;
+  color: var(--inverse-text-muted);
+  background-image: linear-gradient(currentColor, currentColor);
+  background-size: 2px 100%; background-position: center;
+  background-repeat: no-repeat;
+  transition: color var(--auror-dur-base) var(--auror-ease);
+}
+.aurorAudioBar .abGrip:hover,
+.aurorAudioBar .abResize:hover{ color: var(--inverse-text); }
+.aurorAudioBar .abGrip{ cursor: grab; }
+.aurorAudioBar .abResize{ cursor: ew-resize; }
+.aurorAudioBar[data-dragging] .abGrip{ cursor: grabbing; }
+
+.aurorAudioBar .abBody{ flex: 1; min-width: 0; display: flex; align-items: center; }
+.aurorAudioBar .abIdle,
+.aurorAudioBar .abRec,
+.aurorAudioBar .abPlay{ display: none; min-width: 0; width: 100%; }
+.aurorAudioBar[data-state="idle"] .abIdle,
+.aurorAudioBar[data-state="recording"] .abRec,
+.aurorAudioBar[data-state="playback"] .abPlay{
+  display: flex; align-items: center; gap: 6px;
+}
+
+/* Record trigger — the only saturated element on the bar */
+.aurorAudioBar .recBtn{
+  width: 26px; height: 26px; flex-shrink: 0;
+  border: none; border-radius: var(--auror-r);
+  background: var(--record); color: var(--record-fg);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background var(--auror-dur-base) var(--auror-ease);
+}
+.aurorAudioBar .recBtn svg{ width: 11px; height: 11px; fill: currentColor; }
+.aurorAudioBar[data-state="recording"] .recBtn{ animation: aurorRecPulse 1s infinite; }
+@keyframes aurorRecPulse{
+  0%,100%{ box-shadow: 0 0 0 0 color-mix(in srgb, var(--record) 60%, transparent); }
+  50%    { box-shadow: 0 0 0 5px color-mix(in srgb, var(--record) 0%, transparent); }
+}
+
+/* Transport buttons — one square chip in three sizes. The primary transport
+   of each state (play, pause) matches the record trigger; discard steps down
+   a size so it never reads as a peer of the thing it undoes. */
+.aurorAudioBar .abBtn{
+  width: 22px; height: 22px; flex-shrink: 0;
+  border: none; border-radius: var(--auror-r);
+  background: color-mix(in srgb, var(--inverse-text) 13%, transparent);
+  color: var(--inverse-text);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background var(--auror-dur-base) var(--auror-ease),
+              color var(--auror-dur-base) var(--auror-ease);
+}
+.aurorAudioBar .abBtn:hover{ background: color-mix(in srgb, var(--inverse-text) 24%, transparent); }
+.aurorAudioBar .abBtn svg{ width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.aurorAudioBar .abBtn--fill svg{ fill: currentColor; stroke: none; }
+/* Same footprint as .recBtn — the two sit side by side */
+.aurorAudioBar .abBtn--main{ width: 26px; height: 26px; }
+.aurorAudioBar .abBtn--main svg{ width: 13px; height: 13px; }
+.aurorAudioBar .abBtn--sm{ width: 20px; height: 20px; }
+.aurorAudioBar .abBtn--sm svg{ width: 11px; height: 11px; }
+/* Discard — a cross, not a bin: it dismisses the take rather than deleting
+   a file. Destructive, so it asks first. */
+.aurorAudioBar .abBtn--discard{ color: var(--inverse-text-muted); }
+.aurorAudioBar .abBtn--discard:hover,
+.aurorAudioBar[data-confirm] .abBtn--discard{ background: var(--record); color: var(--record-fg); }
+
+/* Confirm popover — rides above the bar so it moves with it. The default
+   placement here is the no-JS fallback; audio-bar.js re-places it (flipping
+   below, clamping sideways) so it can never be clipped by the canvas. */
+.aurorAudioBar .abConfirm{
+  position: absolute; bottom: calc(100% + 8px); right: 0;
+  display: none; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 10px; max-width: 260px;
+  background: var(--inverse-surface); color: var(--inverse-text);
+  border: 1px solid var(--inverse-border);
+  border-radius: var(--auror-r);
+  box-shadow: var(--shadow-lg);
+}
+.aurorAudioBar[data-confirm] .abConfirm{ display: flex; }
+.aurorAudioBar .abConfirm span{ font-size: 11px; flex: 1 1 auto; min-width: 0; }
+.aurorAudioBar .abConfirmBtn{
+  font: inherit; font-size: 11px; line-height: 1;
+  padding: 5px 10px; cursor: pointer; white-space: nowrap;
+  border-radius: var(--auror-r);
+  border: 1px solid color-mix(in srgb, var(--inverse-text) 22%, transparent);
+  background: transparent; color: var(--inverse-text);
+  transition: background var(--auror-dur-base) var(--auror-ease);
+}
+.aurorAudioBar .abConfirmBtn:hover{ background: color-mix(in srgb, var(--inverse-text) 13%, transparent); }
+.aurorAudioBar .abConfirmBtn--discard{
+  background: var(--record); border-color: var(--record); color: var(--record-fg);
+  font-weight: 600;
+}
+.aurorAudioBar .abConfirmBtn--discard:hover{ background: var(--record); }
+
+.aurorAudioBar .abIdle{ font-size: 11px; color: var(--inverse-text-muted); }
+.aurorAudioBar .recDot{
+  width: 5px; height: 5px; flex-shrink: 0;
+  border-radius: 50%; background: var(--record);
+  animation: aurorRecBlink 1s infinite;
+}
+@keyframes aurorRecBlink{ 0%,100%{ opacity: 1 } 50%{ opacity: 0 } }
+.aurorAudioBar .recTime{
+  font-size: 11px; font-weight: 600; color: var(--record);
+  font-variant-numeric: tabular-nums; flex-shrink: 0;
+}
+.aurorAudioBar .abTime{
+  font-size: 11px; color: var(--inverse-text-muted);
+  white-space: nowrap; font-variant-numeric: tabular-nums; flex-shrink: 0;
+}
+
+/* Waveform well — hosts a <canvas>, with an absolute scrub head.
+   No fill or radius of its own: the waveform sits directly on the bar. */
+.aurorAudioBar .abWave{
+  flex: 1; height: 22px; min-width: 0;
+  position: relative; overflow: hidden; cursor: pointer;
+}
+.aurorAudioBar .abWave canvas{ width: 100%; height: 100%; display: block; }
+.aurorAudioBar .abScrub{
+  position: absolute; top: 0; height: 100%; width: 2px;
+  background: var(--record); pointer-events: none;
+}
+
+/* Shrink order, driven by the bar's own width — labels go first, then the
+   waveform, then the grip; the transport never leaves. */
+@container (max-width: 340px){
+  .aurorAudioBar .abTime{ display: none; }
+  .aurorAudioBar .abIdle{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+@container (max-width: 240px){
+  .aurorAudioBar .abWave{ display: none; }
+  .aurorAudioBar .abTime{ display: block; }
+}
+@container (max-width: 170px){
+  .aurorAudioBar .abIdle,
+  .aurorAudioBar .abTime{ display: none; }
+  .aurorAudioBar .abGrip{ width: 8px; }
+}
+
+/* E-ink: solid black shell, white controls — the red carries no meaning
+   on a greyscale panel, so state falls to the blinking dot and the label. */
+[data-theme="eink"] .aurorAudioBar{ box-shadow: none; }
+[data-theme="eink"] .aurorAudioBar .recBtn,
+[data-theme="eink"] .aurorAudioBar .abBtn{ background: #fff; color: #000; }
+[data-theme="eink"] .aurorAudioBar .abBtn:hover{ background: #ededed; }
+[data-theme="eink"] .aurorAudioBar .abBtn--discard{ background: #fff; color: #000; border: 1px solid #000; }
+[data-theme="eink"] .aurorAudioBar .abBtn--discard:hover,
+[data-theme="eink"] .aurorAudioBar[data-confirm] .abBtn--discard{ background: #000; color: #fff; border-color: #fff; }
+[data-theme="eink"] .aurorAudioBar .abConfirm{ box-shadow: none; }
+[data-theme="eink"] .aurorAudioBar .abConfirmBtn{ background: #fff; color: #000; border-color: #fff; }
+[data-theme="eink"] .aurorAudioBar .abConfirmBtn:hover{ background: #ededed; }
+[data-theme="eink"] .aurorAudioBar .abConfirmBtn--discard{ background: #000; color: #fff; border: 2px solid #fff; }
+[data-theme="eink"] .aurorAudioBar .recDot,
+[data-theme="eink"] .aurorAudioBar .abScrub{ background: #fff; }
+[data-theme="eink"] .aurorAudioBar .recTime{ color: #fff; }

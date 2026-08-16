@@ -85,9 +85,7 @@ const wx   = WC.getContext('2d');
 const PW2  = document.getElementById('PW');
 const SC   = document.getElementById('SC');
 const ATM  = document.getElementById('ATM');
-const AH   = document.getElementById('AH');
-const ARC  = document.getElementById('ARC');
-const APL  = document.getElementById('APL');
+const AB   = document.getElementById('AB');
 const RTM  = document.getElementById('RTM');
 const ZL   = document.getElementById('ZL');
 const SZR  = document.getElementById('SZR');
@@ -190,11 +188,13 @@ async function loadNotes() {
 }
 
 function restoreDarkMode() {
+  // L'attributo data-theme (dark/eink) è già impostato dallo script di
+  // bootstrap in <head>, prima del parsing del CSS. Qui sincronizziamo solo
+  // S.dark — vero solo per il tema scuro: l'e-ink ha comunque pagina bianca,
+  // quindi la penna di default resta nera come in chiaro.
   try {
-    const saved = localStorage.getItem('auror-theme');
-    if (saved === 'dark') {
+    if (localStorage.getItem('auror-theme') === 'dark') {
       S.dark = true;
-      document.documentElement.setAttribute('data-theme','dark');
       if (S.color === '#111') setColor('#fff');
     }
   } catch {}
@@ -270,7 +270,7 @@ async function openNote(id) {
 
   // Reset audio UI
   S.aBuf = null; S.peaks = null; S.playOff = 0;
-  AH.style.display = ''; APL.style.display = 'none'; ARC.style.display = 'none';
+  AB.dataset.state = 'idle';
   wx.clearRect(0, 0, WC.width, WC.height);
   TSel.classList.remove('on');
 
@@ -281,7 +281,7 @@ async function openNote(id) {
       S.aBuf = await loadAllAudioSessions(id);
       if (S.aBuf) {
         buildPeaks();
-        AH.style.display = 'none'; APL.style.display = 'flex';
+        AB.dataset.state = 'playback';
         drawWave(0); updAT(0); TSel.classList.add('on');
       }
     } catch (e) { console.warn('Audio load failed:', e); }
@@ -1509,12 +1509,17 @@ function setupToolbar() {
   SZR.oninput = () => { S.size = parseInt(SZR.value); SZV.textContent = S.size; };
   GSL.onchange = () => { S.grid = GSL.value; markDirty('all'); redraw(); };
 
-  // Due pulsanti (libreria + editor) condividono lo stesso stato tema
+  // Due pulsanti (libreria + editor) condividono lo stesso ciclo tema:
+  // chiaro → scuro → e-ink → chiaro.
   document.querySelectorAll('.dkToggle').forEach(btn => btn.onclick = () => {
-    S.dark = !S.dark;
-    S.dark ? document.documentElement.setAttribute('data-theme','dark') : document.documentElement.removeAttribute('data-theme');
+    const order = ['light', 'dark', 'eink'];
+    const cur = document.documentElement.getAttribute('data-theme') || 'light';
+    const next = order[(order.indexOf(cur) + 1) % order.length];
+    if (next === 'light') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', next);
+    S.dark = (next === 'dark');
     applyDarkColor();
-    try { localStorage.setItem('auror-theme', S.dark ? 'dark' : 'light'); } catch {}
+    try { localStorage.setItem('auror-theme', next); } catch {}
     markDirty('all'); redraw();
   });
 
@@ -1651,7 +1656,9 @@ function setupToolbar() {
     };
   }
   document.getElementById('APB').onclick = () => { if (S.playing) stopAudio(); else startAudio(S.playOff); };
-  document.getElementById('DELAUD').onclick = deleteAudio;
+  // DELAUD ha data-ab-discard: audio-bar.js mostra il popover di conferma
+  // e spara questo evento solo se l'utente conferma "Elimina".
+  AB.addEventListener('auror-audio-discard', deleteAudio);
   PW2.onclick = e => {
     if (!S.aBuf) return;
     const r = PW2.getBoundingClientRect();
@@ -1968,7 +1975,6 @@ async function startRec() {
     S.mr.start(100); // chunk frequenti per risposta UI fluida
 
     updateRecBtn('rec');
-    AH.style.display = 'none'; ARC.style.display = 'flex';
 
     const prevDur = S.aBuf ? S.aBuf.duration : 0;
     S._ri = setInterval(() => {
@@ -2007,19 +2013,11 @@ function resumeRec() {
 }
 
 function updateRecBtn(mode) {
-  const btn = document.getElementById('RCB');
   const pauseBtn = document.getElementById('PAUSEB');
-  if (mode === 'rec') {
-    btn.classList.add('rec');
-    btn.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="white"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>';
-    if (pauseBtn) pauseBtn.style.display = 'flex';
-  } else if (mode === 'pause') {
-    btn.classList.add('rec'); // mantieni animazione
-    btn.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>';
+  if (mode === 'rec' || mode === 'pause') {
+    AB.dataset.state = 'recording';
     if (pauseBtn) pauseBtn.style.display = 'flex';
   } else {
-    btn.classList.remove('rec');
-    btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="12" r="6"/></svg>';
     if (pauseBtn) pauseBtn.style.display = 'none';
   }
 }
@@ -2028,7 +2026,7 @@ function stopRec() {
   if (!S.mr) return;
   S.recOn = false; S.recPaused = false;
   S.mr.stop(); S.mr.stream.getTracks().forEach(t => t.stop());
-  clearInterval(S._ri); ARC.style.display = 'none';
+  clearInterval(S._ri);
   updateRecBtn('stop');
 }
 
@@ -2057,7 +2055,7 @@ async function onRecStop() {
     S.aBuf = S.aBuf ? concatAudioBuffers(S.aCtx, S.aBuf, newBuf) : newBuf;
 
     buildPeaks();
-    AH.style.display = 'none'; APL.style.display = 'flex';
+    AB.dataset.state = 'playback';
     drawWave(0); updAT(0);
     TSel.classList.add('on'); drawTL(0);
     toast('✓ Registrazione salvata');
@@ -2088,10 +2086,9 @@ function concatAudioBuffers(ctx, a, b) {
 }
 
 async function deleteAudio() {
-  if (!confirm('Eliminare la registrazione audio?')) return;
   if (S.playing) stopAudio();
   S.aBuf = null; S.peaks = null; S.playOff = 0;
-  AH.style.display = ''; APL.style.display = 'none';
+  AB.dataset.state = 'idle';
   wx.clearRect(0, 0, WC.width, WC.height);
   TSel.classList.remove('on');
   if (S.curId) {

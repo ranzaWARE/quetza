@@ -64,9 +64,11 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 a.hpill:hover{color:var(--accent-hover);border-color:var(--accent-ring);background:var(--accent-tint)}
 .sbb{background:none;border:1px solid transparent;cursor:pointer;color:var(--muted);width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:var(--r-sm);transition:background var(--auror-dur-base) var(--auror-ease),color var(--auror-dur-base) var(--auror-ease)}
 .sbb:hover{color:var(--text);background:var(--accent-tint)}
-.sbb .ic-moon{display:none}
+.sbb .ic-moon,.sbb .ic-eink{display:none}
 [data-theme="dark"] .sbb .ic-sun{display:none}
 [data-theme="dark"] .sbb .ic-moon{display:block}
+[data-theme="eink"] .sbb .ic-sun{display:none}
+[data-theme="eink"] .sbb .ic-eink{display:block}
 
 /* ── Libreria: barra ricerca/ordina/azioni + griglia note ── */
 .libToolbar{display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap}
@@ -125,7 +127,7 @@ a.hpill:hover{color:var(--accent-hover);border-color:var(--accent-ring);backgrou
   user-select:none;-webkit-user-select:none;
   overflow:hidden;
 }
-.R1,.R2,.AB{user-select:none;-webkit-user-select:none}
+.R1,.R2{user-select:none;-webkit-user-select:none}
 .R1{display:flex;align-items:center;gap:5px;padding:6px 10px;border-bottom:1px solid var(--tbr)}
 .tti{flex:1;border:none;outline:none;font-size:.88rem;font-weight:600;color:var(--ink);background:transparent;padding:2px 4px}
 .R2{display:flex;align-items:center;gap:2px;padding:4px 8px;overflow-x:auto;scrollbar-width:none}
@@ -143,9 +145,11 @@ a.hpill:hover{color:var(--accent-hover);border-color:var(--accent-ring);backgrou
 /* Text button in toolbar (R1 row) */
 /* Action buttons R1 — icon-only, AUROR iconBtn pattern */
 .bp{width:32px;min-width:32px;padding:0}
-.bp.dk .ic-moon{display:none}
+.bp.dk .ic-moon,.bp.dk .ic-eink{display:none}
 [data-theme="dark"] .bp.dk .ic-sun{display:none}
 [data-theme="dark"] .bp.dk .ic-moon{display:block}
+[data-theme="eink"] .bp.dk .ic-sun{display:none}
+[data-theme="eink"] .bp.dk .ic-eink{display:block}
 /* Salva = brand amber primary */
 .bp.ar{background:var(--accent);color:var(--text-on-accent);border-color:var(--accent-hover)}
 .bp.ar:hover{background:var(--accent-hover)}
@@ -164,37 +168,9 @@ a.hpill:hover{color:var(--accent-hover);border-color:var(--accent-ring);backgrou
 #ZF{font-size:.57rem;width:26px}
 
 /* ── Audio bar ──────────────────────────────────────────── */
-.AB{
-  position:absolute;
-  bottom:10px;left:50%;transform:translateX(-50%);
-  z-index:50;
-  background:var(--sb);
-  border-radius:var(--r);
-  border:1px solid rgba(255,255,255,.06);
-  box-shadow:0 4px 20px rgba(0,0,0,.25);
-  padding:6px 12px;
-  display:flex;align-items:center;gap:7px;
-  width:calc(100% - 20px);max-width:900px;
-}
-.rb{width:28px;height:28px;border-radius:var(--r);border:none;cursor:pointer;background:var(--acc);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .12s}
-.rb:hover{background:#a93226}
-.rb.rec{animation:pu 1s infinite}
-@keyframes pu{0%,100%{box-shadow:0 0 0 0 rgba(192,57,43,.6)}50%{box-shadow:0 0 0 6px rgba(192,57,43,0)}}
-.am{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
-.ah{font-size:.64rem;color:rgba(255,255,255,.35);font-style:italic}
-.ar2{display:flex;align-items:center;gap:4px}
-.rd{width:5px;height:5px;border-radius:50%;background:var(--acc);animation:bl 1s infinite;flex-shrink:0}
-@keyframes bl{0%,100%{opacity:1}50%{opacity:0}}
-.rt{font-size:.67rem;color:var(--acc);font-weight:600;font-variant-numeric:tabular-nums}
-.rmsg{font-size:.61rem;color:rgba(255,255,255,.35);margin-left:3px}
-.apl{display:flex;flex-direction:column;gap:2px}
-.aro{display:flex;align-items:center;gap:5px}
-.pb2{width:22px;height:22px;border-radius:var(--r);border:none;cursor:pointer;background:rgba(255,255,255,.13);color:#e8e8f0;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .12s}
-.pb2:hover{background:rgba(255,255,255,.22)}
-.pw{flex:1;height:22px;border-radius:var(--r-sm);overflow:hidden;background:rgba(255,255,255,.06);position:relative;cursor:pointer}
-#WC{width:100%;height:100%;display:block}
-.sc{position:absolute;top:0;width:2px;background:var(--acc);height:100%;pointer-events:none}
-.at2{font-size:.63rem;color:rgba(255,255,255,.4);white-space:nowrap;font-variant-numeric:tabular-nums}
+/* .aurorAudioBar e i suoi elementi (.abGrip/.abBody/.recBtn/.abBtn/...)
+   sono definiti in components.css — componente AUROR condiviso, non più
+   uno stile locale a Quetza. */
 
 /* ── Canvas area — AUROR canvas con grid ────────────────── */
 .CA{
@@ -252,7 +228,7 @@ a.hpill:hover{color:var(--accent-hover);border-color:var(--accent-ring);backgrou
 .pg-num:hover{background:var(--bg)}
 .pg-add{
   width:24px;height:24px;border-radius:var(--r);
-  background:var(--brand);border:none;color:#111827;
+  background:var(--brand);border:none;color:var(--text-on-accent);
   font-size:1rem;font-weight:700;
   display:flex;align-items:center;justify-content:center;
   cursor:pointer;font-family:inherit;
@@ -289,12 +265,12 @@ a.hpill:hover{color:var(--accent-hover);border-color:var(--accent-ring);backgrou
 .ma{display:flex;gap:7px;margin-top:14px;justify-content:flex-end}
 .mc{padding:6px 13px;border:1px solid var(--line);border-radius:var(--r-sm);background:transparent;cursor:pointer;font-size:.8rem;color:var(--text);font-family:inherit;transition:background .12s}
 .mc:hover{background:var(--bh)}
-.mk{padding:6px 13px;border:1px solid var(--brand-dark);border-radius:var(--r-sm);background:var(--brand);color:#111827;cursor:pointer;font-size:.8rem;font-weight:700;font-family:inherit;transition:background .12s}
+.mk{padding:6px 13px;border:1px solid var(--brand-dark);border-radius:var(--r-sm);background:var(--brand);color:var(--text-on-accent);cursor:pointer;font-size:.8rem;font-weight:700;font-family:inherit;transition:background .12s}
 .mk:hover{background:var(--brand-dark)}
 
 /* ── iOS Safari ─────────────────────────────────────────── */
 #C,.CO,.CW{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;touch-action:none}
-.TB,.R1,.R2,.AB{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.TB,.R1,.R2,.aurorAudioBar{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 
 /* ── Shape recognition ──────────────────────────────────── */
 #SRB.on{background:var(--accent-soft);color:var(--accent-hover);border-color:var(--accent-ring)}
@@ -357,7 +333,7 @@ a.hpill:hover{color:var(--accent-hover);border-color:var(--accent-ring);backgrou
 .pg-num:hover{background:var(--bg)}
 .pg-add{
   width:24px;height:24px;border-radius:var(--r);
-  background:var(--brand);border:none;color:#111827;
+  background:var(--brand);border:none;color:var(--text-on-accent);
   font-size:1.1rem;font-weight:700;
   display:flex;align-items:center;justify-content:center;
   cursor:pointer;font-family:inherit;
@@ -416,10 +392,41 @@ a.hpill:hover{color:var(--accent-hover);border-color:var(--accent-ring);backgrou
 #PGNUM:hover{background:var(--bg)}
 #PGADD{
   width:26px;height:26px;border-radius:var(--r);
-  background:var(--brand);border:none;color:#111827;
+  background:var(--brand);border:none;color:var(--text-on-accent);
   font-size:1.1rem;font-weight:700;line-height:1;
   cursor:pointer;font-family:inherit;
   box-shadow:0 2px 8px rgba(245,160,0,.3);
   transition:background .12s,transform .12s;
 }
 #PGADD:hover{background:var(--brand-dark);transform:scale(1.1)}
+
+/* ── E-ink — componenti propri di Quetza ──────────────────
+   La maggior parte dell'interfaccia usa già i token semantici
+   (--card, --line, --shadow-*, --text…) e quindi eredita l'e-ink
+   automaticamente da tokens.css. Qui si coprono solo i punti che
+   usano ombre o colori scritti a mano invece dei token. */
+[data-theme="eink"] .TB,
+[data-theme="eink"] .pg-nav,
+[data-theme="eink"] .pg-prev,
+[data-theme="eink"] .pg-next,
+[data-theme="eink"] .pg-num,
+[data-theme="eink"] #PGNUM,
+[data-theme="eink"] .pg-add,
+[data-theme="eink"] #PGADD,
+[data-theme="eink"] .noteCard,
+[data-theme="eink"] .noteCard:hover,
+[data-theme="eink"] #C{
+  box-shadow:none;
+}
+[data-theme="eink"] #C{border:1px solid #000}
+/* .on usa un anello --accent-soft che in e-ink è bianco — invisibile.
+   Il bordo nero raddoppiato resta l'unico modo per segnalare "aperta". */
+[data-theme="eink"] .noteCard.on{box-shadow:none;border-width:2px}
+[data-theme="eink"] .pg-add,
+[data-theme="eink"] #PGADD{background:#000;color:#fff}
+[data-theme="eink"] .pg-add:hover,
+[data-theme="eink"] #PGADD:hover{background:#000;transform:none}
+/* Banner offline: resta leggibile per contrasto, non per il rosso */
+[data-theme="eink"] #OFFBANNER{background:#000;color:#fff}
+/* Pillola "palma" (mode pill) — unica a non usare i token colore */
+[data-theme="eink"] .MP.palm{background:#fff;color:#000;border:1px solid #000}

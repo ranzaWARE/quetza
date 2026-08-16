@@ -36,6 +36,8 @@
   --auror-river:        #2f6f9f;   /* layer blue */
   --auror-clay:         #b15a3c;   /* layer terracotta */
   --auror-amethyst:     #6b4f9c;   /* layer violet */
+  --auror-record:       #c0392b;   /* recording red — distinct from --danger,
+                                      which means "destructive action" */
 
   /* ---- Surfaces ---- */
   --auror-bg:           #f3f5f7;
@@ -154,6 +156,11 @@
   --danger-soft:        var(--auror-danger-soft);
   --info:               var(--auror-info);
 
+  /* Capture — live voice recording. Not a status: it marks a running
+     capture, so it stays saturated in every theme. */
+  --record:             var(--auror-record);
+  --record-fg:          #ffffff;
+
   /* Effects */
   --shadow-sm:          var(--auror-shadow-sm);
   --shadow-md:          var(--auror-shadow-md);
@@ -271,3 +278,122 @@
 
   color-scheme: dark;
 }
+
+/* =========================================================
+   E-INK THEME — set <html data-theme="eink"> to activate
+   Pure white ground, black outlines, no shadow, no colour.
+   Greys limited to a few steps e-ink panels can actually render.
+   ========================================================= */
+[data-theme="eink"]{
+  /* Brand collapses to ink */
+  --auror-brand:        #000;
+  --auror-brand-dark:   #000;
+  --auror-brand-soft:   #ffffff;
+  --auror-brand-tint:   #ffffff;
+  --auror-brand-ring:   #000;
+
+  --auror-bone:         #ffffff;
+  --auror-fern:         #000;
+  --auror-river:        #000;
+  --auror-clay:         #000;
+  --auror-amethyst:     #000;
+
+  /* Surfaces — everything white */
+  --auror-bg:           #ffffff;
+  --auror-canvas:       #ffffff;
+  --auror-card:         #ffffff;
+  --auror-line:         #000;
+  --auror-line-strong:  #000;
+  --auror-line-soft:    #000;
+  --auror-grid:         #d4d4d4;
+  --auror-grid-strong:  #000;
+
+  --auror-ink:          #000;
+  --auror-ink-2:        #000;
+  --auror-muted:        #4a4a4a;
+
+  /* Status reads as ink; meaning carries through label + icon, not hue */
+  --auror-success:      #000;
+  --auror-warn:         #000;
+  --auror-danger:       #000;
+  --auror-danger-soft:  #ffffff;
+  --auror-info:         #000;
+
+  /* No shadows — e-ink cannot render soft gradients */
+  --auror-shadow-sm:    none;
+  --auror-shadow-md:    none;
+  --auror-shadow-lg:    none;
+  --auror-focus:        0 0 0 2px #000;
+
+  --surface:            #ffffff;
+  --surface-raised:     #ffffff;
+  --surface-sunken:     #ededed;   /* hover / well — only grey in the system */
+  --surface-canvas:     #ffffff;
+  --surface-overlay:    rgba(0,0,0,.35);
+
+  --border:             #000;
+  --border-soft:        #000;
+  --border-strong:      #000;
+
+  --text:               #000;
+  --text-strong:        #000;
+  --text-secondary:     #000;
+  --text-muted:         #4a4a4a;
+  --text-on-accent:     #ffffff;
+  --text-on-inverse:    #ffffff;
+
+  --accent:             #000;
+  --accent-hover:       #000;
+  --accent-soft:        #ffffff;
+  --accent-tint:        #ffffff;
+  --accent-ring:        #000;
+
+  --success:            #000;
+  --warn:               #000;
+  --danger:             #000;
+  --danger-soft:        #ffffff;
+  --info:               #000;
+
+  --record:             #000;
+  --record-fg:          #ffffff;
+
+  --inverse-surface:    #000;
+  --inverse-border:     #ffffff;
+  --inverse-text:       #ffffff;
+  --inverse-text-muted: rgba(255,255,255,.75);
+
+  color-scheme: light;
+}
+
+/* Panel refresh is slow: no transitions, no animation */
+[data-theme="eink"] *,
+[data-theme="eink"] *::before,
+[data-theme="eink"] *::after{
+  transition: none !important;
+  animation: none !important;
+}
+
+/* Switch in e-ink: outlined track, solid ink thumb when on.
+   State is also spelled out with I / O — the thumb covers the inactive
+   letter, so the visible glyph is always the current state. */
+[data-theme="eink"] .aurorSwitch .track{ background: #fff; border-color: #000; }
+[data-theme="eink"] .aurorSwitch .thumb{
+  background: #fff; border: 1px solid #000;
+  top: calc(var(--aurorSw-pad) + 1px); left: calc(var(--aurorSw-pad) + 1px);
+  width: calc(var(--aurorSw-thumb) - 2px); height: calc(var(--aurorSw-thumb) - 2px);
+  border-radius: 3px;
+}
+[data-theme="eink"] .aurorSwitch input:checked + .track .thumb{
+  left: calc(var(--aurorSw-w) - var(--aurorSw-thumb) - var(--aurorSw-pad) - 1px);
+}
+[data-theme="eink"] .aurorSwitch input:checked + .track{ background: #fff; border-color: #000; }
+[data-theme="eink"] .aurorSwitch input:checked + .track .thumb{ background: #000; }
+[data-theme="eink"] .aurorSwitch .track::before,
+[data-theme="eink"] .aurorSwitch .track::after{
+  position: absolute; top: 0; bottom: 0; width: calc(var(--aurorSw-w) / 2);
+  display: flex; align-items: center; justify-content: center;
+  font: 700 11px/1 var(--auror-font);
+  color: #000;
+}
+[data-theme="eink"] .aurorSwitch .track::before{ content: "I"; left: 0; }
+[data-theme="eink"] .aurorSwitch .track::after{ content: "O"; left: calc(var(--aurorSw-w) / 2); }
