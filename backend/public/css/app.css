@@ -66,7 +66,7 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 /* Nome utente — testo semplice, non un pill (coerente col pattern AUROR
    "IT · Utente" nella status bar: informativo, non un componente cliccabile) */
 .userLbl{font-size:.78rem;color:var(--muted);white-space:nowrap;padding:0 2px}
-.sbb{background:var(--surface);border:1px solid var(--border-strong);cursor:pointer;color:var(--muted);width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:var(--r-sm);transition:background var(--auror-dur-base) var(--auror-ease),color var(--auror-dur-base) var(--auror-ease),border-color var(--auror-dur-base) var(--auror-ease)}
+.sbb{background:var(--surface);border:1px solid var(--border-strong);cursor:pointer;color:var(--muted);width:28px;height:28px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:var(--r-sm);transition:background var(--auror-dur-base) var(--auror-ease),color var(--auror-dur-base) var(--auror-ease),border-color var(--auror-dur-base) var(--auror-ease)}
 .sbb:hover{color:var(--text);background:var(--accent-tint);border-color:var(--accent-ring)}
 .sbb .ic-moon,.sbb .ic-eink{display:none}
 [data-theme="dark"] .sbb .ic-sun{display:none}
@@ -177,7 +177,7 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 #SZV{font-size:.66rem;color:var(--muted);min-width:16px}
 #GSL{padding:3px 5px;border:1px solid var(--tbr);border-radius:var(--r-sm);font-size:.7rem;background:var(--tb);color:var(--ink);cursor:pointer}
 .zg{display:flex;align-items:center;background:var(--bh);border-radius:var(--r-sm);border:1px solid var(--line);flex-shrink:0}
-.zb{width:22px;height:22px;border:none;background:transparent;cursor:pointer;font-size:.82rem;font-weight:700;color:var(--muted);display:flex;align-items:center;justify-content:center;transition:background .1s;font-family:inherit}
+.zb{width:22px;height:22px;flex-shrink:0;border:none;background:transparent;cursor:pointer;font-size:.82rem;font-weight:700;color:var(--muted);display:flex;align-items:center;justify-content:center;transition:background .1s;font-family:inherit}
 .zb:hover{background:var(--line);color:var(--text)}
 .zb:active{transform:translateY(1px)}
 .zl{font-size:.66rem;font-weight:600;color:var(--muted);min-width:34px;text-align:center}

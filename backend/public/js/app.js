@@ -1080,25 +1080,27 @@ function setupZoom() {
     }
   }, { passive: false });
 
-  // Pan con mouse: middle click o click destro + drag
-  // (stato e helper sono a livello di modulo, vedi sopra)
+  // Pan con mouse: middle click o click destro + drag, sull'area grigia
+  // attorno al foglio (il pan che parte DAL foglio è già gestito dal
+  // pointerdown di CV, che ha la sua logica di disegno/selezione da
+  // rispettare — qui si esce subito se l'evento arriva da lì).
+  // Pointer Events + setPointerCapture invece di mousedown/mouseup: senza
+  // capture, se il drag usciva dai bordi di CO/CV prima del rilascio del
+  // tasto, mouseup non arrivava più a nessuno dei due e il pan restava
+  // bloccato per sempre ("non rilascia il drag").
   function panDown(e) {
-    if (e.button === 1 || e.button === 2) { e.preventDefault(); startMPan(e.clientX, e.clientY); }
-    if (e.button === 0 && _spaceDown)     { e.preventDefault(); startMPan(e.clientX, e.clientY); }
+    if (e.target === CV) return;
+    if (e.button === 1 || e.button === 2) { e.preventDefault(); CO.setPointerCapture(e.pointerId); startMPan(e.clientX, e.clientY); }
+    else if (e.button === 0 && _spaceDown) { e.preventDefault(); CO.setPointerCapture(e.pointerId); startMPan(e.clientX, e.clientY); }
   }
+  function panMove(e) { if (_mPan) moveMPan(e.clientX, e.clientY); }
+  function panUp(e)   { if (_mPan) endMPan(); }
 
-  function panUp()    { if (_mPan) endMPan(); }
-
-  CO.addEventListener('mousedown',  panDown);
-  CO.addEventListener('mousemove',  e => { if (_mPan) moveMPan(e.clientX, e.clientY); });
-  CO.addEventListener('mouseup',    panUp);
-  CO.addEventListener('mouseleave', panUp);
+  CO.addEventListener('pointerdown',   panDown);
+  CO.addEventListener('pointermove',   panMove);
+  CO.addEventListener('pointerup',     panUp);
+  CO.addEventListener('pointercancel', panUp);
   CO.addEventListener('contextmenu', e => e.preventDefault());
-  // Pan anche quando il cursore è sul CV (che è dentro il PV dentro CO)
-  CV.addEventListener('mousedown',  panDown);
-  CV.addEventListener('mousemove', e => { if (_mPan) moveMPan(e.clientX, e.clientY); });
-  CV.addEventListener('mouseup',    panUp);
-  CV.addEventListener('contextmenu', e => e.preventDefault());
 
   document.addEventListener('keydown', e => {
     if (e.key === ' ' && !_spaceDown && e.target === document.body) {
@@ -1388,10 +1390,16 @@ function setupCanvas() {
   CV.addEventListener('pointerdown', e => {
     e.preventDefault();
     if (e.pointerType === 'touch') return;
-    // Middle click (rotella) o destro → pan, non disegno
-    if (e.button === 1 || e.button === 2 || e.buttons === 4) { startMPan(e.clientX, e.clientY); return; }
+    // Middle click o destro → pan, non disegno.
+    // Il vecchio fallback "e.buttons===4" è stato rimosso: alcuni tablet/
+    // penne lo riportano per errore durante la scrittura normale, facendo
+    // partire un pan invece di disegnare — il documento "sbarella" mentre
+    // si scrive col pennino. e.button identifica in modo affidabile quale
+    // pulsante ha generato QUESTO evento, e.buttons era solo un fallback
+    // ridondante e fonte del problema.
+    if (e.button === 1 || e.button === 2) { CV.setPointerCapture(e.pointerId); startMPan(e.clientX, e.clientY); return; }
     // Spazio+click → pan
-    if (_spaceDown && e.button === 0) { startMPan(e.clientX, e.clientY); return; }
+    if (_spaceDown && e.button === 0) { CV.setPointerCapture(e.pointerId); startMPan(e.clientX, e.clientY); return; }
     // Modalità posizionamento testo
     if (S.textMode && S._pendingText) {
       const p = gP(e.clientX, e.clientY);
@@ -1450,7 +1458,9 @@ function setupCanvas() {
 
   CV.addEventListener('pointermove', e => {
     e.preventDefault();
-    if (e.pointerType === 'touch' || !S.cur) return;
+    if (e.pointerType === 'touch') return;
+    if (_mPan) { moveMPan(e.clientX, e.clientY); return; }
+    if (!S.cur) return;
 
     const events = (e.getCoalescedEvents && e.getCoalescedEvents().length > 0)
       ? e.getCoalescedEvents() : [e];
@@ -1496,6 +1506,9 @@ function setupCanvas() {
   CV.addEventListener('pointerup', e => {
     e.preventDefault();
     if (e.pointerType === 'touch') return;
+    // Il pan è catturato via setPointerCapture: pointerup arriva sempre qui
+    // in modo affidabile anche se il cursore è uscito da CV nel frattempo.
+    if (_mPan) { endMPan(); return; }
     S.activePointers.delete(e.pointerId);
 
     // Fine drag selezione
@@ -1529,6 +1542,7 @@ function setupCanvas() {
   }, { passive: false });
 
   CV.addEventListener('pointercancel', e => {
+    if (_mPan) endMPan();
     S.activePointers.delete(e.pointerId);
     S.cur = null; S.selDrag = false; S.lassoPath = null;
   });
