@@ -17,8 +17,22 @@
 <link rel="stylesheet" href="/css/components.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:var(--auror-font);background:var(--surface);color:var(--text);min-height:100vh}
-.hdr{background:var(--surface-raised);border-bottom:1px solid var(--border);height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;position:sticky;top:0;z-index:100;gap:12px;box-shadow:var(--shadow-sm)}
+html,body{height:100%;overflow:hidden}
+body{font-family:var(--auror-font);background:var(--surface);color:var(--text)}
+.stage{position:relative;height:100vh;width:100%;background:var(--surface)}
+
+/* Card flottante sopra le pagine — stesso linguaggio della toolbar
+   dell'editor (.TB in app.css): bordo, angoli arrotondati, ombra, margine
+   dai bordi, invece di una barra piena larghezza incollata in cima. */
+.floatCard{
+  position:absolute;top:8px;left:8px;right:8px;z-index:50;
+  background:var(--surface-raised);
+  border-radius:var(--auror-r);
+  border:1px solid var(--border);
+  box-shadow:0 4px 20px rgba(17,24,39,.12);
+  overflow:hidden;
+}
+.hdrRow{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;gap:12px}
 .hdr-brand{display:flex;align-items:center;gap:10px;color:var(--text);flex-shrink:0}
 .brand-mark{width:28px;height:28px;flex-shrink:0;border-radius:var(--auror-r);background:var(--surface-sunken);border:1px solid var(--border);display:flex;align-items:center;justify-content:center}
 .brand-word{font-weight:800;font-size:.9rem;letter-spacing:.02em;text-transform:uppercase}
@@ -31,14 +45,17 @@ body{font-family:var(--auror-font);background:var(--surface);color:var(--text);m
 [data-theme="dark"] .iconBtnHdr .ic-moon{display:block}
 [data-theme="eink"] .iconBtnHdr .ic-sun{display:none}
 [data-theme="eink"] .iconBtnHdr .ic-eink{display:block}
-.abar{background:var(--surface-raised);border-bottom:1px solid var(--border);padding:7px 16px;display:flex;align-items:center;gap:10px}
+.abarRow{border-top:1px solid var(--border);padding:7px 16px;display:flex;align-items:center;gap:10px}
 .apb{width:28px;height:28px;border-radius:50%;border:none;background:var(--record);color:var(--record-fg);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .apb:hover{filter:brightness(.9)}
 .pw{flex:1;height:22px;border-radius:var(--auror-r);background:var(--surface-sunken);position:relative;cursor:pointer;overflow:hidden;border:1px solid var(--border)}
 #WC{width:100%;height:100%;display:block}
 .sc{position:absolute;top:0;width:2px;height:100%;background:var(--record);pointer-events:none}
 .at{font-size:.65rem;color:var(--text-muted);white-space:nowrap;font-variant-numeric:tabular-nums}
-.wrap{display:flex;justify-content:center;padding:20px;background:var(--surface);min-height:calc(100vh - 100px);overflow:auto}
+
+/* Area pagine — a tutto schermo dietro la card, come .CA/.CO nell'editor */
+.wrap{position:absolute;inset:0;display:flex;justify-content:center;padding:76px 20px 20px;overflow:auto}
+.wrap.hasAudio{padding-top:114px}
 #PAGES{display:flex;flex-direction:column;align-items:center;gap:18px}
 .pgWrap{position:relative}
 .pgCv{display:block;background:var(--surface-canvas);box-shadow:var(--shadow-md)}
@@ -49,46 +66,50 @@ body{font-family:var(--auror-font);background:var(--surface);color:var(--text);m
 </head>
 <body>
 
-<div class="hdr">
-  <div class="hdr-brand">
-    <span class="brand-mark">
-      <svg width="16" height="16" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-        <path d="M32 30 C22 22 6 28 2 20 C8 18 18 20 28 27Z" fill="#c0392b" opacity=".9"/>
-        <path d="M32 30 C18 26 4 32 2 26 C10 22 22 24 30 30Z" fill="#c0392b" opacity=".4"/>
-        <path d="M32 30 C42 22 58 28 62 20 C56 18 46 20 36 27Z" fill="#c0392b" opacity=".9"/>
-        <path d="M32 30 C46 26 60 32 62 26 C54 22 42 24 34 30Z" fill="#c0392b" opacity=".4"/>
-        <ellipse cx="32" cy="31" rx="5" ry="8" fill="#e8e8f0"/>
-        <path d="M32 23 L30 16 L32 19 L34 16 Z" fill="#e8e8f0"/>
-        <path d="M32 38 L30 46 L32 44 L34 46 Z" fill="#e8e8f0"/>
-      </svg>
-    </span>
-    <span class="brand-word">Quetza</span>
-  </div>
-  <div class="meta">
-    <strong id="TITLE">Caricamento…</strong>
-    <span id="META"></span>
-  </div>
-  <button class="iconBtnHdr" id="themeToggle" type="button" title="Cambia tema (chiaro / scuro / e-ink)">
-    <svg class="ic-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
-    <svg class="ic-moon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-    <svg class="ic-eink" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h4"/></svg>
-  </button>
-</div>
+<div class="stage">
+  <div class="floatCard">
+    <div class="hdrRow">
+      <div class="hdr-brand">
+        <span class="brand-mark">
+          <svg width="16" height="16" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+            <path d="M32 30 C22 22 6 28 2 20 C8 18 18 20 28 27Z" fill="#c0392b" opacity=".9"/>
+            <path d="M32 30 C18 26 4 32 2 26 C10 22 22 24 30 30Z" fill="#c0392b" opacity=".4"/>
+            <path d="M32 30 C42 22 58 28 62 20 C56 18 46 20 36 27Z" fill="#c0392b" opacity=".9"/>
+            <path d="M32 30 C46 26 60 32 62 26 C54 22 42 24 34 30Z" fill="#c0392b" opacity=".4"/>
+            <ellipse cx="32" cy="31" rx="5" ry="8" fill="#e8e8f0"/>
+            <path d="M32 23 L30 16 L32 19 L34 16 Z" fill="#e8e8f0"/>
+            <path d="M32 38 L30 46 L32 44 L34 46 Z" fill="#e8e8f0"/>
+          </svg>
+        </span>
+        <span class="brand-word">Quetza</span>
+      </div>
+      <div class="meta">
+        <strong id="TITLE">Caricamento…</strong>
+        <span id="META"></span>
+      </div>
+      <button class="iconBtnHdr" id="themeToggle" type="button" title="Cambia tema (chiaro / scuro / e-ink)">
+        <svg class="ic-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg class="ic-moon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg class="ic-eink" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h4"/></svg>
+      </button>
+    </div>
 
-<div id="ABAR" style="display:none" class="abar">
-  <button class="apb" id="APB">
-    <svg width="8" height="8" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
-  </button>
-  <div class="pw" id="PW"><canvas id="WC"></canvas><div class="sc" id="SC" style="left:0%"></div></div>
-  <span class="at" id="ATM">0:00 / 0:00</span>
-</div>
-
-<div class="wrap" id="WRAP">
-  <div class="err" id="ERR" style="display:none">
-    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-    <span id="ERRMSG">Link non valido o scaduto</span>
+    <div id="ABAR" style="display:none" class="abarRow">
+      <button class="apb" id="APB">
+        <svg width="8" height="8" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
+      </button>
+      <div class="pw" id="PW"><canvas id="WC"></canvas><div class="sc" id="SC" style="left:0%"></div></div>
+      <span class="at" id="ATM">0:00 / 0:00</span>
+    </div>
   </div>
-  <div id="PAGES"></div>
+
+  <div class="wrap" id="WRAP">
+    <div class="err" id="ERR" style="display:none">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <span id="ERRMSG">Link non valido o scaduto</span>
+    </div>
+    <div id="PAGES"></div>
+  </div>
 </div>
 
 <script>
@@ -228,7 +249,7 @@ async function init(){
     buildPages();
     requestAnimationFrame(fitW);
     window.addEventListener('resize',fitW);
-    if(note.has_audio)loadAudio(token);
+    if(note.has_audio){document.getElementById('WRAP').classList.add('hasAudio');loadAudio(token);}
   }catch(e){document.getElementById('ERR').style.display='flex';}
 }
 init();
