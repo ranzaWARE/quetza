@@ -16,7 +16,12 @@ const ZOOM_STEPS = [.25,.33,.5,.67,.75,.9,1,1.1,1.25,1.5,1.75,2,2.5,3];
 // ── State ─────────────────────────────────────────────────
 const S = {
   // Drawing
-  tool: 'pen', color: '#111', size: 3,
+  // penSize per penna/evidenziatore/forme; eraserSize dedicata alla gomma —
+  // condividerne una sola (come prima) rendeva la gomma bloccata sullo
+  // stesso range fine della penna (1-24px, troppo piccolo per cancellare
+  // comodamente) e cambiava lo spessore della penna ogni volta che si
+  // regolava la gomma o viceversa.
+  tool: 'pen', color: '#111', penSize: 3, eraserSize: 18,
   strokes: [], undo: [], redo: [], cur: null, imgs: [],
   grid: 'lines',
   // Zoom / pan
@@ -571,6 +576,10 @@ function showNoteMenu(n, anchor) {
   setTimeout(() => document.addEventListener('click', () => m.remove(), { once: true }), 0);
 }
 
+// Spessore corrente per il tipo di tratto che si sta per creare — la gomma
+// ha una dimensione propria, indipendente da penna/evidenziatore/forme.
+function sizeFor(t) { return t === 'eraser' ? S.eraserSize : S.penSize; }
+
 function setColor(c) {
   S.color = c;
   let matched = false;
@@ -623,15 +632,24 @@ function hexToHsv(hex) {
   return { h, s: max === 0 ? 0 : d/max, v: max };
 }
 
+// Riferimenti DOM del picker cercati una volta sola: paintCP() viene invocata
+// ad ogni pointermove durante il drag (fino a decine di volte al secondo) e
+// ripetere 5 getElementById per chiamata era lavoro sprecato ad ogni frame.
+const CPSV_EL      = document.getElementById('CPSV');
+const CPSVCUR_EL   = document.getElementById('CPSVCUR');
+const CPHUECUR_EL  = document.getElementById('CPHUECUR');
+const CPPREVIEW_EL = document.getElementById('CPPREVIEW');
+const CPHEX_EL      = document.getElementById('CPHEX');
+
 function paintCP() {
   const hex = hsvToHex(cpHue, cpSat, cpVal);
-  document.getElementById('CPSV').style.background =
+  CPSV_EL.style.background =
     `linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,hsl(${cpHue},100%,50%))`;
-  document.getElementById('CPSVCUR').style.left = (cpSat*100)+'%';
-  document.getElementById('CPSVCUR').style.top  = ((1-cpVal)*100)+'%';
-  document.getElementById('CPHUECUR').style.left = (cpHue/360*100)+'%';
-  document.getElementById('CPPREVIEW').style.background = hex;
-  document.getElementById('CPHEX').value = hex.toUpperCase();
+  CPSVCUR_EL.style.left = (cpSat*100)+'%';
+  CPSVCUR_EL.style.top  = ((1-cpVal)*100)+'%';
+  CPHUECUR_EL.style.left = (cpHue/360*100)+'%';
+  CPPREVIEW_EL.style.background = hex;
+  CPHEX_EL.value = hex.toUpperCase();
 }
 
 function openColorPicker() {
@@ -655,25 +673,33 @@ function setupColorPicker() {
   const sv = document.getElementById('CPSV');
   const hue = document.getElementById('CPHUE');
 
+  // Il rettangolo non cambia durante un singolo drag: misurarlo una volta sola
+  // al pointerdown invece che ad ogni pointermove evita un reflow forzato per
+  // ogni frame del trascinamento.
+  let svRect = null, hueRect = null;
   function dragSV(e) {
-    const r = sv.getBoundingClientRect();
+    const r = svRect;
     cpSat = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
     cpVal = 1 - Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
     paintCP();
   }
   sv.addEventListener('pointerdown', e => {
-    e.preventDefault(); sv.setPointerCapture(e.pointerId); dragSV(e);
+    e.preventDefault(); sv.setPointerCapture(e.pointerId);
+    svRect = sv.getBoundingClientRect();
+    dragSV(e);
     sv.onpointermove = dragSV;
   });
   sv.addEventListener('pointerup', () => { sv.onpointermove = null; });
 
   function dragHue(e) {
-    const r = hue.getBoundingClientRect();
+    const r = hueRect;
     cpHue = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * 360;
     paintCP();
   }
   hue.addEventListener('pointerdown', e => {
-    e.preventDefault(); hue.setPointerCapture(e.pointerId); dragHue(e);
+    e.preventDefault(); hue.setPointerCapture(e.pointerId);
+    hueRect = hue.getBoundingClientRect();
+    dragHue(e);
     hue.onpointermove = dragHue;
   });
   hue.addEventListener('pointerup', () => { hue.onpointermove = null; });
@@ -697,8 +723,13 @@ function setupColorPicker() {
 }
 
 // ── Popover verticale per lo spessore — a comparsa dal pulsante in toolbar ──
+// La gomma ha un range più ampio e più spesso: 1-24px va bene per una punta
+// fine, ma per cancellare comodamente serve poter arrivare più grossi.
 function openSizePopover(anchor) {
   document.getElementById('_szp')?.remove();
+  const isEraser = S.tool === 'eraser';
+  const min = isEraser ? 6 : 1, max = isEraser ? 90 : 24;
+  const cur = isEraser ? S.eraserSize : S.penSize;
   const pop = document.createElement('div');
   pop.id = '_szp';
   pop.className = 'sizePop';
@@ -706,16 +737,17 @@ function openSizePopover(anchor) {
   pop.style.left = Math.round(r.left) + 'px';
   pop.style.top  = Math.round(r.bottom + 6) + 'px';
   pop.innerHTML = `
-    <span class="sizePopV" id="_szpv">${S.size}</span>
-    <input type="range" min="1" max="24" step="1" value="${S.size}" id="_szpr">
+    <span class="sizePopV" id="_szpv">${cur}</span>
+    <input type="range" min="${min}" max="${max}" step="1" value="${cur}" id="_szpr">
   `;
   document.body.appendChild(pop);
   const input = pop.querySelector('#_szpr');
   const label = pop.querySelector('#_szpv');
   input.oninput = () => {
-    S.size = parseInt(input.value);
-    label.textContent = S.size;
-    SZV.textContent = S.size;
+    const v = parseInt(input.value);
+    if (isEraser) S.eraserSize = v; else S.penSize = v;
+    label.textContent = v;
+    SZV.textContent = v;
   };
   setTimeout(() => document.addEventListener('click', function close(e) {
     if (!pop.contains(e.target) && e.target !== anchor && !anchor.contains(e.target)) {
@@ -812,7 +844,22 @@ function drawHi(c, hTs) {
 const SHAPES = new Set(['rect','ellipse','line','arrow']);
 const LASSO_COLOR = 'rgba(36,113,163,0.5)';
 
-function drawSS(c, ss) {
+// Il nero/bianco "neutro" (swatch SW_BK) deve restare leggibile nel tema
+// ATTUALE, indipendentemente da quello attivo quando il tratto è stato
+// disegnato — altrimenti un tratto nero scritto in chiaro diventa
+// invisibile passando a scuro (e un tratto bianco scritto in scuro diventa
+// invisibile tornando in chiaro). I colori "veri" (rosso/blu/ecc.) restano
+// leggibili su entrambi gli sfondi e non vengono toccati.
+function ink(c, dark) {
+  const lc = (c || '').toLowerCase();
+  if (dark  && (lc === '#111' || lc === '#111111' || lc === '#000' || lc === '#000000')) return '#e0e4ea';
+  if (!dark && (lc === '#fff' || lc === '#ffffff')) return '#111827';
+  return c;
+}
+
+// dark: true solo per il rendering live in editor — miniature ed export PDF
+// restano sempre foglio bianco/inchiostro scuro, quindi non lo passano.
+function drawSS(c, ss, dark) {
   ss.forEach(s => {
     if (!s.pts || s.pts.length < 2) return;
     c.save();
@@ -827,7 +874,7 @@ function drawSS(c, ss) {
       for (let i=1; i<s.pts.length; i++) { const p=s.pts[i], pr=s.pts[i-1]; c.lineWidth=(s.sz||3)*(.5+(p.p||.5)*.8); c.quadraticCurveTo(pr.x, pr.y, (pr.x+p.x)/2, (pr.y+p.y)/2); }
       c.stroke();
     } else if (SHAPES.has(s.t)) {
-      c.strokeStyle = s.c; c.lineWidth = s.sz || 2; c.lineCap = 'round'; c.lineJoin = 'round';
+      c.strokeStyle = ink(s.c, dark); c.lineWidth = s.sz || 2; c.lineCap = 'round'; c.lineJoin = 'round';
       const x0=s.pts[0].x, y0=s.pts[0].y, x1=s.pts[s.pts.length-1].x, y1=s.pts[s.pts.length-1].y;
       c.beginPath();
       if (s.t === 'rect') { c.strokeRect(x0, y0, x1-x0, y1-y0); }
@@ -839,11 +886,11 @@ function drawSS(c, ss) {
         c.beginPath(); c.moveTo(x1,y1);
         c.lineTo(x1-hl*Math.cos(a-.4), y1-hl*Math.sin(a-.4));
         c.lineTo(x1-hl*Math.cos(a+.4), y1-hl*Math.sin(a+.4));
-        c.closePath(); c.fillStyle = s.c; c.fill();
+        c.closePath(); c.fillStyle = ink(s.c, dark); c.fill();
       }
     } else {
       // Catmull-Rom smoothing per tratto fluido
-      c.strokeStyle = s.c; c.lineCap = 'round'; c.lineJoin = 'round';
+      c.strokeStyle = ink(s.c, dark); c.lineCap = 'round'; c.lineJoin = 'round';
       const pts = s.pts;
       if (pts.length === 2) {
         c.lineWidth = (s.sz||3) * (.5 + (pts[0].p||.5) * .8);
@@ -912,7 +959,7 @@ function redraw(hTs) {
   if (_strokeDirty) {
     _strokeCtx.clearRect(0, 0, PW, PH);
     S.imgs.forEach(i => _strokeCtx.drawImage(i.el, i.x, i.y, i.w, i.h));
-    drawSS(_strokeCtx, S.strokes || []);
+    drawSS(_strokeCtx, S.strokes || [], S.dark);
     _strokeDirty = false;
   }
 
@@ -925,7 +972,7 @@ function redraw(hTs) {
   (Array.isArray(S.textItems) ? S.textItems : []).forEach(ti => {
     cx.save();
     cx.font = `${ti.size||18}px 'Segoe UI',system-ui,sans-serif`;
-    cx.fillStyle = ti.color || (S.dark ? '#e0e4ea' : '#111827');
+    cx.fillStyle = ink(ti.color || '#111827', S.dark);
     cx.fillText(ti.text, ti.x, ti.y);
     cx.restore();
   });
@@ -935,7 +982,7 @@ function redraw(hTs) {
     drawSelectionBox(cx);
   }
   if (S.lassoPath && S.lassoPath.length > 1) drawLassoPath(cx, S.lassoPath);
-  if (S.cur && SHAPES.has(S.cur.t)) drawSS(cx, [S.cur]);
+  if (S.cur && SHAPES.has(S.cur.t)) drawSS(cx, [S.cur], S.dark);
   // cursor crosshair già gestito da CSS in textMode
 }
 
@@ -1209,19 +1256,21 @@ function setupCanvas() {
       const ep = calibratePressure(pt.p||.5);
       cx.lineWidth=(s.sz||3)*(0.5+ep*1.2);
     } else {
-      cx.strokeStyle=s.c; cx.lineCap='round';
+      cx.strokeStyle=ink(s.c, S.dark); cx.lineCap='round';
       // Interpola pressione tra punto precedente e corrente per transizioni fluide
       const pp = calibratePressure(pr.p||.5);
       const cp = calibratePressure(pt.p||.5);
       const avgP = (pp + cp) / 2;
       cx.lineWidth = (s.sz||3) * (0.3 + avgP * 1.4);
     }
-    // quadraticCurveTo verso il punto medio: tratto smooth senza angoli
-    const mx = (pr.x + pt.x) / 2;
-    const my = (pr.y + pt.y) / 2;
+    // Il segmento va disegnato fino al punto NUOVO (pt), non solo fino al
+    // punto medio: fermarsi a metà lasciava un vuoto fra un segmento e il
+    // successivo — visibile come tratto "tratteggiato" mentre si scrive,
+    // che spariva solo al rilascio quando redraw()/drawSS() ridisegnava
+    // l'intero tratto smussato da zero, "riempiendo" quei vuoti.
     cx.beginPath();
     cx.moveTo(pr.x, pr.y);
-    cx.quadraticCurveTo(pr.x, pr.y, mx, my);
+    cx.quadraticCurveTo(pr.x, pr.y, pt.x, pt.y);
     cx.stroke(); cx.restore();
   }
 
@@ -1229,11 +1278,17 @@ function setupCanvas() {
   // Tutto il lavoro pesante (zoom/scroll) viene schedulato via RAF
   // per garantire 60fps anche su dispositivi lenti.
 
+  // Pan a dito e pinch-zoom condividono lo STESSO meccanismo di mouse/
+  // rotellina (_panOffX/_panOffY applicati via _positionCanvas()), invece
+  // di CO.scrollLeft/scrollTop come prima: erano due sistemi di
+  // posizionamento indipendenti che non si parlavano — un pan da mouse
+  // seguito da un pinch produceva risultati incoerenti perché la matematica
+  // del pinch ignorava l'offset CSS già applicato dal pan precedente.
   let _pinchDist      = null; // distanza iniziale (fissa per tutta la durata del gesture)
   let _pinchStartZoom = null; // zoom al momento del touchstart
-  let _pinchMidX  = null, _pinchMidY  = null; // pivot in coord contenuto (fisso)
+  let _pinchAnchor    = null; // punto in coord CONTENUTO sotto il centro delle dita (fisso)
   let _panStartX  = null, _panStartY  = null;
-  let _panScrollX = null, _panScrollY = null;
+  let _panStartOffX = null, _panStartOffY = null;
   let _touchRaf   = null;
   let _gs = null;
 
@@ -1248,33 +1303,33 @@ function setupCanvas() {
 
     if (_gs.type === 'pan') {
       const { cx, cy } = _gs;
-      const dx = cx - _panStartX;
-      const dy = cy - _panStartY;
-      CO.scrollLeft = _panScrollX - dx;
-      CO.scrollTop  = _panScrollY - dy;
+      _panOffX = _panStartOffX + (cx - _panStartX);
+      _panOffY = _panStartOffY + (cy - _panStartY);
+      _positionCanvas();
 
     } else if (_gs.type === 'pinch') {
       const { dist, mx, my } = _gs;
       // Scale totale dall'inizio del gesture (non incrementale)
       const totalScale = dist / _pinchDist;
       const newZoom    = Math.max(.25, Math.min(3, _pinchStartZoom * totalScale));
-      const zoomRatio  = newZoom / _pinchStartZoom;
 
-      const cssW = Math.round(PW * newZoom);
-      const cssH = Math.round(totalH() * newZoom);
-      CV.style.width  = cssW + 'px';
-      CV.style.height = cssH + 'px';
-      // CW non usato
-      ZL.textContent  = Math.round(newZoom * 100) + '%';
-
-      // Mantieni il pivot fisso: _pinchMidX è la coord contenuto al touchstart
-      // Dopo zoom: new_scroll = pivot_iniziale * zoomRatio - posizione_viewport
-      const r = CO.getBoundingClientRect();
-      CO.scrollLeft = _pinchMidX * zoomRatio - (mx - r.left);
-      CO.scrollTop  = _pinchMidY * zoomRatio - (my - r.top);
+      // _pinchAnchor è il punto del FOGLIO che deve restare sotto al centro
+      // delle due dita — non sotto la posizione INIZIALE del centro, ma
+      // sotto quella ATTUALE (mx,my): è quello che dà la sensazione naturale
+      // "il contenuto segue le dita" invece di un pivot fisso e via via
+      // scollegato da dove le dita si trovano davvero.
+      const r   = CO.getBoundingClientRect();
+      const coW = CO.clientWidth, coH = CO.clientHeight;
+      const cvLeftRelCO = (mx - r.left) - _pinchAnchor.x * newZoom;
+      const cvTopRelCO  = (my - r.top)  - _pinchAnchor.y * newZoom;
+      _panOffX = cvLeftRelCO - (coW - PW * newZoom) / 2;
+      _panOffY = cvTopRelCO  - (coH - PH * newZoom) / 2;
 
       S.zoom = newZoom;
-      // _pinchDist e _pinchMidX/Y NON vengono aggiornati: usiamo sempre i valori iniziali
+      applyZoom();  // ridimensiona il canvas (anche in risoluzione) e riposiziona
+      redraw();
+      // _pinchDist e _pinchAnchor NON vengono aggiornati: restano quelli
+      // dell'inizio del gesture, lo scale è sempre calcolato da lì.
     }
     _gs = null;
   }
@@ -1329,19 +1384,17 @@ function setupCanvas() {
 
       S.pan = true;
       _panStartX = t.clientX; _panStartY = t.clientY;
-      _panScrollX = CO.scrollLeft; _panScrollY = CO.scrollTop;
+      _panStartOffX = _panOffX; _panStartOffY = _panOffY;
       showMP('touch');
 
     } else if (fingers.length >= 2) {
       S.pan = false;
       const mid = midpoint(fingers[0], fingers[1]);
-      const r   = CO.getBoundingClientRect();
       _pinchDist      = Math.hypot(fingers[0].clientX-fingers[1].clientX, fingers[0].clientY-fingers[1].clientY);
       _pinchStartZoom = S.zoom;
-      _pinchMidX      = (mid.x - r.left) + CO.scrollLeft;
-      _pinchMidY      = (mid.y - r.top)  + CO.scrollTop;
+      _pinchAnchor    = gP(mid.x, mid.y);  // punto del foglio sotto al centro delle dita, ORA
       _panStartX  = mid.x; _panStartY  = mid.y;
-      _panScrollX = CO.scrollLeft; _panScrollY = CO.scrollTop;
+      _panStartOffX = _panOffX; _panStartOffY = _panOffY;
     }
   }, { passive: false });
 
@@ -1385,14 +1438,14 @@ function setupCanvas() {
 
     if (fingers.length === 0) {
       // Tutte le dita alzate — ridisegna canvas a zoom finale
-      S.pan = false; _pinchDist = null; _pinchMidX = _pinchMidY = null;
+      S.pan = false; _pinchDist = null; _pinchAnchor = null;
       if (_touchRaf) { cancelAnimationFrame(_touchRaf); _touchRaf = null; _gs = null; }
       markDirty('all'); redraw();
     } else if (fingers.length === 1) {
       _pinchDist = null;
       S.pan = true;
       _panStartX = fingers[0].clientX; _panStartY = fingers[0].clientY;
-      _panScrollX = CO.scrollLeft; _panScrollY = CO.scrollTop;
+      _panStartOffX = _panOffX; _panStartOffY = _panOffY;
     }
   }, { passive: false });
 
@@ -1464,8 +1517,8 @@ function setupCanvas() {
     // Tool non-lasso: deseleziona tutto
     S.selectedIds.clear();
     S.cur = SHAPES.has(t)
-      ? { t, c: S.color, sz: S.size, pts: [p, {...p}], aTs }
-      : { t, c: S.color, sz: S.size, pts: [{...p, p: e.pressure||.5}], aTs };
+      ? { t, c: S.color, sz: sizeFor(t), pts: [p, {...p}], aTs }
+      : { t, c: S.color, sz: sizeFor(t), pts: [{...p, p: e.pressure||.5}], aTs };
     showMP('pen');
   }, { passive: false });
 
@@ -1506,7 +1559,7 @@ function setupCanvas() {
       if (inGap(pos.y)) continue;
 
       if (SHAPES.has(S.cur.t)) {
-        S.cur.pts[1] = {...pos}; redraw(); drawSS(cx, [S.cur]); break;
+        S.cur.pts[1] = {...pos}; redraw(); drawSS(cx, [S.cur], S.dark); break;
       }
 
       const pt = {...pos, p: ce.pressure || 0.5};
@@ -1613,8 +1666,8 @@ function setupCanvas() {
         // Tool disegno normale: deseleziona
         S.selectedIds.clear();
         S.cur = SHAPES.has(S.tool)
-          ? { t: S.tool, c: S.color, sz: S.size, pts: [pos, {...pos}], aTs }
-          : { t: S.tool, c: S.color, sz: S.size, pts: [{...pos, p: t.force||0.5}], aTs };
+          ? { t: S.tool, c: S.color, sz: sizeFor(S.tool), pts: [pos, {...pos}], aTs }
+          : { t: S.tool, c: S.color, sz: sizeFor(S.tool), pts: [{...pos, p: t.force||0.5}], aTs };
         S._stylusId = t.identifier;
 
         return;
@@ -1651,7 +1704,7 @@ function setupCanvas() {
           if (S.lassoPath) { S.lassoPath.push(pos); redraw(); break; }
           if (!S.cur) break;
           if (SHAPES.has(S.cur.t)) {
-            S.cur.pts[1] = {...pos}; redraw(); drawSS(cx, [S.cur]); break;
+            S.cur.pts[1] = {...pos}; redraw(); drawSS(cx, [S.cur], S.dark); break;
           }
           const pt = {...pos, p: ct.force || 0.5};
           const ps = S.cur.pts;
@@ -1725,6 +1778,10 @@ function setupToolbar() {
     b.onclick = () => {
       document.querySelectorAll('[data-t]').forEach(x => x.classList.remove('on'));
       b.classList.add('on'); S.tool = b.dataset.t;
+      // Il numero in toolbar deve riflettere lo spessore dello strumento
+      // appena selezionato (penna e gomma hanno dimensioni indipendenti)
+      SZV.textContent = sizeFor(S.tool);
+      document.getElementById('_szp')?.remove();
     };
   });
   document.querySelectorAll('.sw').forEach(s => {
@@ -1984,11 +2041,15 @@ function setupLibrary() {
 
   // Ricerca: locale + full-text server (debounced)
   const srch = document.getElementById('SRCH');
-  let _srchTimer = null;
+  let _srchTimer = null, _srchRaf = null;
   if (srch) {
     srch.addEventListener('input', () => {
       S.searchQ = srch.value;
-      renderNL(); // subito locale per titolo
+      // Raggruppato sul prossimo frame: durante una digitazione veloce più
+      // eventi 'input' arrivano prima del repaint, e ricostruire l'intera
+      // griglia di card ad ogni tasto è lavoro sprecato — nessun ritardo
+      // percepito, il rebuild avviene comunque prima del prossimo frame.
+      if (_srchRaf == null) _srchRaf = requestAnimationFrame(() => { _srchRaf = null; renderNL(); });
       clearTimeout(_srchTimer);
       if (srch.value.trim().length >= 2) {
         _srchTimer = setTimeout(async () => {

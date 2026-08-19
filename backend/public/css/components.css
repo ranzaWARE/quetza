@@ -203,7 +203,13 @@
 .aurorAudioBar{
   position: absolute;
   display: flex; align-items: center; gap: 6px;
-  width: 460px; min-width: 132px; max-width: 100%;
+  /* 460px lasciava pochissimo margine di trascinamento su viewport non
+     larghissime: con max-width:100% la barra finiva quasi a combaciare col
+     contenitore, rendendo lo spazio di trascinamento orizzontale minimo
+     ("si sposta solo di pochi pixel"). 360px resta sopra la prima soglia
+     @container (mostra ancora orario e waveform per intero) e lascia molto
+     più margine reale per spostarla. */
+  width: 360px; min-width: 132px; max-width: 100%;
   padding: 5px 6px 5px 4px;
   background: var(--inverse-surface);
   color: var(--inverse-text);

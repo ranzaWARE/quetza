@@ -28,6 +28,13 @@
       // clamp mantiene un valore già "dentro i limiti", non lo ricentra.
       if (b.w <= 0 || b.h <= 0) return;
       var w = bar.offsetWidth, h = bar.offsetHeight;
+      // Stessa trappola quando è la barra STESSA ad essere display:none (il
+      // suo stato di default, ora): offsetWidth/offsetLeft leggono 0 anche
+      // se lo stage ha una dimensione perfettamente valida. Capitava ad ogni
+      // resize/cambio schermata mentre la barra era nascosta, corrompendo la
+      // posizione salvata — quando poi si richiamava col pulsante, appariva
+      // in alto a sinistra invece che nella sua posizione di default.
+      if (w <= 0 || h <= 0) return;
       bar.style.left = clamp(bar.offsetLeft, 0, Math.max(0, b.w - w)) + 'px';
       bar.style.top = clamp(bar.offsetTop, 0, Math.max(0, b.h - h)) + 'px';
       if (bar.__aurorPlaceConfirm) bar.__aurorPlaceConfirm();

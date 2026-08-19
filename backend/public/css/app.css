@@ -120,14 +120,17 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 
 /* ── Toolbar ─────────────────────────────────────────────── */
 .TB{
+  /* Stessa larghezza dell'appHeader della libreria: piena, senza tetto
+     massimo — prima restava un'isola centrata con spazio sprecato ai lati
+     sugli schermi larghi, mentre la barra della home usa sempre tutta la
+     larghezza disponibile. */
   position:absolute;
-  top:8px;left:50%;transform:translateX(-50%);
+  top:8px;left:8px;right:8px;
   z-index:50;
   background:var(--card);
   border-radius:var(--r);
   border:1px solid var(--line);
   box-shadow:0 4px 20px rgba(17,24,39,.12);
-  width:calc(100% - 16px);max-width:1180px;
   user-select:none;-webkit-user-select:none;
   overflow:hidden;
 }
