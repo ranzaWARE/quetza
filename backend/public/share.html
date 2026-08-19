@@ -14,28 +14,30 @@
   })();
 </script>
 <link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/components.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:var(--auror-font);background:var(--surface);min-height:100vh}
-.hdr{background:var(--inverse-surface);color:var(--inverse-text);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;gap:10px}
-.logo{display:flex;align-items:center;gap:8px;font-size:.9rem;font-weight:800;color:var(--inverse-text);letter-spacing:.02em;text-transform:uppercase}
-.logoMark{width:24px;height:24px;flex-shrink:0;border-radius:var(--auror-r);background:var(--inverse-border);display:flex;align-items:center;justify-content:center}
-.meta{font-size:.72rem;color:var(--inverse-text-muted);text-align:right}
-.meta strong{color:var(--inverse-text);display:block;font-size:.82rem}
-.themeToggleSh{width:28px;height:28px;flex-shrink:0;border-radius:var(--auror-r);border:1px solid var(--inverse-border);background:transparent;color:var(--inverse-text-muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background var(--auror-dur-base) var(--auror-ease),color var(--auror-dur-base) var(--auror-ease)}
-.themeToggleSh:hover{color:var(--inverse-text);background:var(--inverse-border)}
-.themeToggleSh .ic-moon,.themeToggleSh .ic-eink{display:none}
-[data-theme="dark"] .themeToggleSh .ic-sun{display:none}
-[data-theme="dark"] .themeToggleSh .ic-moon{display:block}
-[data-theme="eink"] .themeToggleSh .ic-sun{display:none}
-[data-theme="eink"] .themeToggleSh .ic-eink{display:block}
-.abar{background:var(--inverse-border);padding:5px 12px;display:flex;align-items:center;gap:8px}
+body{font-family:var(--auror-font);background:var(--surface);color:var(--text);min-height:100vh}
+.hdr{background:var(--surface-raised);border-bottom:1px solid var(--border);height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;position:sticky;top:0;z-index:100;gap:12px;box-shadow:var(--shadow-sm)}
+.hdr-brand{display:flex;align-items:center;gap:10px;color:var(--text);flex-shrink:0}
+.brand-mark{width:28px;height:28px;flex-shrink:0;border-radius:var(--auror-r);background:var(--surface-sunken);border:1px solid var(--border);display:flex;align-items:center;justify-content:center}
+.brand-word{font-weight:800;font-size:.9rem;letter-spacing:.02em;text-transform:uppercase}
+.meta{font-size:.72rem;color:var(--text-muted);text-align:right;min-width:0}
+.meta strong{color:var(--text);display:block;font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.iconBtnHdr{width:28px;height:28px;flex-shrink:0;border-radius:var(--auror-r);border:1px solid var(--border-strong);background:var(--surface);color:var(--text-muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background var(--auror-dur-base) var(--auror-ease),color var(--auror-dur-base) var(--auror-ease),border-color var(--auror-dur-base) var(--auror-ease)}
+.iconBtnHdr:hover{color:var(--text);background:var(--accent-tint);border-color:var(--accent-ring)}
+.iconBtnHdr .ic-moon,.iconBtnHdr .ic-eink{display:none}
+[data-theme="dark"] .iconBtnHdr .ic-sun{display:none}
+[data-theme="dark"] .iconBtnHdr .ic-moon{display:block}
+[data-theme="eink"] .iconBtnHdr .ic-sun{display:none}
+[data-theme="eink"] .iconBtnHdr .ic-eink{display:block}
+.abar{background:var(--surface-raised);border-bottom:1px solid var(--border);padding:7px 16px;display:flex;align-items:center;gap:10px}
 .apb{width:28px;height:28px;border-radius:50%;border:none;background:var(--record);color:var(--record-fg);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .apb:hover{filter:brightness(.9)}
-.pw{flex:1;height:22px;border-radius:var(--auror-r);background:var(--inverse-border);position:relative;cursor:pointer;overflow:hidden}
+.pw{flex:1;height:22px;border-radius:var(--auror-r);background:var(--surface-sunken);position:relative;cursor:pointer;overflow:hidden;border:1px solid var(--border)}
 #WC{width:100%;height:100%;display:block}
 .sc{position:absolute;top:0;width:2px;height:100%;background:var(--record);pointer-events:none}
-.at{font-size:.65rem;color:var(--inverse-text-muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.at{font-size:.65rem;color:var(--text-muted);white-space:nowrap;font-variant-numeric:tabular-nums}
 .wrap{display:flex;justify-content:center;padding:20px;background:var(--surface);min-height:calc(100vh - 100px);overflow:auto}
 #PAGES{display:flex;flex-direction:column;align-items:center;gap:18px}
 .pgWrap{position:relative}
@@ -43,14 +45,13 @@ body{font-family:var(--auror-font);background:var(--surface);min-height:100vh}
 .pgNum{position:absolute;right:6px;bottom:4px;font-size:.62rem;color:rgba(0,0,0,.35);pointer-events:none}
 .err{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:12px;color:var(--text-muted);font-size:.9rem}
 .err svg{opacity:.2}
-.badge{font-size:.68rem;padding:2px 8px;border-radius:var(--auror-r);background:var(--inverse-border);color:var(--inverse-text-muted)}
 </style>
 </head>
 <body>
 
 <div class="hdr">
-  <div class="logo">
-    <span class="logoMark">
+  <div class="hdr-brand">
+    <span class="brand-mark">
       <svg width="16" height="16" viewBox="0 0 64 64" fill="none" aria-hidden="true">
         <path d="M32 30 C22 22 6 28 2 20 C8 18 18 20 28 27Z" fill="#c0392b" opacity=".9"/>
         <path d="M32 30 C18 26 4 32 2 26 C10 22 22 24 30 30Z" fill="#c0392b" opacity=".4"/>
@@ -61,13 +62,13 @@ body{font-family:var(--auror-font);background:var(--surface);min-height:100vh}
         <path d="M32 38 L30 46 L32 44 L34 46 Z" fill="#e8e8f0"/>
       </svg>
     </span>
-    Quetza
+    <span class="brand-word">Quetza</span>
   </div>
   <div class="meta">
     <strong id="TITLE">Caricamento…</strong>
     <span id="META"></span>
   </div>
-  <button class="themeToggleSh" id="themeToggle" type="button" title="Cambia tema (chiaro / scuro / e-ink)">
+  <button class="iconBtnHdr" id="themeToggle" type="button" title="Cambia tema (chiaro / scuro / e-ink)">
     <svg class="ic-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
     <svg class="ic-moon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
     <svg class="ic-eink" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h4"/></svg>

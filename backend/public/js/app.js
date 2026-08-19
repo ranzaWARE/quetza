@@ -1433,6 +1433,7 @@ function setupCanvas() {
     if (S.selDrag) {
       S.selDrag = false; S.selDragStart = null; S.selDragFrom = null;
       // checkAutoPage rimosso S.undo.push([...S.strokes]); S.redo = [];
+      markDirty('strokes');
       scheduleAutoSave(); redraw();
     }
 
@@ -1581,6 +1582,7 @@ function setupCanvas() {
     if (S.selDrag) {
       S.selDrag = false; S.selDragStart = null; S.selDragFrom = null;
       S.undo.push([...S.strokes]); S.redo = [];
+      markDirty('strokes');
       scheduleAutoSave(); redraw(); return;
     }
 
@@ -1728,6 +1730,7 @@ function setupCanvas() {
         if (S.selDrag) {
           S.selDrag=false; S.selDragStart=null; S.selDragFrom=null;
           S.undo.push([...S.strokes]); S.redo=[];
+          markDirty('strokes');
           scheduleAutoSave(); S._stylusId=null; redraw(); return;
         }
         // Fine lasso
@@ -2592,6 +2595,7 @@ function deleteSelected() {
   S.strokes = S.strokes.filter((_, i) => !S.selectedIds.has(i));
   S.selectedIds.clear();
   S.undo.push([...S.strokes]); S.redo = [];
+  markDirty('strokes');
   scheduleAutoSave(); redraw();
 }
 
@@ -2853,25 +2857,28 @@ function updateTranscribeBtn() {
 }
 
 // ── Share helpers ─────────────────────────────────────────
+const SHARE_ICON_COPY = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+const SHARE_ICON_MAIL = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>`;
+const SHARE_ICON_REVOKE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>`;
+
 async function loadShares() {
   if (!S.curId) return;
   const r = await fetch(`/api/notes/${S.curId}/shares`);
   const shares = await r.json();
   const el = document.getElementById('SHARELIST');
-  if (!shares.length) { el.innerHTML = '<p style="font-size:.74rem;color:var(--mu);text-align:center;padding:8px">Nessun link attivo</p>'; return; }
+  if (!shares.length) { el.innerHTML = '<p class="ms" style="text-align:center;margin-bottom:0">Nessun link attivo</p>'; return; }
   el.innerHTML = shares.map(s => {
     const url = `${location.origin}/share/${s.token}`;
     const exp = s.expires_at ? `Scade ${new Date(s.expires_at).toLocaleDateString('it-IT')}` : 'Nessuna scadenza';
-    return `<div style="background:var(--bh);border-radius:6px;padding:8px 10px;margin-bottom:6px;font-size:.74rem">
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mu)">${s.token.slice(0,12)}…</span>
-        <span style="color:var(--mu);font-size:.68rem">${exp}</span>
+    return `<div class="shareItem">
+      <div class="shareMeta">
+        <span class="shareTok">${s.token.slice(0,12)}…</span>
+        <span class="shareExp">${exp}</span>
       </div>
-      <div style="display:flex;gap:5px;flex-wrap:wrap">
-        <button onclick="copyShareLink('${url}')" style="flex:1;padding:4px 8px;border:.5px solid var(--tbr);border-radius:4px;background:transparent;cursor:pointer;font-size:.7rem;color:var(--ink)">📋 Copia</button>
-        <button onclick="shareNative('${url}','${document.getElementById('NTT').value}')" style="flex:1;padding:4px 8px;border:.5px solid var(--tbr);border-radius:4px;background:transparent;cursor:pointer;font-size:.7rem;color:var(--ink)">📤 Condividi</button>
-        <button onclick="mailShare('${url}','${document.getElementById('NTT').value}')" style="flex:1;padding:4px 8px;border:.5px solid var(--tbr);border-radius:4px;background:transparent;cursor:pointer;font-size:.7rem;color:var(--ink)">✉️ Mail</button>
-        <button onclick="deleteShare('${s.token}')" style="padding:4px 8px;border:.5px solid var(--acc);border-radius:4px;background:transparent;cursor:pointer;font-size:.7rem;color:var(--acc)">Revoca</button>
+      <div class="shareActions">
+        <button class="iconBtnSm" title="Copia link" onclick="copyShareLink('${url}')">${SHARE_ICON_COPY}</button>
+        <button class="iconBtnSm" title="Invia via mail" onclick="mailShare('${url}','${document.getElementById('NTT').value}')">${SHARE_ICON_MAIL}</button>
+        <button class="iconBtnSm danger" title="Revoca link" onclick="deleteShare('${s.token}')">${SHARE_ICON_REVOKE}</button>
       </div>
     </div>`;
   }).join('');
@@ -2887,14 +2894,6 @@ function copyShareLink(url) {
   navigator.clipboard.writeText(url).then(() => toast('✓ Link copiato')).catch(() => {
     prompt('Copia questo link:', url);
   });
-}
-
-function shareNative(url, title) {
-  if (navigator.share) {
-    navigator.share({ title: `Nota: ${title}`, url }).catch(() => {});
-  } else {
-    copyShareLink(url);
-  }
 }
 
 function mailShare(url, title) {

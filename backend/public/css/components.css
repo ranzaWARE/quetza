@@ -77,6 +77,10 @@
 .iconBtnSm:hover{ background: var(--surface-sunken); color: var(--text); }
 .iconBtnSm svg{ width: 14px; height: 14px; }
 
+.iconBtnSm.danger{ border-color: var(--danger-soft); color: var(--danger); }
+.iconBtnSm.danger:hover{ background: rgba(185,28,28,.06); }
+[data-theme="eink"] .iconBtnSm.danger{ border-width: 2px; }
+
 /* Tool-dock icon button (44×44) */
 .toolBtn{
   width: 44px; height: 44px;
