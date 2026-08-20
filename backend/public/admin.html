@@ -176,6 +176,13 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)
         <div class="form-group"><label>Client Secret</label><input type="password" id="oidcClientSecret" placeholder="••••••••"></div>
         <div class="form-group"><label>Redirect URI</label><input type="url" id="oidcRedirectUri" placeholder="https://quetza.example.com/auth/callback"></div>
       </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <span class="toggle-lbl">Verifica certificato TLS</span>
+          <span class="toggle-desc">Disabilita solo con un Keycloak su certificato self-signed / CA interna</span>
+        </div>
+        <label class="aurorSwitch"><input type="checkbox" id="oidcTls" checked><span class="track"><span class="thumb"></span></span></label>
+      </div>
       <div style="display:flex;justify-content:flex-end;margin-top:8px">
         <button class="aurorBtn primary" onclick="saveOidc()">Salva configurazione</button>
       </div>
@@ -487,6 +494,7 @@ function loadSettings() {
   document.getElementById('oidcClientId').value    = settings.oidc_client_id||'';
   document.getElementById('oidcClientSecret').value= settings.oidc_client_secret||'';
   document.getElementById('oidcRedirectUri').value = settings.oidc_redirect_uri||'';
+  document.getElementById('oidcTls').checked       = settings.oidc_tls_reject!=='false';
   document.getElementById('ldapEnabled').checked   = settings.ldap_enabled==='true';
   document.getElementById('ldapUrl').value         = settings.ldap_url||'';
   document.getElementById('ldapBindDn').value      = settings.ldap_bind_dn||'';
@@ -505,6 +513,7 @@ async function saveOidc() {
     oidc_client_id:     document.getElementById('oidcClientId').value.trim(),
     oidc_client_secret: document.getElementById('oidcClientSecret').value,
     oidc_redirect_uri:  document.getElementById('oidcRedirectUri').value.trim(),
+    oidc_tls_reject:    document.getElementById('oidcTls').checked?'true':'false',
   })});
   alert_('oidcAlert', r.ok?'Configurazione salvata':'Errore salvataggio', r.ok?'success':'error');
 }

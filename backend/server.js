@@ -9,6 +9,7 @@ const https    = require('https');
 const http     = require('http');
 const fs       = require('fs');
 const crypto   = require('crypto');
+const { Agent } = require('node:undici');
 const db       = require('./db');
 const auth     = require('./auth');
 
@@ -152,7 +153,10 @@ app.get('/auth/callback', async (req, res) => {
     const tokenRes = await fetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ grant_type:'authorization_code', code, redirect_uri: kc.redirectUri, client_id: kc.clientId, client_secret: kc.clientSecret })
+      body: new URLSearchParams({ grant_type:'authorization_code', code, redirect_uri: kc.redirectUri, client_id: kc.clientId, client_secret: kc.clientSecret }),
+      // Scoped al solo fetch verso Keycloak (non un NODE_TLS_REJECT_UNAUTHORIZED
+      // globale, che disattiverebbe la verifica per QUALSIASI TLS del processo).
+      dispatcher: kc.tlsReject ? undefined : new Agent({ connect: { rejectUnauthorized: false } }),
     });
     const tokens = await tokenRes.json();
     if (!tokenRes.ok) throw new Error(`token endpoint HTTP ${tokenRes.status}: ${tokens.error||''} ${tokens.error_description||''}`);

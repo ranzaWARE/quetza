@@ -60,6 +60,13 @@ function getKeycloakConfig() {
     clientId:     db.getSetting('oidc_client_id')    || '',
     clientSecret: db.getSetting('oidc_client_secret')|| '',
     redirectUri:  db.getSetting('oidc_redirect_uri') || '',
+    // Come per LDAP: un Keycloak interno con certificato self-signed/CA
+    // aziendale non è fidato di default da Node (che non eredita il trust
+    // store del sistema operativo) — la fetch del token fallisce con
+    // UNABLE_TO_GET_ISSUER_CERT_LOCALLY finché non si importa quella CA
+    // (soluzione corretta: NODE_EXTRA_CA_CERTS) o si disattiva qui la
+    // verifica come ultima spiaggia.
+    tlsReject: (db.getSetting('oidc_tls_reject') || process.env.OIDC_TLS_REJECT_UNAUTHORIZED) !== 'false',
   };
 }
 
