@@ -19,7 +19,8 @@
     "archiver": "^7.0.1",
     "adm-zip": "^0.5.16",
     "express-rate-limit": "7.5.0",
-    "form-data": "4.0.0"
+    "form-data": "4.0.0",
+    "undici": "^6.19.8"
   },
   "devDependencies": {
     "nodemon": "^3.1.0",

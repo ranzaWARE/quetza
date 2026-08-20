@@ -9,7 +9,7 @@ const https    = require('https');
 const http     = require('http');
 const fs       = require('fs');
 const crypto   = require('crypto');
-const { Agent } = require('node:undici');
+const { Agent } = require('undici');
 const db       = require('./db');
 const auth     = require('./auth');
 
