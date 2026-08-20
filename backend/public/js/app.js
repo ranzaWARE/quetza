@@ -405,67 +405,81 @@ function scheduleAutoSave() {
 
 async function saveNote(silent = false) {
   if (!S.curId) return;
-  // Titolo automatico se vuoto (newNote() imposta già data/ora alla creazione,
-  // ma resta una rete di sicurezza per note create diversamente)
-  let title = NTT.value.trim();
-  if (!title) {
-    title = defaultNoteTitle();
-    NTT.value = title;
-  }
-  const thumbnail = genThumb();
-
-  // Estrai testo dal canvas (testo digitato)
-  // Salva testo di tutte le pagine per la ricerca FTS
-  syncCurrentPage();
-  const canvasText = S.pages.map(p => (p.textItems||[]).map(t=>t.text).join(' ')).join(' ');
-
-  // Il salvataggio può fallire (rete, sessione scaduta): senza controllo
-  // la nota risultava "salvata" e S.dirty veniva azzerato comunque, perdendo
-  // silenziosamente il lavoro.
-  setNetStatus('syncing');
+  // Su connessioni lente la fetch di un salvataggio precedente può restare
+  // in volo abbastanza a lungo da sovrapporsi al prossimo autosave (4s dopo
+  // l'ultimo tratto, o il retry di un fallimento): senza questa guardia
+  // partiva un secondo saveNote() in parallelo, che rifà da capo genThumb()
+  // — sincrona e pesante — bloccando l'input proprio mentre si scrive.
+  // Le modifiche restano comunque marcate "sporche" e si ritentano appena
+  // finisce il salvataggio in corso.
+  if (S.saving) { S._resaveAfter = true; return; }
+  S.saving = true;
   try {
-    const rc = await fetch(`/api/notes/${S.curId}/content`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        strokes: S.strokes, images: S.imgs, thumbnail, grid: S.grid,
-        canvasText, textItems: S.textItems,
-        pagesData: S.pages
-      })
-    });
-    if (!rc.ok) throw new Error(`salvataggio contenuto: HTTP ${rc.status}`);
+    // Titolo automatico se vuoto (newNote() imposta già data/ora alla creazione,
+    // ma resta una rete di sicurezza per note create diversamente)
+    let title = NTT.value.trim();
+    if (!title) {
+      title = defaultNoteTitle();
+      NTT.value = title;
+    }
+    const thumbnail = genThumb();
 
-    const rm = await fetch(`/api/notes/${S.curId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, grid: S.grid })
-    });
-    if (!rm.ok) throw new Error(`salvataggio titolo: HTTP ${rm.status}`);
-  } catch (e) {
-    setNetStatus('offline');
-    S.dirty = true;                      // resta sporca: si ritenta al prossimo giro
-    clearTimeout(S.autoSaveTimer);
-    S.autoSaveTimer = setTimeout(() => saveNote(true), 15000);
-    toast('⚠ Salvataggio non riuscito — riprovo tra poco');
-    console.error('saveNote:', e);
+    // Estrai testo dal canvas (testo digitato)
+    // Salva testo di tutte le pagine per la ricerca FTS
+    syncCurrentPage();
+    const canvasText = S.pages.map(p => (p.textItems||[]).map(t=>t.text).join(' ')).join(' ');
+
+    // Il salvataggio può fallire (rete, sessione scaduta): senza controllo
+    // la nota risultava "salvata" e S.dirty veniva azzerato comunque, perdendo
+    // silenziosamente il lavoro.
+    setNetStatus('syncing');
+    try {
+      const rc = await fetch(`/api/notes/${S.curId}/content`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          strokes: S.strokes, images: S.imgs, thumbnail, grid: S.grid,
+          canvasText, textItems: S.textItems,
+          pagesData: S.pages
+        })
+      });
+      if (!rc.ok) throw new Error(`salvataggio contenuto: HTTP ${rc.status}`);
+
+      const rm = await fetch(`/api/notes/${S.curId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, grid: S.grid })
+      });
+      if (!rm.ok) throw new Error(`salvataggio titolo: HTTP ${rm.status}`);
+    } catch (e) {
+      setNetStatus('offline');
+      S.dirty = true;                      // resta sporca: si ritenta al prossimo giro
+      clearTimeout(S.autoSaveTimer);
+      S.autoSaveTimer = setTimeout(() => saveNote(true), 15000);
+      toast('⚠ Salvataggio non riuscito — riprovo tra poco');
+      console.error('saveNote:', e);
+      renderNL();
+      return false;
+    }
+    setNetStatus('online');
+
+    const idx = S.notes.findIndex(n => n.id === S.curId);
+    if (idx >= 0) {
+      S.notes[idx].title = title;
+      S.notes[idx].thumbnail = thumbnail;
+      S.notes[idx].grid = S.grid;
+      S.notes[idx].updated_at = new Date().toISOString();
+      const [note] = S.notes.splice(idx, 1);
+      S.notes.unshift(note);
+    }
     renderNL();
-    return false;
+    S.dirty = false;
+    if (!silent) toast('✓ Salvato');
+    return true;
+  } finally {
+    S.saving = false;
+    if (S._resaveAfter) { S._resaveAfter = false; scheduleAutoSave(); }
   }
-  setNetStatus('online');
-
-  const idx = S.notes.findIndex(n => n.id === S.curId);
-  if (idx >= 0) {
-    S.notes[idx].title = title;
-    S.notes[idx].thumbnail = thumbnail;
-    S.notes[idx].grid = S.grid;
-    S.notes[idx].updated_at = new Date().toISOString();
-    const [note] = S.notes.splice(idx, 1);
-    S.notes.unshift(note);
-  }
-  renderNL();
-  S.dirty = false;
-  if (!silent) toast('✓ Salvato');
-  return true;
 }
 
 function genThumb() {
@@ -519,7 +533,7 @@ function buildNoteCard(n) {
   d.innerHTML = `
     <div class="thumb">${n.thumbnail ? `<img src="${n.thumbnail}" alt="">` : NOTE_ICON}</div>
     <div class="meta">
-      <div class="title" title="Doppio click per rinominare">${esc(n.title)}${isDirty?'<span class="dirty">●</span>':''}</div>
+      <div class="title" title="${esc(n.title)} — doppio click per rinominare">${esc(n.title)}${isDirty?'<span class="dirty">●</span>':''}</div>
       <div class="date">${date}</div>
       ${n.has_audio?'<div class="audioBadge">⏺ audio</div>':''}
     </div>
@@ -1022,6 +1036,7 @@ function drawSelectionBox(c) {
   const pad = 8;
   const x = bb.x - pad, y = bb.y - pad;
   const w = bb.w + pad*2, h = bb.h + pad*2;
+  const hr = 10 / S.zoom;
 
   c.save();
   // Box tratteggiato blu
@@ -1031,24 +1046,54 @@ function drawSelectionBox(c) {
   c.strokeRect(x, y, w, h);
   c.setLineDash([]);
 
-  // Handle ELIMINA (X rossa in alto a destra)
-  const hx = x + w, hy = y;
-  const hr = 10 / S.zoom;
-  c.fillStyle = '#c0392b';
-  c.beginPath(); c.arc(hx, hy, hr, 0, Math.PI*2); c.fill();
-  c.fillStyle = '#fff';
-  c.font = `bold ${Math.round(11/S.zoom)}px system-ui`;
-  c.textAlign = 'center'; c.textBaseline = 'middle';
-  c.fillText('✕', hx, hy);
+  // Pallino base per ciascun handle — bordo bianco per staccarlo dal foglio
+  function dot(cx, cy, fill) {
+    c.fillStyle = fill;
+    c.beginPath(); c.arc(cx, cy, hr, 0, Math.PI*2); c.fill();
+    c.strokeStyle = '#fff'; c.lineWidth = 1.4/S.zoom; c.stroke();
+  }
 
-  // Handle SPOSTA (grip al centro basso)
-  const gx = x + w/2, gy = y + h;
-  c.fillStyle = '#2471a3';
-  c.beginPath(); c.arc(gx, gy, hr, 0, Math.PI*2); c.fill();
-  c.fillStyle = '#fff';
-  c.font = `bold ${Math.round(11/S.zoom)}px system-ui`;
-  c.textAlign = 'center'; c.textBaseline = 'middle';
-  c.fillText('⠿', gx, gy);
+  // ELIMINA (alto a destra) — X vettoriale: un glifo di font ("✕") rende in
+  // modo incoerente a seconda del device/font disponibile, una croce
+  // disegnata è identica ovunque.
+  const dx0 = x + w, dy0 = y;
+  dot(dx0, dy0, '#c0392b');
+  c.strokeStyle = '#fff'; c.lineWidth = 1.6/S.zoom; c.lineCap = 'round';
+  const dl = hr * 0.45;
+  c.beginPath();
+  c.moveTo(dx0-dl, dy0-dl); c.lineTo(dx0+dl, dy0+dl);
+  c.moveTo(dx0+dl, dy0-dl); c.lineTo(dx0-dl, dy0+dl);
+  c.stroke();
+
+  // SPOSTA (centro basso) — quattro frecce a croce, stesso linguaggio delle
+  // icone SVG della toolbar (stroke arrotondato) invece del glifo Braille
+  // "⠿" usato prima, che non comunica "sposta" a colpo d'occhio.
+  const mx0 = x + w/2, my0 = y + h;
+  dot(mx0, my0, '#2471a3');
+  c.strokeStyle = '#fff'; c.lineWidth = 1.4/S.zoom; c.lineCap = 'round'; c.lineJoin = 'round';
+  const ml = hr * 0.5, tipL = ml * 0.4;
+  [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy]) => {
+    const ax = mx0+dx*ml, ay = my0+dy*ml;
+    const px_ = -dy, py_ = dx;
+    c.beginPath(); c.moveTo(mx0, my0); c.lineTo(ax, ay); c.stroke();
+    c.beginPath();
+    c.moveTo(ax - dx*tipL + px_*tipL*0.7, ay - dy*tipL + py_*tipL*0.7);
+    c.lineTo(ax, ay);
+    c.lineTo(ax - dx*tipL - px_*tipL*0.7, ay - dy*tipL - py_*tipL*0.7);
+    c.stroke();
+  });
+
+  // RIDIMENSIONA (basso a destra) — doppia freccia diagonale
+  const rx0 = x + w, ry0 = y + h;
+  dot(rx0, ry0, '#2471a3');
+  c.strokeStyle = '#fff'; c.lineWidth = 1.4/S.zoom; c.lineCap = 'round'; c.lineJoin = 'round';
+  const rl = hr * 0.5, rtip = rl * 0.55;
+  c.beginPath(); c.moveTo(rx0-rl, ry0-rl); c.lineTo(rx0+rl, ry0+rl); c.stroke();
+  c.beginPath();
+  c.moveTo(rx0-rl+rtip, ry0-rl); c.lineTo(rx0-rl, ry0-rl); c.lineTo(rx0-rl, ry0-rl+rtip);
+  c.moveTo(rx0+rl-rtip, ry0+rl); c.lineTo(rx0+rl, ry0+rl); c.lineTo(rx0+rl, ry0+rl-rtip);
+  c.stroke();
+
   c.restore();
 }
 
@@ -1253,8 +1298,11 @@ function setupCanvas() {
     } else if (s.t === 'eraser') {
       cx.globalCompositeOperation='destination-out'; cx.strokeStyle='rgba(0,0,0,1)';
       cx.lineCap='round';
-      const ep = calibratePressure(pt.p||.5);
-      cx.lineWidth=(s.sz||3)*(0.5+ep*1.2);
+      // Stessa formula (pressione grezza, non calibrata) di drawSS(): usarne
+      // una diversa qui faceva sì che l'area cancellata dal vivo mentre si
+      // trascina la gomma fosse più larga di quella che resta effettivamente
+      // cancellata una volta che redraw() ricompone la cache dai dati finali.
+      cx.lineWidth=(s.sz||3)*(.5+(pt.p||.5)*.8);
     } else {
       cx.strokeStyle=ink(s.c, S.dark); cx.lineCap='round';
       // Interpola pressione tra punto precedente e corrente per transizioni fluide
@@ -1489,6 +1537,21 @@ function setupCanvas() {
       // Controlla se click su handle selezione
       const handle = hitTestSelHandles(p.x, p.y);
       if (handle === 'delete') { deleteSelected(); return; }
+      if (handle === 'resize') {
+        const bb = selBBox(); const pad = 8;
+        // Angolo opposto (alto-sx) fisso: il ridimensionamento scala ogni
+        // punto rispetto a quello, in proporzione alla distanza dell'handle
+        // trascinato — stessa tecnica dello spostamento, ma con uno scale
+        // factor invece di un offset.
+        S.selResizeAnchor = { x: bb.x - pad, y: bb.y - pad };
+        S.selResizeOrigDist = Math.hypot(p.x - S.selResizeAnchor.x, p.y - S.selResizeAnchor.y) || 1;
+        S.selResize = true;
+        S.selResizeFrom = {};
+        S.selectedIds.forEach(idx => {
+          S.selResizeFrom[idx] = { pts: S.strokes[idx].pts.map(q => ({...q})), sz: S.strokes[idx].sz };
+        });
+        return;
+      }
       if (handle === 'move') {
         S.selDrag = true; S.selDragStart = p;
         S.selDragFrom = {};
@@ -1527,10 +1590,32 @@ function setupCanvas() {
     e.preventDefault();
     if (e.pointerType === 'touch') return;
     if (_mPan) { moveMPan(e.clientX, e.clientY); return; }
-    if (!S.cur) return;
+    // NB: nessun "if (!S.cur) return" qui — selDrag/selResize/lassoPath non
+    // impostano mai S.cur (lo usa solo il disegno a mano libera/forme più
+    // sotto), quindi un early-return qui bloccava lo spostamento e il
+    // ridimensionamento della selezione prima ancora di poterli gestire.
 
     const events = (e.getCoalescedEvents && e.getCoalescedEvents().length > 0)
       ? e.getCoalescedEvents() : [e];
+
+    // Ridimensiona selezione (fuori dal loop coalesced per performance)
+    if (S.selResize && S.selResizeFrom) {
+      const pos = gP(e.clientX, e.clientY);
+      const anchor = S.selResizeAnchor;
+      const dist1 = Math.hypot(pos.x - anchor.x, pos.y - anchor.y);
+      const scale = Math.max(0.05, dist1 / S.selResizeOrigDist);
+      S.selectedIds.forEach(idx => {
+        const orig = S.selResizeFrom[idx];
+        if (!orig) return;
+        S.strokes[idx].pts = orig.pts.map(q => ({
+          ...q,
+          x: anchor.x + (q.x - anchor.x) * scale,
+          y: anchor.y + (q.y - anchor.y) * scale,
+        }));
+        S.strokes[idx].sz = Math.max(0.5, (orig.sz || 3) * scale);
+      });
+      redraw(); return;
+    }
 
     // Drag selezione (fuori dal loop coalesced per performance)
     if (S.selDrag && S.selDragStart && S.selectedIds.size > 0) {
@@ -1577,6 +1662,14 @@ function setupCanvas() {
     // in modo affidabile anche se il cursore è uscito da CV nel frattempo.
     if (_mPan) { endMPan(); return; }
     S.activePointers.delete(e.pointerId);
+
+    // Fine ridimensionamento selezione
+    if (S.selResize) {
+      S.selResize = false; S.selResizeFrom = null; S.selResizeAnchor = null;
+      S.undo.push([...S.strokes]); S.redo = [];
+      markDirty('strokes');
+      scheduleAutoSave(); redraw(); return;
+    }
 
     // Fine drag selezione
     if (S.selDrag) {
@@ -2015,7 +2108,7 @@ function setupKeyboard() {
 
     if (e.key===' ' && e.target===document.body) { e.preventDefault(); document.getElementById('APB').click(); return; }
     if (e.key==='Escape') {
-      S.selectedIds.clear(); S.lassoPath=null; S.selDrag=false;
+      S.selectedIds.clear(); S.lassoPath=null; S.selDrag=false; S.selResize=false;
       S.cur=null; S.textMode=false; S._pendingText=null;
       CV.style.cursor='crosshair'; redraw(); return;
     }
@@ -2572,12 +2665,13 @@ function strokeHitTest(stroke, px, py) {
 }
 
 function hitTestSelHandles(px, py) {
-  // Restituisce 'delete' | 'move' | null
+  // Restituisce 'delete' | 'move' | 'resize' | null
   if (S.selectedIds.size === 0) return null;
   const bb = selBBox(); if (bb.x > 1e8) return null;
   const pad = 8, hr = 12 / S.zoom;
   const x=bb.x-pad, y=bb.y-pad, w=bb.w+pad*2, h=bb.h+pad*2;
   if (Math.hypot(px-(x+w), py-y) < hr) return 'delete';
+  if (Math.hypot(px-(x+w), py-(y+h)) < hr) return 'resize';
   if (Math.hypot(px-(x+w/2), py-(y+h)) < hr) return 'move';
   // Click dentro il box = move
   if (px>=x && px<=x+w && py>=y && py<=y+h) return 'move';

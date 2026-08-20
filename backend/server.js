@@ -137,8 +137,15 @@ app.post('/api/change-password', requireSession, (req, res) => {
 // OIDC callback
 app.get('/auth/callback', async (req, res) => {
   const kc = auth.getKeycloakConfig();
-  const { code, state } = req.query;
-  if (!kc.enabled || state !== req.session.oidcState) return res.redirect('/login.html?error=invalid_state');
+  const { code, state, error: providerError, error_description } = req.query;
+  if (providerError) {
+    console.error(`[oidc] il provider ha rifiutato la richiesta: ${providerError} — ${error_description||''}`);
+    return res.redirect('/login.html?error=oidc_failed');
+  }
+  if (!kc.enabled || state !== req.session.oidcState) {
+    console.error('[oidc] state non valido (sessione scaduta, cookie non ricevuto, o richiesta rigiocata)');
+    return res.redirect('/login.html?error=invalid_state');
+  }
 
   try {
     const tokenRes = await fetch(`${kc.issuer}/protocol/openid-connect/token`, {
@@ -147,9 +154,19 @@ app.get('/auth/callback', async (req, res) => {
       body: new URLSearchParams({ grant_type:'authorization_code', code, redirect_uri: kc.redirectUri, client_id: kc.clientId, client_secret: kc.clientSecret })
     });
     const tokens = await tokenRes.json();
-    if (!tokens.access_token) throw new Error('No token');
-    const payload = JSON.parse(Buffer.from(tokens.access_token.split('.')[1], 'base64url').toString());
-    const username = payload.preferred_username || payload.sub;
+    if (!tokenRes.ok) throw new Error(`token endpoint HTTP ${tokenRes.status}: ${tokens.error||''} ${tokens.error_description||''}`);
+    // L'id_token è lo standard OIDC per i claim di profilo (preferred_username,
+    // name, email): l'access_token non è garantito essere nemmeno un JWT, e
+    // quando lo è non è detto contenga quei claim — dipende dal provider.
+    // Decodificare l'access_token "funzionava" solo con IdP (tipicamente
+    // Keycloak di default) che ci mettono quei claim per abitudine; con un
+    // provider diverso o configurato diversamente il login falliva o creava
+    // utenti con uno username illeggibile (il solo "sub").
+    const jwt = tokens.id_token || tokens.access_token;
+    if (!jwt) throw new Error('risposta del token endpoint priva sia di id_token che di access_token');
+    const payload = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString());
+    const username = payload.preferred_username || payload.email || payload.sub;
+    if (!username) throw new Error('nessun claim utilizzabile come username nel token (preferred_username/email/sub)');
     // Sincronizza nel DB
     let dbUser = db.getUserByUsername(username);
     if (!dbUser) { try { db.createUser(username, null, payload.name||username, 0, 'oidc'); } catch {} dbUser = db.getUserByUsername(username); }
@@ -157,6 +174,7 @@ app.get('/auth/callback', async (req, res) => {
     req.session.user = { username, displayName: payload.name||username, source:'oidc', is_admin: dbUser?.is_admin||0 };
     res.redirect('/');
   } catch(e) {
+    console.error('[oidc] callback fallito:', e.message);
     res.redirect('/login.html?error=oidc_failed');
   }
 });

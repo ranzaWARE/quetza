@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Quetza">
+<meta name="theme-color" content="#f3ead8">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
 <title>Quetza</title>
 <script>
   (function(){
@@ -14,6 +20,14 @@
       if(t==='dark'||t==='eink') document.documentElement.setAttribute('data-theme',t);
     }catch(e){}
   })();
+  // Registrazione service worker — indipendente dal login, serve solo per
+  // l'installabilità PWA (manifest + SW con fetch handler sono i requisiti
+  // minimi del prompt "Installa app" dei browser Chromium).
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('/sw.js').catch(function(){});
+    });
+  }
 </script>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/components.css">
@@ -197,10 +211,10 @@
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l-6 6v3h9l3-3"/><path d="M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>
       </button>
       <button class="b" data-t="eraser" title="Gomma (E)">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 20 4 20"/><path d="M6.5 12.5L10 9l7 7-3.5 3.5Z"/></svg>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5.3" y="8.3" width="13" height="8.6" rx="2.2" transform="rotate(-28 11.8 12.6)"/><line x1="4.5" y1="20" x2="19.5" y2="20"/></svg>
       </button>
       <button class="b" data-t="lasso" title="Lasso selezione (S)">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 17C17 19.7614 14.7614 22 12 22C9.23858 22 7 19.7614 7 17C7 13 12 2 12 2C12 2 17 13 17 17Z"/><path d="M9 17H15"/></svg>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 0 1 1-1h4"/><path d="M15 4h4a1 1 0 0 1 1 1v4"/><path d="M20 15v4a1 1 0 0 1-1 1h-4"/><path d="M9 20H5a1 1 0 0 1-1-1v-4"/></svg>
       </button>
       <div class="sp"></div>
       <!-- Shape tools — icone allineate al set AUROR (design-system.html #icons) -->

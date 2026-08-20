@@ -3,6 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Quetza">
+<meta name="theme-color" content="#f3ead8">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
 <title>Quetza — Accesso</title>
 <script>
   (function(){
@@ -12,6 +19,11 @@
       if(t === 'dark' || t === 'eink') document.documentElement.setAttribute('data-theme', t);
     }catch(e){}
   })();
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('/sw.js').catch(function(){});
+    });
+  }
 </script>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/components.css">
@@ -370,6 +382,27 @@
     } catch { err.textContent = 'Errore di rete'; err.classList.add('show'); }
     finally { btn.disabled = false; }
   });
+
+  // Errore tornato dal callback OIDC (/auth/callback) — prima non veniva mai
+  // letto: un SSO fallito faceva ricomparire il form di login senza alcun
+  // messaggio, come se non fosse successo nulla.
+  (function(){
+    var err = new URLSearchParams(location.search).get('error');
+    if (!err) return;
+    var msgs = {
+      invalid_state: 'Sessione scaduta o non valida — riprova ad accedere con SSO.',
+      oidc_failed: 'Accesso SSO non riuscito. Controlla la configurazione del provider o riprova.',
+    };
+    // Il click sul tab SSO nasconde il banner (vedi handler sopra): va fatto
+    // prima di mostrare il messaggio, non dopo, altrimenti lo cancella subito.
+    var ssoBtn = document.querySelector('[data-method="oidc"]');
+    if (ssoBtn) ssoBtn.click();
+    var banner = document.getElementById('errBanner');
+    banner.textContent = msgs[err] || 'Accesso non riuscito.';
+    banner.classList.add('show');
+    // Rimuove il parametro dall'URL per non ripresentare l'errore a un refresh
+    history.replaceState(null, '', location.pathname);
+  })();
 
   init();
 </script>
