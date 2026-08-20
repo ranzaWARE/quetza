@@ -147,8 +147,9 @@ app.get('/auth/callback', async (req, res) => {
     return res.redirect('/login.html?error=invalid_state');
   }
 
+  const tokenUrl = `${kc.issuer}/protocol/openid-connect/token`;
   try {
-    const tokenRes = await fetch(`${kc.issuer}/protocol/openid-connect/token`, {
+    const tokenRes = await fetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ grant_type:'authorization_code', code, redirect_uri: kc.redirectUri, client_id: kc.clientId, client_secret: kc.clientSecret })
@@ -174,7 +175,11 @@ app.get('/auth/callback', async (req, res) => {
     req.session.user = { username, displayName: payload.name||username, source:'oidc', is_admin: dbUser?.is_admin||0 };
     res.redirect('/');
   } catch(e) {
-    console.error('[oidc] callback fallito:', e.message);
+    // e.message da solo per un fetch fallito è quasi sempre il generico
+    // "fetch failed" di Node — la causa vera (DNS non risolto, connessione
+    // rifiutata, certificato TLS non fidato, timeout...) sta in e.cause e
+    // prima andava persa, rendendo impossibile capire perché falliva.
+    console.error(`[oidc] callback fallito verso ${tokenUrl}:`, e.message, e.cause || '');
     res.redirect('/login.html?error=oidc_failed');
   }
 });
