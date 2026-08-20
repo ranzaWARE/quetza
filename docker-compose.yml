@@ -10,6 +10,18 @@ services:
     ports:
       - "8081:3000"
       - "8444:3443"
+    # DNS espliciti: il resolver embedded di Docker a volte non risolve host
+    # esterni/interni (es. il server Keycloak per SSO, o LDAP) anche quando
+    # l'host li raggiunge — stessa causa già trovata per quetza-whisper e
+    # huggingface.co. Senza questo, il fetch server-side verso l'issuer OIDC
+    # nel callback falliva con "fetch failed" prima ancora di contattarlo.
+    # 192.168.1.14 = DNS/AD interno aziendale (risolve Keycloak, LDAP, ecc.
+    # — hostname raggiungibili solo dalla rete interna); 8.8.8.8/1.1.1.1
+    # restano come fallback per host esterni.
+    dns:
+      - 192.168.1.14
+      - 8.8.8.8
+      - 1.1.1.1
     volumes:
       - quetza_data:/app/data
       - quetza_certs:/app/certs
