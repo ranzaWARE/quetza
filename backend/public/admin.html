@@ -176,6 +176,10 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)
         <div class="form-group"><label>Client Secret</label><input type="password" id="oidcClientSecret" placeholder="••••••••"></div>
         <div class="form-group"><label>Redirect URI</label><input type="url" id="oidcRedirectUri" placeholder="https://quetza.example.com/auth/callback"></div>
       </div>
+      <div class="form-row">
+        <div class="form-group"><label>URL interno del realm (opzionale)</label><input type="url" id="oidcInternalUrl" placeholder="http://keycloak:8080/realms/graphimecc"></div>
+        <div class="form-group"><label>&nbsp;</label><span class="toggle-desc">Usato dal server per discovery e token se l'Issuer pubblico non è raggiungibile dal container. Vuoto = Issuer.</span></div>
+      </div>
       <div class="toggle-row">
         <div class="toggle-info">
           <span class="toggle-lbl">Verifica certificato TLS</span>
@@ -184,6 +188,7 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)
         <label class="aurorSwitch"><input type="checkbox" id="oidcTls" checked><span class="track"><span class="thumb"></span></span></label>
       </div>
       <div style="display:flex;justify-content:flex-end;margin-top:8px">
+        <button class="aurorBtn" onclick="testOidc()" style="margin-right:8px">Test connessione</button>
         <button class="aurorBtn primary" onclick="saveOidc()">Salva configurazione</button>
       </div>
     </div>
@@ -494,6 +499,7 @@ function loadSettings() {
   document.getElementById('oidcClientId').value    = settings.oidc_client_id||'';
   document.getElementById('oidcClientSecret').value= settings.oidc_client_secret||'';
   document.getElementById('oidcRedirectUri').value = settings.oidc_redirect_uri||'';
+  document.getElementById('oidcInternalUrl').value = settings.oidc_internal_url||'';
   document.getElementById('oidcTls').checked       = settings.oidc_tls_reject!=='false';
   document.getElementById('ldapEnabled').checked   = settings.ldap_enabled==='true';
   document.getElementById('ldapUrl').value         = settings.ldap_url||'';
@@ -513,9 +519,23 @@ async function saveOidc() {
     oidc_client_id:     document.getElementById('oidcClientId').value.trim(),
     oidc_client_secret: document.getElementById('oidcClientSecret').value,
     oidc_redirect_uri:  document.getElementById('oidcRedirectUri').value.trim(),
+    oidc_internal_url:  document.getElementById('oidcInternalUrl').value.trim(),
     oidc_tls_reject:    document.getElementById('oidcTls').checked?'true':'false',
   })});
   alert_('oidcAlert', r.ok?'Configurazione salvata':'Errore salvataggio', r.ok?'success':'error');
+}
+
+// Salva e poi prova la discovery OIDC dal server (stesso URL del login).
+async function testOidc() {
+  await saveOidc();
+  try {
+    const d = await (await fetch('/api/admin/oidc/test')).json();
+    const msg = d.ok ? `OK ${d.status} — ${d.url}`
+      : d.status ? `HTTP ${d.status} da ${d.url}${d.issuerOk===false ? ` — issuer "${d.issuer}" diverso da quello configurato` : ''}`
+      : `${d.url||''}: ${d.error||'errore'} ${d.cause||''}`;
+    const esc = v => String(v).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+    alert_('oidcAlert', esc(msg), d.ok ? 'success' : 'error');
+  } catch (e) { alert_('oidcAlert', 'Test fallito: ' + e.message); }
 }
 
 async function saveLdap() {

@@ -148,7 +148,9 @@ app.get('/auth/callback', async (req, res) => {
     return res.redirect('/login.html?error=invalid_state');
   }
 
-  const tokenUrl = `${kc.issuer}/protocol/openid-connect/token`;
+  // Il token endpoint si chiama sull'URL interno: dal container l'hostname
+  // pubblico di Keycloak può non risolversi o non essere fidato.
+  const tokenUrl = `${auth.oidcServerBase(kc)}/protocol/openid-connect/token`;
   try {
     const tokenRes = await fetch(tokenUrl, {
       method: 'POST',
@@ -170,6 +172,7 @@ app.get('/auth/callback', async (req, res) => {
     const jwt = tokens.id_token || tokens.access_token;
     if (!jwt) throw new Error('risposta del token endpoint priva sia di id_token che di access_token');
     const payload = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString());
+    if (!auth.isAcceptedIssuer(kc, payload.iss)) throw new Error(`issuer del token inatteso: "${payload.iss}" (atteso "${kc.issuer}")`);
     const username = payload.preferred_username || payload.email || payload.sub;
     if (!username) throw new Error('nessun claim utilizzabile come username nel token (preferred_username/email/sub)');
     // Sincronizza nel DB
@@ -585,6 +588,25 @@ app.delete('/api/admin/users/:username', requireAuth, requireAdmin, (req, res) =
 });
 
 // Impostazioni
+// Diagnostica OIDC: discovery (.well-known) dall'URL che usa il server.
+// Risponde con lo stato HTTP o con la causa reale dell'errore di rete/TLS.
+app.get('/api/admin/oidc/test', requireAuth, requireAdmin, async (req, res) => {
+  const kc = auth.getKeycloakConfig();
+  if (!kc.issuer) return res.status(400).json({ ok: false, error: 'Issuer non configurato' });
+  const url = `${auth.oidcServerBase(kc)}/.well-known/openid-configuration`;
+  try {
+    const r = await fetch(url, {
+      dispatcher: kc.tlsReject ? undefined : new Agent({ connect: { rejectUnauthorized: false } }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const body = await r.json().catch(() => ({}));
+    const issuerOk = r.ok ? auth.isAcceptedIssuer(kc, body.issuer) : undefined;
+    res.json({ ok: r.ok && issuerOk, url, status: r.status, issuer: body.issuer, issuerOk });
+  } catch (e) {
+    res.json({ ok: false, url, error: e.message, cause: e.cause ? `${e.cause.code||''} ${e.cause.message||e.cause}`.trim() : undefined });
+  }
+});
+
 app.get('/api/admin/settings', requireAuth, requireAdmin, (req, res) => res.json(db.getAllSettings()));
 app.post('/api/admin/settings', requireAuth, requireAdmin, (req, res) => {
   const settings = req.body;

@@ -56,7 +56,12 @@ async function ldapAuthenticate(username, password) {
 function getKeycloakConfig() {
   return {
     enabled:      db.getSetting('oidc_enabled') === 'true',
-    issuer:       db.getSetting('oidc_issuer')       || '',
+    issuer:       (db.getSetting('oidc_issuer') || '').replace(/\/+$/, ''),
+    // URL del realm raggiungibile DAL CONTAINER (es. http://keycloak:8080/realms/x
+    // o l'IP interno): usato solo per le chiamate server-side (discovery, token).
+    // L'issuer pubblico resta quello del browser (redirect /auth) e quello
+    // atteso nel claim "iss" dei token. Vuoto = si usa l'issuer pubblico.
+    internalUrl:  (db.getSetting('oidc_internal_url') || process.env.OIDC_INTERNAL_URL || '').replace(/\/+$/, ''),
     clientId:     db.getSetting('oidc_client_id')    || '',
     clientSecret: db.getSetting('oidc_client_secret')|| '',
     redirectUri:  db.getSetting('oidc_redirect_uri') || '',
@@ -68,6 +73,20 @@ function getKeycloakConfig() {
     // verifica come ultima spiaggia.
     tlsReject: (db.getSetting('oidc_tls_reject') || process.env.OIDC_TLS_REJECT_UNAUTHORIZED) !== 'false',
   };
+}
+
+// Base URL per le chiamate server→Keycloak.
+function oidcServerBase(kc) {
+  return kc.internalUrl || kc.issuer;
+}
+
+// Il claim "iss" deve corrispondere all'issuer pubblico (Keycloak con
+// KC_HOSTNAME firma sempre con l'hostname pubblico, anche se lo si chiama
+// dall'URL interno). Si accetta anche l'URL interno per i Keycloak senza
+// hostname fisso, che usano come iss l'host con cui sono stati contattati.
+function isAcceptedIssuer(kc, iss) {
+  const norm = v => (v || '').replace(/\/+$/, '');
+  return [kc.issuer, kc.internalUrl].filter(Boolean).includes(norm(iss));
 }
 
 // ── Local ─────────────────────────────────────────────────────
@@ -108,4 +127,4 @@ async function authenticate(username, password, method) {
   }
 }
 
-module.exports = { authenticate, getKeycloakConfig, ldapAuthenticate, localAuthenticate, hasLocalCredentials };
+module.exports = { authenticate, getKeycloakConfig, oidcServerBase, isAcceptedIssuer, ldapAuthenticate, localAuthenticate, hasLocalCredentials };

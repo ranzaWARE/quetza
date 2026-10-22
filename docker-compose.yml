@@ -25,6 +25,11 @@ services:
     volumes:
       - quetza_data:/app/data
       - quetza_certs:/app/certs
+      # CA che ha firmato il certificato di Keycloak (es. keycloak.app.local).
+      # Node non usa il trust store del SO: senza questa CA la fetch verso
+      # Keycloak fallisce con UNABLE_TO_GET_ISSUER_CERT_LOCALLY / SELF_SIGNED.
+      # Mettere il PEM in ./certs/local-ca.crt accanto a questo file.
+      - ./certs/local-ca.crt:/app/ca/local-ca.crt:ro
     environment:
       - NODE_ENV=production
       - DB_PATH=/app/data/quetza.db
@@ -45,6 +50,13 @@ services:
       - LDAP_TLS_REJECT_UNAUTHORIZED=false
       # URL interno del servizio Whisper
       - WHISPER_URL=http://quetza-whisper:9876
+      # Fiducia aggiuntiva per la CA locale montata sopra (letta all'avvio).
+      - NODE_EXTRA_CA_CERTS=/app/ca/local-ca.crt
+      # URL del realm raggiungibile dal container, per discovery e token
+      # (sovrascrivibile da Admin → Keycloak/OIDC). Il browser continua a
+      # usare l'Issuer pubblico, che resta anche l'issuer atteso nei token.
+      # Esempio: http://192.168.1.x:8080/realms/graphimecc
+      - OIDC_INTERNAL_URL=
     depends_on:
       quetza-whisper:
         condition: service_healthy
