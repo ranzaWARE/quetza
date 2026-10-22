@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/paper"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <ImageView
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:layout_gravity="center_horizontal"
+            android:importantForAccessibility="no"
+            android:src="@mipmap/ic_launcher_foreground" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/setup_intro"
+            android:textColor="#1d1d1f"
+            android:textSize="16sp" />
+
+        <EditText
+            android:id="@+id/url"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:autofillHints="url"
+            android:hint="@string/setup_hint"
+            android:imeOptions="actionGo"
+            android:inputType="textUri"
+            android:singleLine="true" />
+
+        <TextView
+            android:id="@+id/managed"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/setup_managed"
+            android:textColor="#6e6e73"
+            android:visibility="gone" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/setup_eink"
+            android:textColor="#1d1d1f"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/eink"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/eink_auto"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/setup_eink_auto" />
+
+            <RadioButton
+                android:id="@+id/eink_on"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/setup_eink_on" />
+
+            <RadioButton
+                android:id="@+id/eink_off"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/setup_eink_off" />
+        </RadioGroup>
+
+        <TextView
+            android:id="@+id/eink_note"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#6e6e73" />
+
+        <Button
+            android:id="@+id/connect"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/setup_connect" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/setup_cert_note"
+            android:textColor="#6e6e73" />
+
+        <Button
+            android:id="@+id/forget"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/setup_forget" />
+    </LinearLayout>
+</ScrollView>

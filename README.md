@@ -37,7 +37,7 @@ Gli utenti entrano con l'account aziendale (LDAP o SSO) e niente esce dalla rete
   <tr><td width="32%">🔗 <b>Condivisione</b></td><td>Con i colleghi, in lettura o in modifica, o con tutti. Link di sola lettura, con scadenza, per chi non ha un account. Export in PDF di tutte le pagine.</td></tr>
   <tr><td width="32%">🏢 <b>Pronta per l'organizzazione</b></td><td>Account locali, LDAP / Active Directory e SSO con qualsiasi provider OIDC. Pannello di amministrazione con spazio massimo per utente, logo e nome dell'organizzazione.</td></tr>
   <tr><td width="32%">💾 <b>Backup ogni notte</b></td><td>Copia coerente e verificata del database, anche su una cartella del NAS. Stato dei backup nel pannello. Export e import completi per cambiare server.</td></tr>
-  <tr><td width="32%">📱 <b>Ovunque</b></td><td>Computer, tablet e telefono. Si installa come app (PWA). Tema chiaro, scuro ed e-ink.</td></tr>
+  <tr><td width="32%">📱 <b>Ovunque</b></td><td>Computer, tablet e telefono. Si installa come app (PWA) oppure con l'<a href="android/README.md">app Android</a>, ottimizzata anche per i tablet e-ink Boox. Tema chiaro, scuro ed e-ink.</td></tr>
 </table>
 
 <table>

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Quetza</string>
+    <string name="setup_title">Server Quetza</string>
+    <string name="shortcut_setup">Cambia server</string>
+
+    <string name="setup_intro">Indirizzo del server Quetza della tua organizzazione, lo stesso che apri nel browser.</string>
+    <string name="setup_hint">https://192.168.1.20:8443</string>
+    <string name="setup_managed">Indirizzo impostato dall\'amministratore.</string>
+    <string name="setup_eink">Schermo e-ink</string>
+    <string name="setup_eink_auto">Automatico</string>
+    <string name="setup_eink_on">Sempre</string>
+    <string name="setup_eink_off">Mai</string>
+    <string name="setup_eink_detected">Rilevato: dispositivo e-ink (Boox). Tema e-ink, niente animazioni, refresh ridotti.</string>
+    <string name="setup_eink_not_detected">Nessuno schermo e-ink rilevato.</string>
+    <string name="setup_connect">Collega</string>
+    <string name="setup_forget">Dimentica i certificati accettati</string>
+    <string name="setup_forgotten">Certificati dimenticati: al prossimo collegamento verranno richiesti.</string>
+    <string name="setup_invalid">Indirizzo non valido. Esempio: https://192.168.1.20:8443</string>
+    <string name="setup_cert_note">Se il server usa un certificato self-signed, al primo collegamento Quetza ne mostra l\'impronta e chiede se fidarsi. In alternativa installa sul dispositivo la CA aziendale (Impostazioni › Sicurezza › Crittografia e credenziali › Installa certificato › Certificato CA): così funziona anche l\'avvio senza rete.</string>
+
+    <string name="offline_title">Server non raggiungibile</string>
+    <string name="offline_retry">Riprova</string>
+    <string name="offline_change">Cambia server</string>
+    <string name="cert_rejected">Certificato del server non accettato.</string>
+
+    <string name="cert_title_new">Certificato da verificare</string>
+    <string name="cert_title_changed">Il certificato è cambiato</string>
+    <string name="cert_body">%1$s usa un certificato che questo dispositivo non conosce (self-signed o di una CA interna).\n\nIntestato a: %2$s\nEmesso da: %3$s\nValido fino al: %4$s\n\nImpronta SHA-256:\n%5$s\n\nPrima di accettare confrontala con quella del server:\ndocker compose exec nginx openssl x509 -in /etc/nginx/certs/quetza.crt -noout -fingerprint -sha256</string>
+    <string name="cert_changed_warning">ATTENZIONE: questo server aveva un altro certificato. Se non è stato rinnovato da chi lo gestisce, non accettare.\n\n</string>
+    <string name="cert_accept">Accetta e ricorda</string>
+    <string name="cert_cancel">Annulla</string>
+    <string name="cert_locked">Il certificato di %1$s non corrisponde a quello impostato dall\'amministratore.</string>
+
+    <string name="mic_denied">Senza il permesso del microfono non si può registrare.</string>
+    <string name="file_saved">Salvato in Download/Quetza:\n%1$s</string>
+    <string name="file_open">Apri</string>
+    <string name="file_share">Condividi</string>
+    <string name="file_error">Salvataggio non riuscito.</string>
+    <string name="no_app">Nessuna app per aprire questo file.</string>
+
+    <string name="rec_channel">Registrazione</string>
+    <string name="rec_title">Quetza sta registrando</string>
+    <string name="rec_text">Tocca per tornare alla nota.</string>
+
+    <string name="mdm_server_url">Indirizzo del server</string>
+    <string name="mdm_server_url_desc">Es. https://quetza.azienda.local:8443</string>
+    <string name="mdm_cert">Impronte SHA-256 ammesse</string>
+    <string name="mdm_cert_desc">Una o più, separate da virgola. Se impostate, l\'utente non può accettare altri certificati.</string>
+    <string name="mdm_eink">Modalità e-ink</string>
+    <string-array name="eink_labels">
+        <item>@string/setup_eink_auto</item>
+        <item>@string/setup_eink_on</item>
+        <item>@string/setup_eink_off</item>
+    </string-array>
+    <string-array name="eink_values">
+        <item>auto</item>
+        <item>on</item>
+        <item>off</item>
+    </string-array>
+</resources>
