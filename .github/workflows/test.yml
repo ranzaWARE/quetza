@@ -46,12 +46,12 @@ jobs:
         run: docker build --target production -t quetza:ci backend
       - name: Avvio di prova
         run: |
-          docker run -d --name q -e SESSION_SECRET=ci-0123456789abcdef0123456789abcdef -p 3000:3000 quetza:ci
+          docker run -d --name quetza-ci -e SESSION_SECRET=ci-0123456789abcdef0123456789abcdef -p 3000:3000 quetza:ci
           for i in $(seq 1 30); do
             curl -fsS http://127.0.0.1:3000/healthz && exit 0
             sleep 1
           done
-          docker logs q
+          docker logs quetza-ci
           exit 1
       - name: Build nginx e controllo della configurazione
         run: |
