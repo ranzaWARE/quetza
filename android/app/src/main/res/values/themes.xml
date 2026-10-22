@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Quetza" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">#1d1d1f</item>
+        <item name="android:colorAccent">#1d1d1f</item>
+        <item name="android:windowBackground">@color/paper</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+    <color name="paper">#f3f5f7</color>
+</resources>
