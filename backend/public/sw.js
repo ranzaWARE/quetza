@@ -4,7 +4,7 @@
    offline o a connessione molto lenta, mai per bypassare il server mentre
    è raggiungibile (altrimenti un aggiornamento del codice resterebbe
    invisibile finché la cache non viene invalidata). */
-const CACHE_VERSION = 'quetza-shell-v1';
+const CACHE_VERSION = 'quetza-shell-v2';
 
 self.addEventListener('install', () => { self.skipWaiting(); });
 
