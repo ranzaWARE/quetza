@@ -353,6 +353,11 @@ document.getElementById('themeToggle').onclick = () => {
   try { localStorage.setItem('auror-theme', next); } catch {}
 };
 
+// Nomi e username arrivano anche da LDAP/SSO, dove l'utente può sceglierli:
+// vanno sempre trattati come testo, mai come HTML.
+const h = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const userUrl = u => `/api/admin/users/${encodeURIComponent(u)}`;
+
 function fmt(bytes) {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
@@ -391,7 +396,7 @@ async function load() {
   const pb = document.getElementById('perUserTbody');
   pb.innerHTML = (stats.per_user||[]).map(u=>`
     <tr>
-      <td><strong>${u.username}</strong><br><span class="sz">${u.display_name}</span></td>
+      <td><strong>${h(u.username)}</strong><br><span class="sz">${h(u.display_name)}</span></td>
       <td>${u.note_count}</td>
       <td>${fmt(u.audio_bytes||0)}</td>
       <td class="sz">${fmtDate(u.last_login)}</td>
@@ -410,34 +415,34 @@ async function load() {
 function renderUsers() {
   document.getElementById('usersTbody').innerHTML = users.map(u=>`
     <tr>
-      <td><strong>${u.username}</strong></td>
-      <td>${u.display_name}</td>
+      <td><strong>${h(u.username)}</strong></td>
+      <td>${h(u.display_name)}</td>
       <td>${u.is_admin?'<span class="badge badge-admin">Admin</span>':'<span class="badge badge-user">Utente</span>'}</td>
       <td>${u.is_active?'<span class="badge badge-active">Attivo</span>':'<span class="badge badge-inactive">Disattivo</span>'}${u.must_change_password?' <span class="badge badge-inactive" title="Deve cambiare la password al prossimo accesso">pw provvisoria</span>':''}</td>
-      <td><span class="badge badge-${u.source}">${u.source}</span></td>
+      <td><span class="badge badge-${h(u.source)}">${h(u.source)}</span></td>
       <td class="sz">${fmtDate(u.last_login)}</td>
       <td style="white-space:nowrap">
         ${u.is_admin
-          ? `<button class="aurorBtn xs" onclick="toggleAdmin('${u.username}',false)">Rimuovi admin</button>`
-          : `<button class="aurorBtn xs" onclick="toggleAdmin('${u.username}',true)">Promuovi admin</button>`}
+          ? `<button class="aurorBtn xs" data-u="${h(u.username)}" onclick="toggleAdmin(this.dataset.u,false)">Rimuovi admin</button>`
+          : `<button class="aurorBtn xs" data-u="${h(u.username)}" onclick="toggleAdmin(this.dataset.u,true)">Promuovi admin</button>`}
         ${u.is_active
-          ? `<button class="aurorBtn xs" style="margin-left:4px" onclick="toggleActive('${u.username}',false)">Disattiva</button>`
-          : `<button class="aurorBtn xs" style="margin-left:4px" onclick="toggleActive('${u.username}',true)">Attiva</button>`}
-        ${u.source==='local'?`<button class="aurorBtn xs" style="margin-left:4px" onclick="openResetPw('${u.username}')">Reset pw</button>`:''}
-        <button class="aurorBtn danger xs" style="margin-left:4px" onclick="delUser('${u.username}')">Elimina</button>
+          ? `<button class="aurorBtn xs" style="margin-left:4px" data-u="${h(u.username)}" onclick="toggleActive(this.dataset.u,false)">Disattiva</button>`
+          : `<button class="aurorBtn xs" style="margin-left:4px" data-u="${h(u.username)}" onclick="toggleActive(this.dataset.u,true)">Attiva</button>`}
+        ${u.source==='local'?`<button class="aurorBtn xs" style="margin-left:4px" data-u="${h(u.username)}" onclick="openResetPw(this.dataset.u)">Reset pw</button>`:''}
+        <button class="aurorBtn danger xs" style="margin-left:4px" data-u="${h(u.username)}" onclick="delUser(this.dataset.u)">Elimina</button>
       </td>
     </tr>`).join('');
 }
 
 async function toggleAdmin(username, promote) {
-  const r = await fetch(`/api/admin/users/${username}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({isAdmin:promote})});
+  const r = await fetch(userUrl(username),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({isAdmin:promote})});
   const d = await r.json();
   if (!r.ok) return alert(d.error);
   await load();
 }
 
 async function toggleActive(username, active) {
-  const r = await fetch(`/api/admin/users/${username}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({isActive:active})});
+  const r = await fetch(userUrl(username),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({isActive:active})});
   const d = await r.json();
   if (!r.ok) return alert(d.error);
   await load();
@@ -445,7 +450,7 @@ async function toggleActive(username, active) {
 
 async function delUser(username) {
   if (!confirm(`Eliminare l'utente "${username}"? Tutte le sue note verranno conservate.`)) return;
-  const r = await fetch(`/api/admin/users/${username}`,{method:'DELETE'});
+  const r = await fetch(userUrl(username),{method:'DELETE'});
   const d = await r.json();
   if (!r.ok) return alert(d.error);
   await load();
@@ -479,7 +484,7 @@ function openResetPw(username) {
 async function doResetPw() {
   const pw = document.getElementById('resetPwInput').value;
   if (!pw) return alert_('resetPwAlert','Inserire la nuova password');
-  const r = await fetch(`/api/admin/users/${currentResetUser}/reset-password`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
+  const r = await fetch(`${userUrl(currentResetUser)}/reset-password`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
   if (!r.ok) return alert_('resetPwAlert',(await r.json()).error);
   closeModal('resetPwModal');
   await load();
@@ -581,7 +586,8 @@ async function doImport(input) {
   const d = await r.json();
   if (!r.ok) return alert_('importAlert', d.error);
   const noPw = d.usersWithoutPassword ? ` — ${d.usersWithoutPassword} account locali senza password: impostala dal tab Utenti (Reset password)` : '';
-  alert_('importAlert',`✓ Importate ${d.imported} note, ${d.usersImported||0} nuovi utenti${noPw}`,'success');
+  const kept = d.unchanged ? ` (${d.unchanged} lasciate com'erano: sul server c'era già una versione uguale o più recente)` : '';
+  alert_('importAlert',`✓ Importate ${d.imported} note${kept}, ${d.usersImported||0} nuovi utenti${noPw}`,'success');
   await load();
   input.value='';
 }

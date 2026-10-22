@@ -54,6 +54,8 @@ const S = {
   // Autosave
   autoSaveTimer: null,
   dirty: false,
+  rev: Date.now(),   // cresce a ogni modifica: dice se dopo un salvataggio è cambiato altro
+  version: null,     // versione del contenuto sul server da cui parte questo editor
   // Notes
   notes: [], curId: null,
   // Search
@@ -120,6 +122,8 @@ async function init() {
   setupCanvas();
   setupPages();
   startNetMonitor();
+  // Modifiche e registrazioni rimaste sul dispositivo da una sessione precedente
+  syncDrafts().then(retryRecordings);
   // Auto-detect logo (come Stego) — cerca assets/logo.*
   (async () => {
     const hdr = document.getElementById('APPHDR');
@@ -257,14 +261,43 @@ function showLibrary() {
   EDITOR.classList.remove('on');
   LIBRARY.classList.add('on');
 }
+// Chiude la nota aperta nello stato dell'editor (dopo flushSave)
+function leaveNote() {
+  clearTimeout(S.autoSaveTimer); clearTimeout(S._draftT);
+  S.curId = null; S.version = null; S.dirty = false;
+  S.strokes = []; S.textItems = []; S.imgs = [];
+}
+
+// Barra audio nascosta di default: si vede solo se la nota ha già un audio,
+// oppure quando l'utente la richiama col pulsante in toolbar.
+function resetAudioUI() {
+  S.aBuf = null; S.peaks = null; S.playOff = 0;
+  AB.dataset.state = 'idle';
+  AB.style.display = 'none';
+  wx.clearRect(0, 0, WC.width, WC.height);
+  TSel.classList.remove('on');
+}
 
 async function openNote(id) {
   if (S.recOn) stopRec();
   if (S.playing) stopAudio();
+  if (S.curId && S.curId !== id) { await flushSave(); leaveNote(); }
+  // Modifiche di questa nota rimaste sul dispositivo: prima vanno sul server
+  await syncDrafts(id);
 
-  const r = await fetch(`/api/notes/${id}`);
+  let r;
+  try { r = await fetch(`/api/notes/${id}`); } catch { toast('⚠ Server non raggiungibile: nota non aperta'); return; }
+  if (!r.ok) {
+    if (r.status === 401 || r.status === 403) sessionLost();
+    // Mai aprire una nota vuota al posto di quella vera: scrivendoci sopra,
+    // il salvataggio ne avrebbe cancellato il contenuto.
+    toast(r.status === 404 ? '⚠ Nota non trovata' : '⚠ Impossibile aprire la nota');
+    return;
+  }
   const n = await r.json();
   S.curId = id;
+  S.version = n.version ?? null;
+  S.dirty = false;
   // Carica pagine
   if (n.pages_data && Array.isArray(n.pages_data) && n.pages_data.length > 0) {
     S.pages = n.pages_data;
@@ -282,13 +315,7 @@ async function openNote(id) {
   NTT.value = n.title;
   updateAudioOnlyView();
 
-  // Reset audio UI — nascosta di default: si vede solo se la nota ha già
-  // un audio, oppure quando l'utente la richiama col pulsante in toolbar.
-  S.aBuf = null; S.peaks = null; S.playOff = 0;
-  AB.dataset.state = 'idle';
-  AB.style.display = 'none';
-  wx.clearRect(0, 0, WC.width, WC.height);
-  TSel.classList.remove('on');
+  resetAudioUI();
 
   // Carica audio (singola sessione o multi-sessione concatenata)
   if (n.has_audio) {
@@ -328,7 +355,8 @@ async function newNote() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: defaultNoteTitle() })
-  });
+  }).catch(() => null);
+  if (!r || !r.ok) { if (r && (r.status === 401 || r.status === 403)) sessionLost(); toast('⚠ Nota non creata: server non raggiungibile'); return; }
   const n = await r.json();
   S.notes.unshift(n);
   renderNL();
@@ -348,7 +376,8 @@ async function newVoiceNote() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: `Registrazione ${dateStr} ${timeStr}`, voiceFirst: true })
-  });
+  }).catch(() => null);
+  if (!r || !r.ok) { if (r && (r.status === 401 || r.status === 403)) sessionLost(); toast('⚠ Nota non creata: server non raggiungibile'); return; }
   const n = await r.json();
   S.notes.unshift(n);
   renderNL();
@@ -366,9 +395,11 @@ function defaultNoteTitle() {
 
 async function deleteNote(id) {
   if (!confirm('Eliminare questa nota?')) return;
-  await fetch(`/api/notes/${id}`, { method: 'DELETE' });
+  const r = await fetch(`/api/notes/${id}`, { method: 'DELETE' }).catch(() => null);
+  if (!r || !r.ok) { toast('⚠ Nota non eliminata: server non raggiungibile'); return; }
+  await dropDraft(id);
   S.notes = S.notes.filter(n => n.id !== id);
-  if (S.curId === id) { S.curId = null; S.strokes = []; S.textItems = []; showLibrary(); }
+  if (S.curId === id) { leaveNote(); showLibrary(); }
   renderNL();
 }
 
@@ -398,89 +429,318 @@ async function duplicateNote(id) {
 }
 
 function scheduleAutoSave() {
+  S.rev++;
   S.dirty = true;
+  queueDraft();
+  armAutoSave(4000); // 4s dopo l'ultimo tratto
+}
+function armAutoSave(ms) {
   clearTimeout(S.autoSaveTimer);
-  S.autoSaveTimer = setTimeout(() => saveNote(true), 4000); // 4s dopo l'ultimo tratto
+  S.autoSaveTimer = setTimeout(() => { if (S.dirty) saveNote(true); }, ms);
 }
 
-async function saveNote(silent = false) {
-  if (!S.curId) return;
-  // Su connessioni lente la fetch di un salvataggio precedente può restare
-  // in volo abbastanza a lungo da sovrapporsi al prossimo autosave (4s dopo
-  // l'ultimo tratto, o il retry di un fallimento): senza questa guardia
-  // partiva un secondo saveNote() in parallelo, che rifà da capo genThumb()
-  // — sincrona e pesante — bloccando l'input proprio mentre si scrive.
-  // Le modifiche restano comunque marcate "sporche" e si ritentano appena
-  // finisce il salvataggio in corso.
-  if (S.saving) { S._resaveAfter = true; return; }
-  S.saving = true;
+// Immagini: sul server va solo {src (data URL), x, y, w, h}. L'elemento <img>
+// per disegnarle vive a parte: prima veniva serializzato come {} e le
+// immagini incollate sparivano al primo salvataggio.
+const plainImg = i => ({ src: i.src, x: i.x, y: i.y, w: i.w, h: i.h });
+function pagesForSave() {
+  return S.pages.map(p => ({
+    strokes:   p.strokes   || [],
+    textItems: p.textItems || [],
+    images:    (p.images || []).filter(i => i && i.src).map(plainImg),
+  }));
+}
+// Tutto il contenuto della nota aperta, pronto da mandare (senza anteprima e
+// senza la cronologia di annulla, che non serve sul server).
+function buildPayload() {
+  syncCurrentPage();
+  const pagesData = pagesForSave();
+  const cur = pagesData[S.curPage] || pagesData[0] || { strokes: [], textItems: [], images: [] };
+  return {
+    strokes: cur.strokes, images: cur.images, textItems: cur.textItems, grid: S.grid,
+    canvasText: pagesData.map(p => p.textItems.map(t => t.text).join(' ')).join(' '),
+    pagesData,
+  };
+}
+function currentTitle() {
+  let title = NTT.value.trim();
+  if (!title) { title = defaultNoteTitle(); NTT.value = title; }
+  return title;
+}
+
+// ── Copia locale delle modifiche ─────────────────────────
+// Ogni modifica finisce entro un secondo in IndexedDB, e ci resta finché il
+// server non l'ha salvata. Così niente si perde chiudendo la scheda subito
+// dopo aver scritto, senza rete o con la sessione scaduta.
+const draftKey = id => `${S.user.username}|${id}`;
+async function listLocal(store, prefix) {
+  try { return await LocalStore.list(store, prefix); } catch { return []; }
+}
+async function saveDraft(id, payload, title, rev, baseVersion) {
   try {
-    // Titolo automatico se vuoto (newNote() imposta già data/ora alla creazione,
-    // ma resta una rete di sicurezza per note create diversamente)
-    let title = NTT.value.trim();
-    if (!title) {
-      title = defaultNoteTitle();
-      NTT.value = title;
-    }
-    const thumbnail = genThumb();
-
-    // Estrai testo dal canvas (testo digitato)
-    // Salva testo di tutte le pagine per la ricerca FTS
-    syncCurrentPage();
-    const canvasText = S.pages.map(p => (p.textItems||[]).map(t=>t.text).join(' ')).join(' ');
-
-    // Il salvataggio può fallire (rete, sessione scaduta): senza controllo
-    // la nota risultava "salvata" e S.dirty veniva azzerato comunque, perdendo
-    // silenziosamente il lavoro.
-    setNetStatus('syncing');
-    try {
-      const rc = await fetch(`/api/notes/${S.curId}/content`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          strokes: S.strokes, images: S.imgs, thumbnail, grid: S.grid,
-          canvasText, textItems: S.textItems,
-          pagesData: S.pages
-        })
-      });
-      if (!rc.ok) throw new Error(`salvataggio contenuto: HTTP ${rc.status}`);
-
-      const rm = await fetch(`/api/notes/${S.curId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, grid: S.grid })
-      });
-      if (!rm.ok) throw new Error(`salvataggio titolo: HTTP ${rm.status}`);
-    } catch (e) {
-      setNetStatus('offline');
-      S.dirty = true;                      // resta sporca: si ritenta al prossimo giro
-      clearTimeout(S.autoSaveTimer);
-      S.autoSaveTimer = setTimeout(() => saveNote(true), 15000);
-      toast('⚠ Salvataggio non riuscito — riprovo tra poco');
-      console.error('saveNote:', e);
-      renderNL();
-      return false;
-    }
-    setNetStatus('online');
-
-    const idx = S.notes.findIndex(n => n.id === S.curId);
-    if (idx >= 0) {
-      S.notes[idx].title = title;
-      S.notes[idx].thumbnail = thumbnail;
-      S.notes[idx].grid = S.grid;
-      S.notes[idx].updated_at = new Date().toISOString();
-      const [note] = S.notes.splice(idx, 1);
-      S.notes.unshift(note);
-    }
-    renderNL();
-    S.dirty = false;
-    if (!silent) toast('✓ Salvato');
+    await LocalStore.put('drafts', { key: draftKey(id), noteId: id, payload, title, rev, baseVersion, at: Date.now() });
     return true;
-  } finally {
-    S.saving = false;
-    if (S._resaveAfter) { S._resaveAfter = false; scheduleAutoSave(); }
+  } catch (e) { console.warn('copia locale non salvata:', e); return false; }
+}
+async function dropDraft(id, rev) {
+  try {
+    const k = STASH + draftKey(id), st = JSON.parse(localStorage.getItem(k) || 'null');
+    if (st && (rev == null || st.rev <= rev)) localStorage.removeItem(k);
+  } catch {}
+  try {
+    const d = await LocalStore.get('drafts', draftKey(id));
+    if (d && (rev == null || d.rev <= rev)) await LocalStore.del('drafts', draftKey(id));
+  } catch {}
+}
+// Alla chiusura della scheda IndexedDB non fa in tempo (è asincrono e il
+// browser chiude prima): l'ultima copia va in localStorage, che scrive
+// subito. Al prossimo avvio passa in IndexedDB e da lì al server.
+const STASH = 'quetza-draft|';
+function stashDraftSync() {
+  if (!S.curId || !S.dirty || !S.user) return;
+  try {
+    localStorage.setItem(STASH + draftKey(S.curId), JSON.stringify({
+      key: draftKey(S.curId), noteId: S.curId, payload: buildPayload(), title: currentTitle(),
+      rev: S.rev, baseVersion: S.version, at: Date.now() }));
+  } catch (e) { console.warn('copia di emergenza non salvata:', e); }
+}
+async function adoptStashedDrafts() {
+  const pre = STASH + `${S.user.username}|`;
+  let keys = [];
+  try { keys = Object.keys(localStorage).filter(k => k.startsWith(pre)); } catch {}
+  for (const k of keys) {
+    try {
+      const d = JSON.parse(localStorage.getItem(k));
+      const cur = await LocalStore.get('drafts', d.key);
+      if (!cur || cur.rev < d.rev) await LocalStore.put('drafts', d);
+      localStorage.removeItem(k);
+    } catch {}                                     // senza IndexedDB resta dov'è
   }
 }
+function queueDraft() {
+  clearTimeout(S._draftT);
+  S._draftT = setTimeout(flushDraftNow, 1000);
+}
+function flushDraftNow() {
+  clearTimeout(S._draftT);
+  if (!S.curId || !S.dirty || !S.user) return Promise.resolve(false);
+  return saveDraft(S.curId, buildPayload(), currentTitle(), S.rev, S.version);
+}
+
+// Un solo salvataggio alla volta. Chi chiede di salvare mentre ce n'è uno in
+// volo riceve quella stessa promessa; le modifiche fatte nel frattempo
+// restano "sporche" e partono subito dopo.
+function saveNote(silent = false) {
+  if (!S.curId) return Promise.resolve(true);
+  if (S._saveP) { S._resaveAfter = true; return S._saveP; }
+  S._saveP = doSave(silent).finally(() => {
+    S._saveP = null;
+    if (S._resaveAfter) { S._resaveAfter = false; if (S.dirty) armAutoSave(300); }
+  });
+  return S._saveP;
+}
+// Prima di lasciare la nota: aspetta il salvataggio in corso e salva il resto.
+// true = sul server c'è tutto.
+async function flushSave() {
+  for (let i = 0; i < 3 && S.curId; i++) {
+    if (S._saveP) await S._saveP;
+    if (!S.dirty) return true;
+    if (!(await saveNote(true))) return false;
+  }
+  return !S.dirty;
+}
+
+async function doSave(silent) {
+  const noteId = S.curId, rev = S.rev, baseVersion = S.version;
+  const title = currentTitle();
+  const payload = buildPayload();
+  // Prima sul dispositivo, poi sul server
+  const local = await saveDraft(noteId, payload, title, rev, baseVersion);
+  const thumbnail = genThumb();
+  setNetStatus('syncing');
+  let rc;
+  try {
+    rc = await fetch(`/api/notes/${noteId}/content`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, thumbnail, baseVersion }),
+    });
+  } catch (e) { return saveFailed(noteId, local, e); }
+  if (rc.status === 409) return resolveConflict(noteId, payload, title, rev);
+  if (rc.status === 404) return recoverDeleted(noteId, payload, title, rev);
+  if (!rc.ok) return saveFailed(noteId, local, new Error(`HTTP ${rc.status}`), rc.status);
+  const saved = await rc.json().catch(() => ({}));
+  if (S.curId === noteId && saved.version) S.version = saved.version;
+
+  try {
+    const rm = await fetch(`/api/notes/${noteId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, grid: payload.grid })
+    });
+    if (!rm.ok) return saveFailed(noteId, local, new Error(`titolo: HTTP ${rm.status}`), rm.status);
+  } catch (e) { return saveFailed(noteId, local, e); }
+  setNetStatus('online');
+
+  const idx = S.notes.findIndex(n => n.id === noteId);
+  if (idx >= 0) {
+    S.notes[idx].title = title;
+    S.notes[idx].thumbnail = thumbnail;
+    S.notes[idx].grid = payload.grid;
+    S.notes[idx].updated_at = new Date().toISOString();
+    const [note] = S.notes.splice(idx, 1);
+    S.notes.unshift(note);
+  }
+  // Modifiche arrivate durante l'invio: la nota resta da salvare (e la copia
+  // locale, più recente, resta dov'è)
+  if (S.curId === noteId && S.rev === rev) S.dirty = false;
+  await dropDraft(noteId, rev);
+  renderNL();
+  if (!silent) toast('✓ Salvato');
+  return true;
+}
+
+function saveFailed(noteId, local, err, status) {
+  console.error('saveNote:', err);
+  if (status === 401 || status === 403) sessionLost();
+  else if (status === 413) { toast('⚠ Nota troppo grande per il server: togli qualche immagine. Le modifiche restano su questo dispositivo.', 9000); }
+  else setNetStatus('offline');
+  if (S.curId === noteId) { S.dirty = true; armAutoSave(15000); }
+  if (status !== 413) toast(local
+    ? '⚠ Non ancora salvata sul server: è al sicuro su questo dispositivo, riprovo tra poco'
+    : '⚠ Salvataggio non riuscito — riprovo tra poco. Non chiudere la pagina.', 5000);
+  renderNL();
+  return false;
+}
+
+// Nuova nota con un contenuto già pronto (copia di conflitto, recupero).
+// Ritorna { id, version } oppure null.
+async function createNoteWithContent(title, payload) {
+  try {
+    const r = await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) });
+    if (!r.ok) return null;
+    const n = await r.json();
+    const rc = await fetch(`/api/notes/${n.id}/content`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (!rc.ok) return null;
+    const saved = await rc.json().catch(() => ({}));
+    return { id: n.id, version: saved.version ?? null };
+  } catch { return null; }
+}
+
+// L'editor prosegue sulla copia appena creata con tutto quello che ha
+// davanti: niente viene ricaricato, quindi niente si perde di quanto scritto
+// mentre la copia veniva creata (rev diverso = c'è altro da salvare).
+// L'audio resta con la nota di prima.
+function continueOnCopy(copy, title, rev) {
+  S.curId = copy.id; S.version = copy.version;
+  NTT.value = title;
+  if (S.rev === rev) S.dirty = false; else { S.dirty = true; armAutoSave(500); }
+  if (!S.recOn) {
+    if (S.playing) stopAudio();
+    resetAudioUI();
+    S.whisperSegments = null;
+    updateTranscribeBtn();
+  }
+}
+
+const hhmm = () => new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+
+// Un altro dispositivo ha salvato questa nota nel frattempo. Nessuno dei due
+// lavori va perso: le modifiche di questo dispositivo diventano una nota a
+// parte e l'editor riapre la versione più recente.
+async function resolveConflict(noteId, payload, title, rev) {
+  const copyTitle = `${title} (conflitto ${hhmm()})`;
+  const copy = await createNoteWithContent(copyTitle, payload);
+  if (!copy) return saveFailed(noteId, true, new Error('copia di conflitto non creata'));
+  await dropDraft(noteId);
+  if (S.curId === noteId) continueOnCopy(copy, copyTitle, rev);
+  await loadNotes();
+  toast(`⚠ Nota modificata anche da un altro dispositivo: stai lavorando su "${copyTitle}", l'originale ha la versione dell'altro dispositivo`, 10000);
+  return true;
+}
+
+// La nota è stata eliminata da un altro dispositivo mentre era aperta qui:
+// il contenuto torna come nota nuova e l'editor passa su quella.
+async function recoverDeleted(noteId, payload, title, rev) {
+  const copyTitle = `${title} (recuperata)`;
+  const copy = await createNoteWithContent(copyTitle, payload);
+  if (!copy) return saveFailed(noteId, true, new Error('nota recuperata non creata'));
+  await dropDraft(noteId);
+  if (S.curId === noteId) continueOnCopy(copy, copyTitle, rev);
+  await loadNotes();
+  toast(`⚠ La nota era stata eliminata da un altro dispositivo: il tuo lavoro è in "${copyTitle}"`, 9000);
+  return true;
+}
+
+// Manda al server le modifiche rimaste sul dispositivo (scheda chiusa,
+// rete assente, sessione scaduta). onlyId = solo quella nota.
+async function syncDrafts(onlyId) {
+  if (!S.user || S._syncingDrafts) return;
+  S._syncingDrafts = true;
+  let recovered = 0, copies = 0;
+  try {
+    await adoptStashedDrafts();
+    const drafts = await listLocal('drafts', `${S.user.username}|`);
+    for (const d of drafts) {
+      if (onlyId ? d.noteId !== onlyId : d.noteId === S.curId) continue;
+      const body = JSON.stringify({ ...d.payload, baseVersion: d.baseVersion });
+      let r;
+      try { r = await fetch(`/api/notes/${d.noteId}/content`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body }); }
+      catch { break; }                                      // ancora senza rete
+      if (r.ok) {
+        await fetch(`/api/notes/${d.noteId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: d.title, grid: d.payload.grid }) }).catch(() => {});
+        await dropDraft(d.noteId, d.rev); recovered++;
+      } else if (r.status === 409) {
+        // Già sul server (la copia locale non era stata tolta)? Allora basta toglierla.
+        const srv = await fetch(`/api/notes/${d.noteId}`).then(x => x.ok ? x.json() : null).catch(() => null);
+        if (srv && JSON.stringify(srv.pages_data) === JSON.stringify(d.payload.pagesData)) { await dropDraft(d.noteId, d.rev); continue; }
+        if (await createNoteWithContent(`${d.title} (conflitto ${hhmm()})`, d.payload)) { await dropDraft(d.noteId, d.rev); copies++; }
+      } else if (r.status === 404) {
+        // Nota eliminata altrove: il contenuto torna come nota nuova
+        if (await createNoteWithContent(`${d.title} (recuperata)`, d.payload)) { await dropDraft(d.noteId, d.rev); recovered++; }
+      } else {
+        if (r.status === 401 || r.status === 403) sessionLost();
+        break;
+      }
+    }
+  } finally { S._syncingDrafts = false; }
+  if (recovered || copies) {
+    await loadNotes();
+    toast(copies
+      ? `⚠ Recuperate modifiche non salvate: ${copies} in copia perché la nota era cambiata altrove`
+      : `✓ Recuperate e salvate le modifiche rimaste su questo dispositivo (${recovered})`, 7000);
+  }
+}
+
+// Sessione scaduta o account disattivato: il lavoro resta sul dispositivo,
+// si rientra e la copia locale parte da sola.
+function sessionLost() {
+  S._sessionLost = true;
+  const ban = document.getElementById('AUTHBANNER');
+  if (!ban) return;
+  ban.classList.add('on');
+  // la copia locale è già scritta: niente avviso "modifiche non salvate"
+  ban.querySelector('a').onclick = async e => {
+    e.preventDefault();
+    await flushDraftNow(); await persistRecChunks();
+    S._leaving = true; location.href = '/login.html';
+  };
+}
+
+// Chiudere o ricaricare la scheda con qualcosa non ancora sul server
+window.addEventListener('beforeunload', e => {
+  if (S._leaving) return;
+  if (S.dirty || S._saveP || S.recOn || S._uploads > 0) {
+    stashDraftSync(); flushDraftNow();
+    e.preventDefault(); e.returnValue = '';
+  }
+});
+window.addEventListener('pagehide', () => { stashDraftSync(); flushDraftNow(); persistRecChunks(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'hidden') return;
+  if (S.dirty) { flushDraftNow(); saveNote(true); }
+  if (S.recOn) persistRecChunks();
+});
 
 // Anteprima con le proporzioni della card della libreria (3:4, parte alta
 // della pagina). Prima era 280×100: la pagina A4 ci entrava larga 70 px e
@@ -535,7 +795,7 @@ function buildNoteCard(n) {
   d.className = 'noteCard' + (n.id === S.curId ? ' on' : '');
   const date = new Date(n.updated_at||n.created_at).toLocaleDateString('it-IT',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
   d.innerHTML = `
-    <div class="thumb">${n.thumbnail ? `<img src="${n.thumbnail}" alt="">` : NOTE_ICON}</div>
+    <div class="thumb">${n.thumbnail ? `<img src="${esc(n.thumbnail)}" alt="">` : NOTE_ICON}</div>
     <div class="meta">
       <div class="title" title="${esc(n.title)} — doppio click per rinominare">${esc(n.title)}${isDirty?'<span class="dirty">●</span>':''}</div>
       <div class="date">${date}</div>
@@ -775,7 +1035,7 @@ function openSizePopover(anchor) {
   }), 0);
 }
 
-function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 // Accessori pagina corrente
 function curPg() { return S.pages[S.curPage] || (S.pages[S.curPage] = { strokes:[], textItems:[], images:[] }); }
@@ -976,7 +1236,7 @@ function redraw(hTs) {
   // Layer 2: strokes statici (offscreen, ridisegnati solo se cambiano)
   if (_strokeDirty) {
     _strokeCtx.clearRect(0, 0, PW, PH);
-    S.imgs.forEach(i => _strokeCtx.drawImage(i.el, i.x, i.y, i.w, i.h));
+    S.imgs.forEach(i => { const el = imgEl(i); if (el) _strokeCtx.drawImage(el, i.x, i.y, i.w, i.h); });
     drawSS(_strokeCtx, S.strokes || [], S.dark);
     _strokeDirty = false;
   }
@@ -1892,7 +2152,9 @@ function setupToolbar() {
   });
   setupColorPicker();
   SZR.onclick = () => openSizePopover(SZR);
-  GSL.onchange = () => { S.grid = GSL.value; markDirty('all'); redraw(); };
+  GSL.onchange = () => { S.grid = GSL.value; markDirty('all'); redraw(); scheduleAutoSave(); };
+  // Il titolo cambiato nell'editor partiva solo insieme a un tratto
+  NTT.addEventListener('input', () => { if (S.curId) scheduleAutoSave(); });
 
   // Barra audio nascosta di default — questo pulsante la richiama/nasconde
   document.getElementById('AUDIOTOGGLE').onclick = () => {
@@ -1926,10 +2188,12 @@ function setupToolbar() {
     if (S.undo.length < 2) { S.strokes = []; S.undo = []; }
     else { S.undo.pop(); S.strokes = [...S.undo[S.undo.length-1]]; }
     markDirty('strokes'); redraw(); if (S.aBuf) drawTL();
+    scheduleAutoSave();
   };
   document.getElementById('RDB').onclick = () => {
     if (!S.redo.length) return;
     S.strokes = [...S.redo.pop()]; S.undo.push([...S.strokes]); markDirty('strokes'); redraw(); if (S.aBuf) drawTL();
+    scheduleAutoSave();
   };
   document.getElementById('SRB').onclick = () => {
     S.shapeRecog = !S.shapeRecog;
@@ -1940,7 +2204,7 @@ function setupToolbar() {
   };
   document.getElementById('CLB').onclick = () => {
     if (!confirm('Cancellare tutto il contenuto della nota?')) return;
-    S.undo.push([...S.strokes]); S.strokes = []; S.imgs = []; markDirty('all'); redraw(); toast('Canvas pulita');
+    S.undo.push([...S.strokes]); S.strokes = []; S.imgs = []; markDirty('all'); redraw(); scheduleAutoSave(); toast('Canvas pulita');
   };
   document.getElementById('SVB').onclick = () => saveNote(false);
 
@@ -2129,10 +2393,15 @@ function setupLibrary() {
   document.getElementById('BACKB').onclick = async () => {
     if (S.recOn) stopRec();
     if (S.playing) stopAudio();
-    if (S.dirty) await saveNote(true);
-    S.curId = null; S.strokes = []; S.textItems = [];
+    const onServer = await flushSave();
+    if (!onServer) {
+      const kept = await flushDraftNow();
+      if (!kept && !confirm('La nota non è stata salvata e non è stato possibile tenerne una copia su questo dispositivo: uscendo le ultime modifiche andranno perse. Uscire comunque?')) return;
+    }
+    leaveNote();
     showLibrary();
     renderNL();
+    if (!onServer) toast('⚠ Nota non ancora sul server: è al sicuro su questo dispositivo e la invio appena possibile', 6000);
   };
 
   // Ordinamento
@@ -2183,7 +2452,7 @@ function setupLibrary() {
   // Import
   document.getElementById('importFile').onchange = async (e) => {
     const file = e.target.files[0]; if (!file) return;
-    if (!confirm(`Importare "${file.name}"? Le note con lo stesso ID verranno sovrascritte.`)) return;
+    if (!confirm(`Importare "${file.name}"? Le note che hai già restano come sono, a meno che quella nell'archivio sia più recente.`)) return;
     toast('⏳ Importazione in corso…');
     try {
       const fd = new FormData(); fd.append('archive', file);
@@ -2191,20 +2460,60 @@ function setupLibrary() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error);
       await loadNotes();
-      toast(`✓ Importate ${d.imported} note${d.skipped ? ', ' + d.skipped + ' saltate' : ''}`);
+      toast(`✓ Importate ${d.imported} note${d.unchanged ? ', ' + d.unchanged + ' già aggiornate' : ''}${d.skipped ? ', ' + d.skipped + ' saltate' : ''}`);
     } catch(e) { toast('⚠ Errore import: ' + e.message); }
     e.target.value = '';
   };
 
   document.getElementById('logoutB').onclick = async () => {
     if (S.recOn) stopRec();
-    await saveNote();
-    await fetch('/api/logout', { method: 'POST' });
+    const onServer = await flushSave();
+    if (!onServer || S._uploads > 0) {
+      if (!confirm('Alcune modifiche o registrazioni non sono ancora sul server. Restano su questo dispositivo e partono al prossimo accesso. Uscire comunque?')) return;
+    }
+    S._leaving = true;
+    await fetch('/api/logout', { method: 'POST' }).catch(() => {});
     window.location.href = '/login.html';
   };
 }
 
-// ── Paste image ───────────────────────────────────────────
+// ── Immagini ──────────────────────────────────────────────
+// L'immagine si salva come data URL in "src"; l'elemento <img> per disegnarla
+// si crea alla prima occorrenza e si tiene fuori dai dati della nota.
+const IMG_EL = new WeakMap();
+function imgEl(i) {
+  if (!i || !i.src) return null;                 // note vecchie: immagini mai salvate
+  let el = IMG_EL.get(i);
+  if (!el) {
+    el = new Image();
+    el.onload = () => { markDirty('all'); redraw(); };
+    el.src = i.src;
+    IMG_EL.set(i, el);
+  }
+  return el.complete && el.naturalWidth ? el : null;
+}
+function imgReady(i) {
+  const el = imgEl(i);
+  if (el || !i?.src) return Promise.resolve();
+  const e = IMG_EL.get(i);
+  return new Promise(res => { e.addEventListener('load', res, { once: true }); e.addEventListener('error', res, { once: true }); });
+}
+// Foto grandi ridotte a 2000 px di lato: restano nitide sul foglio A4 senza
+// mandare decine di MB a ogni salvataggio.
+function blobToDataUrl(blob) {
+  return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(fr.error); fr.readAsDataURL(blob); });
+}
+async function imageSrcFor(blob, img) {
+  const MAX = 2000;
+  if (blob.size <= 1.5 * 1024 * 1024 && Math.max(img.naturalWidth, img.naturalHeight) <= MAX) return blobToDataUrl(blob);
+  const k = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement('canvas');
+  c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+  g.drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.85);
+}
 async function pasteImg() {
   try {
     const items = await navigator.clipboard.read();
@@ -2214,9 +2523,12 @@ async function pasteImg() {
           const blob = await item.getType(type);
           const url = URL.createObjectURL(blob);
           const img = new Image();
-          img.onload = () => {
-            S.imgs.push({ el: img, x: 40, y: 40 + CO.scrollTop/S.zoom, w: Math.min(img.naturalWidth, PW-80), h: img.naturalHeight*(Math.min(img.naturalWidth, PW-80)/img.naturalWidth) });
-            redraw(); toast('Immagine incollata');
+          img.onload = async () => {
+            const src = await imageSrcFor(blob, img);
+            URL.revokeObjectURL(url);
+            const w = Math.min(img.naturalWidth, PW-80);
+            S.imgs.push({ src, x: 40, y: 40 + CO.scrollTop/S.zoom, w, h: img.naturalHeight * (w / img.naturalWidth) });
+            markDirty('all'); redraw(); scheduleAutoSave(); toast('Immagine incollata');
           };
           img.src = url; return;
         }
@@ -2234,7 +2546,10 @@ async function pasteImg() {
 function exportPDF(withGrid) {
   if (!window.jspdf?.jsPDF) { toast('⚠ Libreria PDF non caricata'); return; }
   toast('⏳ Generazione PDF…');
-  setTimeout(() => {
+  // Le immagini di pagine mai aperte vanno caricate prima di disegnarle
+  syncCurrentPage();
+  const imagesReady = Promise.all(S.pages.flatMap(pg => (pg.images || []).map(imgReady)));
+  imagesReady.then(() => setTimeout(() => {
     try {
       // Allinea la pagina corrente allo stato di S.pages prima di esportare
       syncCurrentPage();
@@ -2250,7 +2565,7 @@ function exportPDF(withGrid) {
         oc.fillStyle = '#fff'; oc.fillRect(0, 0, PW, PH);
         if (withGrid) drawGrid(oc, false);   // sempre in versione chiara sul PDF
 
-        (pg.images || []).forEach(i => { if (i.el) oc.drawImage(i.el, i.x, i.y, i.w, i.h); });
+        (pg.images || []).forEach(i => { const el = imgEl(i); if (el) oc.drawImage(el, i.x, i.y, i.w, i.h); });
         drawSS(oc, pg.strokes || []);
         (pg.textItems || []).forEach(ti => {
           oc.font = `${ti.size||18}px 'Segoe UI',system-ui,sans-serif`;
@@ -2264,7 +2579,7 @@ function exportPDF(withGrid) {
       pdf.save(`${(NTT.value||'quetza').replace(/[^a-z0-9]/gi,'_')}.pdf`);
       toast(`✓ PDF esportato (${S.pages.length} pagine)`);
     } catch(e) { toast('⚠ Errore export: ' + e.message); console.error(e); }
-  }, 100);
+  }, 100));
 }
 
 // ── Network status ───────────────────────────────────────
@@ -2280,6 +2595,14 @@ async function checkServerReach() {
   try {
     const r = await fetch('/api/me', { method: 'GET', cache: 'no-store' });
     setNetStatus((r.ok || r.status === 401 || r.status === 403) ? 'online' : 'offline');
+    if (r.status === 401) sessionLost();
+    else if (r.ok && S._sessionLost) {
+      // Rientrato (anche da un'altra scheda): si riparte a salvare
+      S._sessionLost = false;
+      document.getElementById('AUTHBANNER')?.classList.remove('on');
+      syncDrafts().then(retryRecordings);
+      if (S.dirty) saveNote(true);
+    }
   } catch { setNetStatus('offline'); }
 }
 
@@ -2342,10 +2665,90 @@ function updatePageNav() {
 function startNetMonitor() {
   checkServerReach();
   setInterval(checkServerReach, 15000);
+  // Ogni 30 s si riprova a mandare quello che è rimasto sul dispositivo
+  setInterval(() => { if (navigator.onLine && !S._sessionLost) syncDrafts().then(retryRecordings); }, 30000);
 }
 
-window.addEventListener('online',  () => checkServerReach());
+window.addEventListener('online',  () => { checkServerReach(); syncDrafts().then(retryRecordings); if (S.dirty) saveNote(true); });
 window.addEventListener('offline', () => setNetStatus('offline'));
+
+// ── Registrazioni al sicuro sul dispositivo ──────────────
+// Ogni 3 s i pezzi nuovi della registrazione vanno in IndexedDB: se la scheda
+// si chiude, il tablet si spegne o l'invio fallisce, l'audio resta qui e
+// parte al prossimo giro (retryRecordings).
+async function saveRecMeta(rec, state) {
+  try { await LocalStore.put('recs', { key: rec.key, noteId: rec.noteId, mime: rec.mime, state, at: Date.now() }); }
+  catch (e) { console.warn('registrazione non copiata sul dispositivo:', e); }
+}
+function persistRecChunks(rec = S._rec) {
+  if (!rec || !S._recChunks) return Promise.resolve();
+  // un giro alla volta, nell'ordine
+  rec.saving = (rec.saving || Promise.resolve()).then(async () => {
+    const parts = S._recChunks.slice(rec.persisted);
+    if (!parts.length) return;
+    rec.persisted += parts.length;
+    const seq = String(rec.seq++).padStart(6, '0');
+    try {
+      await LocalStore.put('recParts', { key: `${rec.key}|${seq}`, blob: new Blob(parts, { type: rec.mime }) });
+      await LocalStore.put('recs', { key: rec.key, noteId: rec.noteId, mime: rec.mime, state: S._rec === rec ? 'recording' : 'pending', at: Date.now() });
+    } catch (e) { console.warn('pezzo di registrazione non copiato:', e); }
+  });
+  return rec.saving;
+}
+async function dropRecording(key) {
+  try { await LocalStore.delPrefix('recParts', `${key}|`); await LocalStore.del('recs', key); } catch {}
+}
+// true = il server ha l'audio (e la copia locale è stata tolta)
+async function uploadRecording(rec, blob) {
+  S._uploads = (S._uploads || 0) + 1;
+  try {
+    const ext = rec.mime.includes('mp4') ? 'mp4' : 'webm';
+    const send = async (noteId) => {
+      const fd = new FormData();
+      fd.append('audio', blob, `session.${ext}`);
+      return fetch(`/api/notes/${noteId}/audio`, { method: 'POST', body: fd });
+    };
+    let r = await send(rec.noteId).catch(() => null);
+    if (r && r.status === 404) {
+      // Nota eliminata nel frattempo: l'audio diventa una nota nuova
+      const nr = await fetch('/api/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: `Registrazione recuperata ${hhmm()}`, voiceFirst: true }) }).catch(() => null);
+      if (nr?.ok) { rec.noteId = (await nr.json()).id; r = await send(rec.noteId).catch(() => null); }
+    }
+    if (!r || !r.ok) { if (r && (r.status === 401 || r.status === 403)) sessionLost(); return false; }
+    await dropRecording(rec.key);
+    const idx = S.notes.findIndex(n => n.id === rec.noteId);
+    if (idx >= 0) S.notes[idx].has_audio = 1; else loadNotes();
+    renderNL();
+    return true;
+  } finally { S._uploads--; }
+}
+// Registrazioni rimaste sul dispositivo: invio fallito, oppure scheda chiusa
+// o dispositivo spento mentre si registrava.
+async function retryRecordings() {
+  if (!S.user || S._retryingRecs) return;
+  S._retryingRecs = true;
+  let sent = 0;
+  try {
+    const recs = await listLocal('recs', `${S.user.username}|`);
+    for (const m of recs) {
+      if (S._rec && S._rec.key === m.key) continue;                     // in corso qui
+      if (m.state === 'recording' && Date.now() - m.at < 60000) continue; // in corso in un'altra scheda
+      const work = async () => {
+        const parts = await listLocal('recParts', `${m.key}|`);
+        if (!parts.length) { await dropRecording(m.key); return; }
+        parts.sort((a, b) => a.key < b.key ? -1 : 1);
+        const blob = new Blob(parts.map(p => p.blob), { type: m.mime });
+        await saveRecMeta(m, 'pending');
+        if (await uploadRecording({ key: m.key, noteId: m.noteId, mime: m.mime }, blob)) sent++;
+      };
+      // Con più schede aperte una sola manda la stessa registrazione
+      if (navigator.locks) await navigator.locks.request(`quetza-rec-${m.key}`, { ifAvailable: true }, lock => lock && work());
+      else await work();
+    }
+  } finally { S._retryingRecs = false; }
+  if (sent) toast(`✓ ${sent === 1 ? 'Una registrazione rimasta' : sent + ' registrazioni rimaste'} sul dispositivo ora è sul server`, 6000);
+}
 
 async function startRec() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -2368,6 +2771,12 @@ async function startRec() {
     S._pauseStart = null;
     S._recChunks = []; // accumula chunk in memoria — unione corretta a fine sessione
     S._recMime = mimeType || 'audio/webm';
+    // La registrazione appartiene alla nota su cui è partita, anche se nel
+    // frattempo si torna alla libreria o si apre un'altra nota.
+    S._rec = { key: `${S.user.username}|${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+               noteId: S.curId, mime: S._recMime, seq: 0, persisted: 0, saving: null };
+    await saveRecMeta(S._rec, 'recording');
+    S._recPersistT = setInterval(persistRecChunks, 3000);
 
     S.mr.ondataavailable = e => {
       if (e.data.size > 0) S._recChunks.push(e.data);
@@ -2437,21 +2846,29 @@ function stopRec() {
 async function onRecStop() {
   toast('⏳ Salvataggio audio…');
   if (!S.aCtx) S.aCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const rec = S._rec; S._rec = null;
+  clearInterval(S._recPersistT);
 
   try {
     // Crea il blob della nuova sessione nel formato nativo del browser
     const newBlob = new Blob(S._recChunks, { type: S._recMime });
-    const ext = S._recMime.includes('mp4') ? 'mp4' : 'webm';
 
-    // Carica sul server come nuova sessione (non sovrascrive le precedenti)
-    if (S.curId) {
-      const fd = new FormData();
-      fd.append('audio', newBlob, `session.${ext}`);
-      await fetch(`/api/notes/${S.curId}/audio`, { method: 'POST', body: fd });
-      const idx = S.notes.findIndex(n => n.id === S.curId);
-      if (idx >= 0) S.notes[idx].has_audio = 1;
-      renderNL();
+    // Prima tutto sul dispositivo, poi sul server come nuova sessione (non
+    // sovrascrive le precedenti). Prima la risposta non veniva guardata:
+    // con un errore del server compariva "Registrazione salvata" e l'audio
+    // spariva alla chiusura della pagina.
+    let uploaded = false;
+    if (rec) {
+      await persistRecChunks(rec);
+      await saveRecMeta(rec, 'pending');
+      uploaded = await uploadRecording(rec, newBlob);
+      if (!uploaded) {
+        toast('⚠ Registrazione non ancora sul server: è al sicuro su questo dispositivo, riprovo tra poco', 7000);
+        setTimeout(retryRecordings, 20000);
+      }
     }
+    // Il lettore si aggiorna solo se si è ancora sulla nota della registrazione
+    if (!rec || rec.noteId !== S.curId) { if (uploaded) toast('✓ Registrazione salvata'); return; }
 
     // Decodifica la nuova sessione e aggiorna il player con tutte le sessioni concatenate
     const newAb  = await newBlob.arrayBuffer();
@@ -2462,9 +2879,10 @@ async function onRecStop() {
     AB.dataset.state = 'playback';
     drawWave(0); updAT(0);
     TSel.classList.add('on'); drawTL(0);
+    if (!uploaded) return;
     toast('✓ Registrazione salvata');
     // Auto-trascrizione in background
-    autoTranscribe();
+    autoTranscribe(rec.noteId);
   } catch(e) {
     console.error('onRecStop error:', e);
     toast('⚠ Errore: ' + e.message);
@@ -2634,9 +3052,9 @@ function showMP(m) {
   clearTimeout(mpT); mpT = setTimeout(()=>{ MP.style.opacity='0'; }, 1000);
 }
 let tT = null;
-function toast(msg) {
+function toast(msg, ms = 2400) {
   TT.textContent = msg; TT.classList.add('on');
-  clearTimeout(tT); tT = setTimeout(()=>TT.classList.remove('on'), 2400);
+  clearTimeout(tT); tT = setTimeout(()=>TT.classList.remove('on'), ms);
 }
 
 // ── Selezione ────────────────────────────────────────────
@@ -2803,7 +3221,8 @@ function renderFTSResults(results, q) {
     if (r.snippet) {
       const sn = document.createElement('div');
       sn.className = 'snippet';
-      sn.innerHTML = r.snippet;
+      // il testo della nota è testo: solo gli evidenziatori diventano <mark>
+      sn.innerHTML = esc(r.snippet).replace(/\u0001/g, '<mark>').replace(/\u0002/g, '</mark>');
       d.querySelector('.meta').appendChild(sn);
     }
     el.appendChild(d);
@@ -2893,23 +3312,23 @@ function showTranscriptPanel(data) {
 }
 
 // ── Auto-trascrizione ────────────────────────────────────
-async function autoTranscribe() {
-  if (!S.curId) return;
+async function autoTranscribe(noteId = S.curId) {
+  if (!noteId) return;
   S.whisperPending = true;
   updateTranscribeBtn();
 
   try {
     // Chiama endpoint async (risponde subito 202, processa in background)
-    await fetch(`/api/notes/${S.curId}/transcribe-async`, { method: 'POST' });
+    await fetch(`/api/notes/${noteId}/transcribe-async`, { method: 'POST' });
 
     // Polling ogni 5s finché la trascrizione non è pronta (max 10 minuti)
     let attempts = 0;
     const poll = setInterval(async () => {
       attempts++;
       if (attempts > 120) { clearInterval(poll); S.whisperPending = false; updateTranscribeBtn(); return; }
-      if (S.curId === null) { clearInterval(poll); return; }
+      if (S.curId !== noteId) { clearInterval(poll); S.whisperPending = false; return; }
       try {
-        const r = await fetch(`/api/notes/${S.curId}/transcript`);
+        const r = await fetch(`/api/notes/${noteId}/transcript`);
         if (!r.ok) return;
         const d = await r.json();
         if (d.has_transcript && d.text) {
