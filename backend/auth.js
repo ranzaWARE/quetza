@@ -3,7 +3,18 @@ const db   = require('./db');
 const { Agent } = require('undici');
 
 // ── LDAP ──────────────────────────────────────────────────────
+// Escape dei valori nei filtri LDAP (RFC 4515). ldapjs 3 non esporta più
+// escapeFilter: chiamarlo lanciava un TypeError dentro il callback di bind,
+// quindi ogni login LDAP falliva (e l'eccezione non gestita poteva
+// abbattere il processo).
+function escapeLdapFilter(value) {
+  return String(value).replace(/[\\*()\0]/g, c => '\\' + c.charCodeAt(0).toString(16).padStart(2, '0'));
+}
+
 async function ldapAuthenticate(username, password) {
+  // Un bind con password vuota è un "unauthenticated bind": molti AD lo
+  // accettano come successo. Va rifiutato prima di contattare il server.
+  if (!username || !password) throw new Error('Credenziali non valide');
   const cfg = {
     url:          db.getSetting('ldap_url')         || process.env.LDAP_URL,
     bindDN:       db.getSetting('ldap_bind_dn')     || process.env.LDAP_BIND_DN,
@@ -19,7 +30,7 @@ async function ldapAuthenticate(username, password) {
     adminClient.on('error', err => reject(new Error(`LDAP connection: ${err.message}`)));
     adminClient.bind(cfg.bindDN, cfg.bindPassword, err => {
       if (err) { adminClient.destroy(); return reject(new Error(`LDAP bind: ${err.message}`)); }
-      const filter = cfg.searchFilter.replace('{{username}}', ldap.escapeFilter(username));
+      const filter = cfg.searchFilter.replace('{{username}}', escapeLdapFilter(username));
       adminClient.search(cfg.searchBase, { filter, scope: 'sub', attributes: ['dn','sAMAccountName','displayName','mail','cn'] }, (err, res) => {
         if (err) { adminClient.destroy(); return reject(new Error(`LDAP search: ${err.message}`)); }
         let userEntry = null;
@@ -37,20 +48,39 @@ async function ldapAuthenticate(username, password) {
             userClient.destroy();
             if (err) return reject(new Error('Password non valida'));
             const uname = get('sAMAccountName') || username;
-            // Sincronizza utente nel DB locale (per potergli assegnare is_admin).
-            // source='ldap' → nessun hash locale, non può fare login locale.
-            const existing = db.getUserByUsername(uname);
-            if (!existing) {
-              try { db.createUser(uname, null, get('displayName')||get('cn')||uname, 0, 'ldap'); } catch {}
-            }
-            db.touchLogin(uname);
-            const dbUser = db.getUserByUsername(uname);
-            resolve({ username: uname, displayName: get('displayName')||get('cn')||uname, email: get('mail')||'', source:'ldap', is_admin: dbUser?.is_admin||0 });
+            const displayName = get('displayName') || get('cn') || uname;
+            let dbUser;
+            try { dbUser = syncExternalUser(uname, displayName, 'ldap'); }
+            catch (e) { return reject(e); }
+            resolve({ username: uname, displayName, email: get('mail')||'', source:'ldap', is_admin: dbUser.is_admin||0 });
           });
         });
       });
     });
   });
+}
+
+// Utente arrivato da LDAP o SSO: lo si registra nel DB locale al primo
+// accesso (serve per assegnargli is_admin). Senza password locale, quindi
+// non può entrare dal tab "Locale".
+// Due controlli che prima mancavano:
+//  - un utente disattivato dall'admin non deve poter entrare da LDAP/SSO;
+//  - uno username esterno uguale a un account di altra origine (es. "admin"
+//    locale) non deve ereditarne i permessi.
+function syncExternalUser(username, displayName, source) {
+  let u = db.getUserByUsername(username);
+  if (!u) {
+    try { db.createUser(username, null, displayName || username, 0, source); } catch {}
+    u = db.getUserByUsername(username);
+  }
+  if (!u) throw new Error('Impossibile registrare l\'utente');
+  if (u.source !== source) {
+    console.warn(`[auth] "${username}" da ${source} coincide con un account ${u.source}: accesso negato`);
+    throw new Error('Account già esistente con un altro metodo di accesso');
+  }
+  if (!u.is_active) throw new Error('Account disattivato');
+  db.touchLogin(username);
+  return u;
 }
 
 // ── OIDC (provider generico: Keycloak, Entra ID, Authentik, ...) ─────
@@ -164,4 +194,4 @@ async function authenticate(username, password, method) {
   }
 }
 
-module.exports = { authenticate, getOidcConfig, oidcDiscover, oidcFetchOptions, isAcceptedIssuer, ldapAuthenticate, localAuthenticate, hasLocalCredentials };
+module.exports = { authenticate, escapeLdapFilter, syncExternalUser, getOidcConfig, oidcDiscover, oidcFetchOptions, isAcceptedIssuer, ldapAuthenticate, localAuthenticate, hasLocalCredentials };

@@ -169,7 +169,7 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)
       </div>
       <hr class="section-sep">
       <div class="form-row">
-        <div class="form-group"><label>Issuer URL</label><input type="url" id="oidcIssuer" placeholder="https://sso.example.com/realms/graphimecc"></div>
+        <div class="form-group"><label>Issuer URL</label><input type="url" id="oidcIssuer" placeholder="https://sso.azienda.local/realms/azienda"></div>
         <div class="form-group"><label>Client ID</label><input type="text" id="oidcClientId" placeholder="quetza"></div>
       </div>
       <div class="form-row">
@@ -177,7 +177,7 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)
         <div class="form-group"><label>Redirect URI</label><input type="url" id="oidcRedirectUri" placeholder="https://quetza.example.com/auth/callback"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>URL interno dell'issuer (opzionale)</label><input type="url" id="oidcInternalUrl" placeholder="http://192.168.1.x:8080/realms/graphimecc"></div>
+        <div class="form-group"><label>URL interno dell'issuer (opzionale)</label><input type="url" id="oidcInternalUrl" placeholder="http://192.168.1.x:8080/realms/azienda"></div>
         <div class="form-group"><label>&nbsp;</label><span class="toggle-desc">Usato dal server per discovery e token se l'Issuer pubblico non è raggiungibile dal container. Vuoto = Issuer.</span></div>
       </div>
       <div class="toggle-row">
@@ -205,12 +205,12 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)
       </div>
       <hr class="section-sep">
       <div class="form-row">
-        <div class="form-group"><label>URL Server LDAP</label><input type="url" id="ldapUrl" placeholder="ldap://dc.graphimecc.local"></div>
+        <div class="form-group"><label>URL Server LDAP</label><input type="url" id="ldapUrl" placeholder="ldap://dc.azienda.local"></div>
         <div class="form-group"><label>Bind DN</label><input type="text" id="ldapBindDn" placeholder="CN=svc-quetza,OU=Service,DC=..."></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>Bind Password</label><input type="password" id="ldapBindPass" placeholder="••••••••"></div>
-        <div class="form-group"><label>Search Base</label><input type="text" id="ldapSearchBase" placeholder="DC=graphimecc,DC=local"></div>
+        <div class="form-group"><label>Search Base</label><input type="text" id="ldapSearchBase" placeholder="DC=azienda,DC=local"></div>
       </div>
       <div class="form-group" style="margin-bottom:12px"><label>Search Filter</label><input type="text" id="ldapFilter" placeholder="(sAMAccountName={{username}})"></div>
       <div class="toggle-row">
@@ -588,7 +588,8 @@ async function doImport(input) {
   const r = await fetch('/api/admin/import',{method:'POST',body:fd});
   const d = await r.json();
   if (!r.ok) return alert_('importAlert', d.error);
-  alert_('importAlert',`✓ Importate ${d.imported} note, ${d.usersImported||0} nuovi utenti`,'success');
+  const noPw = d.usersWithoutPassword ? ` — ${d.usersWithoutPassword} account locali senza password: impostala dal tab Utenti (Reset password)` : '';
+  alert_('importAlert',`✓ Importate ${d.imported} note, ${d.usersImported||0} nuovi utenti${noPw}`,'success');
   await load();
   input.value='';
 }

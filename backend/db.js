@@ -1,8 +1,11 @@
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'quetza.db');
+// Senza Docker la cartella data/ non esiste al primo avvio
+fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 const db = new Database(DB_PATH);
 
 db.pragma('journal_mode = WAL');
@@ -434,6 +437,10 @@ function asJsonText(v, fallback) {
   return JSON.stringify(v);
 }
 
+function getNoteOwner(id) {
+  return db.prepare(`SELECT username FROM notes WHERE id = ?`).get(id)?.username || null;
+}
+
 function upsertNoteFromImport(id, username, note) {
   db.prepare(`
     INSERT INTO notes (id, username, title, strokes, images, thumbnail, grid, has_audio,
@@ -446,6 +453,7 @@ function upsertNoteFromImport(id, username, note) {
       pages_data=excluded.pages_data, whisper_text=excluded.whisper_text,
       whisper_segments=excluded.whisper_segments, voice_first=excluded.voice_first,
       updated_at=excluded.updated_at
+    WHERE notes.username = excluded.username
   `).run(id, username, note.title||'Senza titolo',
     asJsonText(note.strokes, '[]'), asJsonText(note.images, '[]'),
     note.thumbnail||null, note.grid||'lines', note.has_audio?1:0,
@@ -479,7 +487,7 @@ module.exports = {
   getUsers, getUserByUsername, createUser, updateUser, resetPassword, deleteUser,
   countAdmins, verifyPassword, touchLogin, hashPassword, mustChangePassword,
   // settings
-  getSetting, setSetting, getAllSettings,
+  getSetting, setSetting, getAllSettings, getNoteOwner,
   // notes
   getNotesByUser, getNoteById, createNote, updateNoteMeta, saveContent, deleteNote,
   saveWhisperText, searchNotes, rebuildFts,

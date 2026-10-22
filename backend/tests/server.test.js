@@ -154,6 +154,124 @@ process.env.TRUST_PROXY = '0';
         (await fetch(`${BASE}/api/shared/${share.token}`)).status === 404);
   const share2 = await (await req('POST', `/api/notes/${note.id}/share`, { expires: null })).json();
 
+  section('Sicurezza: sessione, import, impostazioni, utenti');
+  check('/healthz risponde senza login', (await fetch(`${BASE}/healthz`)).ok);
+  r = await fetch(`${BASE}/login.html`);
+  check('intestazioni di sicurezza presenti',
+        r.headers.get('x-content-type-options') === 'nosniff' && r.headers.get('x-frame-options') === 'SAMEORIGIN');
+
+  // Login con una sessione già aperta: l'id deve cambiare e il vecchio non vale più
+  const oldCookie = cookie;
+  r = await req('POST', '/api/login', { username: 'admin', password: 'nuovaPassword1', method: 'local' });
+  check('il login rigenera l\'id di sessione', r.ok && cookie && cookie !== oldCookie);
+  const adminCookie = cookie;
+  cookie = oldCookie;
+  check('la sessione precedente al login non è più valida', (await req('GET', '/api/notes')).status === 401);
+  cookie = adminCookie;
+
+  r = await req('POST', '/api/admin/settings', { session_secret: 'x' });
+  check('impostazioni: chiave sconosciuta rifiutata', r.status === 400, r.status);
+  r = await req('POST', '/api/admin/settings', { whisper_model: { a: 1 } });
+  check('impostazioni: valore non semplice rifiutato', r.status === 400, r.status);
+  r = await req('POST', '/api/admin/settings', { whisper_model: 'tiny' });
+  check('impostazioni: chiave valida salvata', r.ok, r.status);
+
+  r = await req('POST', '/api/admin/users', { username: 'mario', password: 'passwordMario1', displayName: 'Mario' });
+  check('utente mario creato', r.ok, r.status);
+  cookie = '';
+  await req('POST', '/api/login', { username: 'mario', password: 'passwordMario1', method: 'local' });
+  const marioCookie = cookie;
+
+  // mario importa un archivio che contiene l'id di una nota di admin
+  const evil = new AdmZip();
+  evil.addFile('manifest.json', Buffer.from(JSON.stringify([{ id: note.id, title: 'sovrascritta', strokes: [], pages_data: [] }])));
+  const efd = new FormData();
+  efd.append('archive', new Blob([evil.toBuffer()], { type: 'application/zip' }), 'x.zip');
+  r = await req('POST', '/api/import', efd);
+  const eimp = await r.json();
+  check('import con id altrui → importata come copia', r.ok && eimp.copies === 1, JSON.stringify(eimp));
+  const mine = await (await req('GET', '/api/notes')).json();
+  check('la copia è di mario, con un id nuovo', mine.length === 1 && mine[0].id !== note.id && mine[0].title === 'sovrascritta');
+  cookie = adminCookie;
+  const orig = await (await req('GET', `/api/notes/${note.id}`)).json();
+  check('la nota di admin non è stata toccata', orig.title === 'Riunione', orig.title);
+
+  r = await req('PATCH', '/api/admin/users/mario', { isActive: false });
+  check('mario disattivato', r.ok);
+  cookie = marioCookie;
+  check('la sessione di un utente disattivato perde l\'accesso', (await req('GET', '/api/notes')).status === 401);
+  cookie = adminCookie;
+
+  const auth = require('../auth');
+  check('escape del filtro LDAP (RFC 4515)', auth.escapeLdapFilter('a*(b)\\') === 'a\\2a\\28b\\29\\5c');
+  let blocked2 = false;
+  try { auth.syncExternalUser('admin', 'Finto admin', 'ldap'); } catch { blocked2 = true; }
+  check('un utente LDAP/SSO non eredita l\'account locale con lo stesso nome', blocked2);
+  let noEmpty = false;
+  try { await auth.ldapAuthenticate('admin', ''); } catch { noEmpty = true; }
+  check('LDAP: password vuota rifiutata senza contattare il server', noEmpty);
+
+  section('SSO / OIDC con un provider finto (PKCE, nonce, aud)');
+  {
+    const http = require('http');
+    const crypto = require('crypto');
+    let lastTokenReq = null, idClaims = {};
+    const prov = http.createServer((q, s2) => {
+      const iss = `http://127.0.0.1:${prov.address().port}/realms/test`;
+      if (q.url.endsWith('/.well-known/openid-configuration')) {
+        s2.setHeader('Content-Type', 'application/json');
+        return s2.end(JSON.stringify({ issuer: iss, authorization_endpoint: `${iss}/auth`, token_endpoint: `${iss}/token` }));
+      }
+      if (q.url.endsWith('/token')) {
+        let b = ''; q.on('data', c => b += c); q.on('end', () => {
+          lastTokenReq = new URLSearchParams(b);
+          const enc = o => Buffer.from(JSON.stringify(o)).toString('base64url');
+          s2.setHeader('Content-Type', 'application/json');
+          s2.end(JSON.stringify({ id_token: `${enc({ alg: 'RS256' })}.${enc({ iss, aud: 'quetza', exp: Date.now() / 1000 + 300, ...idClaims })}.firma` }));
+        });
+        return;
+      }
+      s2.statusCode = 404; s2.end();
+    });
+    await new Promise(r => prov.listen(0, '127.0.0.1', r));
+    const iss = `http://127.0.0.1:${prov.address().port}/realms/test`;
+    cookie = adminCookie;
+    await req('POST', '/api/admin/settings', { oidc_enabled: 'true', oidc_issuer: iss, oidc_client_id: 'quetza', oidc_client_secret: 's', oidc_redirect_uri: `${BASE}/auth/callback` });
+
+    async function ssoLogin(claims, tamper) {
+      cookie = '';
+      const start = await (await req('POST', '/api/login', { username: '__oidc__', password: 'x' })).json();
+      const u = new URL(start.redirect);
+      idClaims = { preferred_username: 'giulia', name: 'Giulia', nonce: u.searchParams.get('nonce'), ...claims };
+      const state = tamper === 'state' ? 'sbagliato' : u.searchParams.get('state');
+      const cb = await req('GET', `/auth/callback?code=abc&state=${state}`);
+      return { u, cb };
+    }
+
+    let { u, cb } = await ssoLogin({});
+    check('redirect verso l\'endpoint della discovery', u.origin + u.pathname === `${iss}/auth`);
+    check('PKCE S256 e nonce nella richiesta', u.searchParams.get('code_challenge_method') === 'S256' && !!u.searchParams.get('nonce'));
+    check('login SSO riuscito', cb.status === 302 && cb.headers.get('location') === '/', cb.headers.get('location'));
+    const verifier = lastTokenReq.get('code_verifier');
+    check('code_verifier inviato e coerente con il challenge',
+          crypto.createHash('sha256').update(verifier || '').digest('base64url') === u.searchParams.get('code_challenge'));
+    const me = await (await req('GET', '/api/me')).json();
+    check('utente SSO creato e collegato', me.user?.username === 'giulia' && me.user?.source === 'oidc');
+
+    ({ cb } = await ssoLogin({ nonce: 'altro' }));
+    check('nonce diverso → rifiutato', cb.headers.get('location') === '/login.html?error=oidc_failed');
+    ({ cb } = await ssoLogin({ aud: 'altro-client' }));
+    check('id_token per un altro client → rifiutato', cb.headers.get('location') === '/login.html?error=oidc_failed');
+    ({ cb } = await ssoLogin({}, 'state'));
+    check('state sbagliato → rifiutato', cb.headers.get('location') === '/login.html?error=invalid_state');
+    ({ cb } = await ssoLogin({ preferred_username: 'admin' }));
+    check('SSO con lo username dell\'admin locale → rifiutato', cb.headers.get('location') === '/login.html?error=oidc_failed');
+
+    prov.close();
+    cookie = adminCookie;
+    await req('POST', '/api/admin/settings', { oidc_enabled: 'false' });
+  }
+
   section('Accesso non autenticato');
   cookie = '';
   check('API protette → 401', (await req('GET', '/api/notes')).status === 401);

@@ -6,7 +6,6 @@ const orig   = Module._load;
 
 const FALLBACKS = {
   'better-sqlite3':  path.join(__dirname, 'shims', 'better-sqlite3'),
-  'connect-sqlite3': path.join(__dirname, 'shims', 'connect-sqlite3'),
 };
 
 Module._load = function (request, parent, isMain) {
