@@ -482,12 +482,16 @@ async function saveNote(silent = false) {
   }
 }
 
+// Anteprima con le proporzioni della card della libreria (3:4, parte alta
+// della pagina). Prima era 280×100: la pagina A4 ci entrava larga 70 px e
+// i tratti risultavano invisibili, quindi le card sembravano vuote.
 function genThumb() {
+  const TW = 330, TH = 440;
   const o = document.createElement('canvas');
-  o.width = 280; o.height = 100;
+  o.width = TW; o.height = TH;
   const oc = o.getContext('2d');
-  oc.fillStyle = '#fff'; oc.fillRect(0, 0, 280, 100);
-  const sc = Math.min(280 / PW, 100 / PH);
+  oc.fillStyle = '#fff'; oc.fillRect(0, 0, TW, TH);
+  const sc = TW / PW;
   oc.save(); oc.scale(sc, sc);
   drawSS(oc, S.strokes);
   (Array.isArray(S.textItems) ? S.textItems : []).forEach(ti => {

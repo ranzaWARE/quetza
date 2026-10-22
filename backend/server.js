@@ -1,13 +1,13 @@
 const express  = require('express');
 const rateLimit = require('express-rate-limit');
 const session  = require('express-session');
-const SQLiteStore = require('connect-sqlite3')(session);
+const SQLiteStore = require('./session-store')(session);
 const path     = require('path');
-const { v4: uuidv4 } = require('uuid');
 const multer   = require('multer');
 const https    = require('https');
 const http     = require('http');
 const fs       = require('fs');
+const os       = require('os');
 const crypto   = require('crypto');
 const db       = require('./db');
 const auth     = require('./auth');
@@ -15,6 +15,13 @@ const auth     = require('./auth');
 const app  = express();
 const PORT = process.env.PORT || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
+// Indirizzo con cui gli utenti aprono Quetza (es. https://quetza.azienda.local:8443).
+// Serve per il redirect da HTTP a HTTPS: dentro il container non si conosce
+// la porta pubblicata da Docker.
+const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
+// true = la porta HTTP serve l'app intera (password in chiaro sulla rete).
+// Default: la porta HTTP fa solo il redirect verso HTTPS.
+const ALLOW_HTTP = process.env.ALLOW_HTTP === 'true';
 const DB_DIR = path.dirname(process.env.DB_PATH || path.join(__dirname, 'data', 'quetza.db'));
 
 const CERT_PATH = process.env.CERT_PATH || '/app/certs/server.crt';
@@ -34,6 +41,34 @@ if (!SESSION_SECRET || SESSION_SECRET.length < 16) {
   SESSION_SECRET = crypto.randomBytes(48).toString('hex');
   console.warn('[quetza] SESSION_SECRET assente o troppo corto — generato segreto casuale temporaneo. Le sessioni verranno invalidate a ogni riavvio.');
 }
+
+// Intestazioni di sicurezza di base. Niente CSP restrittiva: le pagine usano
+// script e stili inline. frame-ancestors impedisce di incorniciare l'app in
+// siti terzi (clickjacking).
+app.use((req, res, next) => {
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'SAMEORIGIN',
+    'Referrer-Policy': 'same-origin',
+    'Content-Security-Policy': "frame-ancestors 'self'; object-src 'none'; base-uri 'self'",
+  });
+  if (req.secure) res.set('Strict-Transport-Security', 'max-age=15552000');
+  next();
+});
+
+// Stato del container (healthcheck di Docker): senza autenticazione e
+// raggiungibile anche sulla porta HTTP.
+app.get('/healthz', (req, res) => res.json({ ok: true }));
+
+// Porta HTTP: solo redirect verso HTTPS, salvo ALLOW_HTTP=true.
+// Le richieste già passate da un proxy TLS (X-Forwarded-Proto: https) hanno
+// req.secure vero e non vengono toccate.
+app.use((req, res, next) => {
+  if (req.secure || ALLOW_HTTP || !HAS_CERTS) return next();
+  const host = (req.headers.host || 'localhost').replace(/:\d+$/, '');
+  const base = PUBLIC_URL || `https://${host}:${process.env.PUBLIC_HTTPS_PORT || HTTPS_PORT}`;
+  res.redirect(308, base + req.originalUrl);
+});
 
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
@@ -70,8 +105,19 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200
 // un redirect. Discrimina invece sul path.
 const isApi = (req) => req.path.startsWith('/api/');
 
+// Ricontrolla l'utente sul DB a ogni richiesta: un account disattivato o
+// eliminato perde subito l'accesso, e togliere i permessi admin ha effetto
+// senza aspettare la scadenza della sessione (14 giorni).
+function refreshSessionUser(req) {
+  const u = req.session?.user && db.getUserByUsername(req.session.user.username);
+  if (!u || !u.is_active) return false;
+  req.session.user.is_admin = u.is_admin;
+  return true;
+}
+
 function requireAuth(req, res, next) {
-  if (!req.session?.user) {
+  if (!req.session?.user || !refreshSessionUser(req)) {
+    if (req.session?.user) req.session.user = null;
     if (isApi(req)) return res.status(401).json({ error: 'Non autenticato' });
     return res.redirect('/login.html');
   }
@@ -86,7 +132,7 @@ function requireAuth(req, res, next) {
 
 // Autenticato ma senza il blocco "cambia password" — solo per /api/me e logout
 function requireSession(req, res, next) {
-  if (req.session?.user) return next();
+  if (req.session?.user && refreshSessionUser(req)) return next();
   if (isApi(req)) return res.status(401).json({ error: 'Non autenticato' });
   res.redirect('/login.html');
 }
@@ -110,22 +156,38 @@ app.post('/api/login', async (req, res) => {
       console.error('[oidc] discovery fallita:', e.message, e.cause || '');
       return res.status(502).json({ error: 'Provider SSO non raggiungibile' });
     }
-    const state = crypto.randomBytes(16).toString('hex');
-    req.session.oidcState = state;
+    // state contro il CSRF, nonce contro il replay dell'id_token, PKCE (S256)
+    // contro l'intercettazione del code: tutti legati a questa sessione.
+    const state    = crypto.randomBytes(16).toString('hex');
+    const nonce    = crypto.randomBytes(16).toString('hex');
+    const verifier = crypto.randomBytes(32).toString('base64url');
+    req.session.oidc = { state, nonce, verifier };
     const url = new URL(disc.authorizationEndpoint);
-    url.search = new URLSearchParams({ ...Object.fromEntries(url.searchParams), client_id: oc.clientId, redirect_uri: oc.redirectUri, response_type: 'code', scope: 'openid profile email', state });
+    url.search = new URLSearchParams({
+      ...Object.fromEntries(url.searchParams),
+      client_id: oc.clientId, redirect_uri: oc.redirectUri, response_type: 'code',
+      scope: 'openid profile email', state, nonce,
+      code_challenge: crypto.createHash('sha256').update(verifier).digest('base64url'),
+      code_challenge_method: 'S256',
+    });
     return res.json({ redirect: url.toString() });
   }
 
   try {
     const user = await auth.authenticate(username, password, req.body.method);
     user.must_change_password = db.mustChangePassword(user.username) ? 1 : 0;
+    // Nuovo id di sessione al login (session fixation)
+    await regenerateSession(req);
     req.session.user = user;
     res.json({ ok: true, user, must_change_password: user.must_change_password });
   } catch(err) {
     res.status(401).json({ error: 'Credenziali non valide' });
   }
 });
+
+function regenerateSession(req) {
+  return new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
+}
 
 // Cambio password dell'utente autenticato (anche con must_change_password attivo)
 app.post('/api/change-password', requireSession, (req, res) => {
@@ -149,7 +211,10 @@ app.get('/auth/callback', async (req, res) => {
     console.error(`[oidc] il provider ha rifiutato la richiesta: ${providerError} — ${error_description||''}`);
     return res.redirect('/login.html?error=oidc_failed');
   }
-  if (!kc.enabled || state !== req.session.oidcState) {
+  const pending = req.session.oidc;
+  // Monouso: un secondo callback con lo stesso state viene rifiutato
+  delete req.session.oidc;
+  if (!kc.enabled || !pending || !state || state !== pending.state) {
     console.error('[oidc] state non valido (sessione scaduta, cookie non ricevuto, o richiesta rigiocata)');
     return res.redirect('/login.html?error=invalid_state');
   }
@@ -162,7 +227,7 @@ app.get('/auth/callback', async (req, res) => {
     const tokenRes = await fetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ grant_type:'authorization_code', code, redirect_uri: kc.redirectUri, client_id: kc.clientId, client_secret: kc.clientSecret }),
+      body: new URLSearchParams({ grant_type:'authorization_code', code, redirect_uri: kc.redirectUri, client_id: kc.clientId, client_secret: kc.clientSecret, code_verifier: pending.verifier }),
       ...auth.oidcFetchOptions(kc),
     });
     const tokens = await tokenRes.json();
@@ -174,17 +239,22 @@ app.get('/auth/callback', async (req, res) => {
     // Keycloak di default) che ci mettono quei claim per abitudine; con un
     // provider diverso o configurato diversamente il login falliva o creava
     // utenti con uno username illeggibile (il solo "sub").
-    const jwt = tokens.id_token || tokens.access_token;
-    if (!jwt) throw new Error('risposta del token endpoint priva sia di id_token che di access_token');
+    // L'id_token arriva direttamente dal token endpoint su TLS, autenticandosi
+    // con il client secret: per OIDC Core (3.1.3.7) questo basta a fidarsi
+    // della firma. Restano da controllare issuer, destinatario, scadenza e nonce.
+    const jwt = tokens.id_token;
+    if (!jwt) throw new Error('risposta del token endpoint priva di id_token (scope "openid" mancante?)');
     const payload = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString());
     if (!auth.isAcceptedIssuer(kc, payload.iss)) throw new Error(`issuer del token inatteso: "${payload.iss}" (atteso "${kc.issuer}")`);
+    const aud = [].concat(payload.aud || []);
+    if (!aud.includes(kc.clientId)) throw new Error(`id_token non destinato a questo client (aud: ${aud.join(', ')})`);
+    if (payload.exp && payload.exp * 1000 < Date.now() - 60000) throw new Error('id_token scaduto');
+    if (payload.nonce !== pending.nonce) throw new Error('nonce dell\'id_token non corrispondente');
     const username = payload.preferred_username || payload.email || payload.sub;
     if (!username) throw new Error('nessun claim utilizzabile come username nel token (preferred_username/email/sub)');
-    // Sincronizza nel DB
-    let dbUser = db.getUserByUsername(username);
-    if (!dbUser) { try { db.createUser(username, null, payload.name||username, 0, 'oidc'); } catch {} dbUser = db.getUserByUsername(username); }
-    db.touchLogin(username);
-    req.session.user = { username, displayName: payload.name||username, source:'oidc', is_admin: dbUser?.is_admin||0 };
+    const dbUser = auth.syncExternalUser(username, payload.name || username, 'oidc');
+    await regenerateSession(req);
+    req.session.user = { username, displayName: payload.name||username, source:'oidc', is_admin: dbUser.is_admin||0 };
     res.redirect('/');
   } catch(e) {
     // e.message da solo per un fetch fallito è quasi sempre il generico
@@ -203,6 +273,7 @@ app.get('/api/login-config', (req, res) => {
   res.json({
     oidc_enabled: db.getSetting('oidc_enabled') === 'true',
     ldap_enabled: db.getSetting('ldap_enabled') === 'true' || process.env.LDAP_ENABLED === 'true',
+    org_name: process.env.ORG_NAME || '',
   });
 });
 app.get('/api/me', requireSession, (req, res) => {
@@ -217,7 +288,7 @@ app.get('/api/notes/:id', requireAuth, (req, res) => {
   res.json(n);
 });
 app.post('/api/notes', requireAuth, (req, res) => {
-  const n = db.createNote(uuidv4(), req.session.user.username, req.body.title||'Nuova nota', !!req.body.voiceFirst);
+  const n = db.createNote(crypto.randomUUID(), req.session.user.username, req.body.title||'Nuova nota', !!req.body.voiceFirst);
   res.status(201).json(n);
 });
 app.patch('/api/notes/:id', requireAuth, (req, res) => {
@@ -292,6 +363,11 @@ function whisperConfig() {
   };
 }
 
+// Registrazioni lunghe con modelli grandi su CPU richiedono anche decine di
+// minuti, e il servizio ne elabora una alla volta (le altre aspettano in coda):
+// i 5 minuti di prima facevano fallire le trascrizioni di riunioni lunghe.
+const WHISPER_TIMEOUT_MS = (Number(process.env.WHISPER_TIMEOUT_MIN) || 60) * 60 * 1000;
+
 async function whisperReachable(url) {
   try {
     const r = await fetch(`${url}/health`, { signal: AbortSignal.timeout(3000) });
@@ -330,7 +406,7 @@ async function transcribeNote(noteId, username) {
   if (cfg.hfToken) form.append('hf_token', cfg.hfToken);
 
   const r = await fetch(`${cfg.url}/transcribe`, {
-    method: 'POST', body: form, signal: AbortSignal.timeout(300000)
+    method: 'POST', body: form, signal: AbortSignal.timeout(WHISPER_TIMEOUT_MS)
   });
   if (!r.ok) {
     const body = await r.json().catch(() => ({ error: 'Errore sconosciuto' }));
@@ -404,11 +480,13 @@ app.get('/api/export', requireAuth, async (req, res) => {
 // La versione precedente cercava solo _0, perdendo le registrazioni successive.
 // L'audio esistente viene rimosso prima, altrimenti un reimport duplicherebbe
 // le sessioni accodandole a quelle già presenti.
-function restoreAudioFromZip(zip, noteId, username) {
+// srcId = id della nota nell'archivio (nomi dei file audio), noteId = id
+// con cui viene salvata, diverso se la nota è stata importata come copia.
+function restoreAudioFromZip(zip, noteId, username, srcId = noteId) {
   const found = [];
   for (let i = 0; ; i++) {
     const entry = ['webm','mp4','wav']
-      .map(ext => ({ ext, e: zip.getEntry(`audio/${noteId}_${i}.${ext}`) }))
+      .map(ext => ({ ext, e: zip.getEntry(`audio/${srcId}_${i}.${ext}`) }))
       .find(x => x.e);
     if (!entry) break;
     found.push(entry);
@@ -416,7 +494,7 @@ function restoreAudioFromZip(zip, noteId, username) {
   // Formato storico senza indice di sessione
   if (!found.length) {
     const legacy = ['webm','mp4','wav']
-      .map(ext => ({ ext, e: zip.getEntry(`audio/${noteId}.${ext}`) }))
+      .map(ext => ({ ext, e: zip.getEntry(`audio/${srcId}.${ext}`) }))
       .find(x => x.e);
     if (legacy) found.push(legacy);
   }
@@ -427,24 +505,38 @@ function restoreAudioFromZip(zip, noteId, username) {
   return found.length;
 }
 
-app.post('/api/import', requireAuth,
-  multer({storage:multer.memoryStorage(),limits:{fileSize:2*1024*1024*1024}}).single('archive'),
+// Archivi di import: su disco (non in RAM durante l'upload) e con un limite
+// configurabile. adm-zip legge comunque l'archivio intero in memoria, quindi
+// il limite va tenuto sotto la RAM libera del server.
+const IMPORT_MAX_BYTES = (Number(process.env.IMPORT_MAX_MB) || 1024) * 1024 * 1024;
+const importUpload = (maxBytes) => multer({ dest: path.join(os.tmpdir(), 'quetza-import'), limits: { fileSize: maxBytes } }).single('archive');
+const removeUpload = (req) => { if (req.file?.path) fs.rm(req.file.path, { force: true }, () => {}); };
+
+app.post('/api/import', requireAuth, importUpload(IMPORT_MAX_BYTES),
   async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Nessun file' });
+    const username = req.session.user.username;
     try {
-      const zip = new AdmZip(req.file.buffer);
+      const zip = new AdmZip(req.file.path);
       const manifest = JSON.parse(zip.getEntry('manifest.json')?.getData().toString('utf8') || 'null');
       if (!manifest) return res.status(400).json({ error: 'ZIP non valido' });
       const notes = Array.isArray(manifest) ? manifest : (manifest.notes || []);
-      let imported=0, skipped=0;
+      let imported=0, skipped=0, copies=0;
       for (const note of notes) {
         if (!note.id||!note.title){skipped++;continue;}
-        db.upsertNoteFromImport(note.id, req.session.user.username, note);
-        restoreAudioFromZip(zip, note.id, req.session.user.username);
+        // Un id che appartiene a un altro utente non va mai sovrascritto:
+        // prima l'import personale aggiornava il contenuto della nota altrui.
+        // La nota entra come copia con un id nuovo.
+        const owner = db.getNoteOwner(note.id);
+        const id = owner && owner !== username ? crypto.randomUUID() : note.id;
+        if (id !== note.id) copies++;
+        db.upsertNoteFromImport(id, username, note);
+        restoreAudioFromZip(zip, id, username, note.id);
         imported++;
       }
-      res.json({ ok: true, imported, skipped });
+      res.json({ ok: true, imported, skipped, copies });
     } catch(e) { res.status(500).json({ error: e.message }); }
+    finally { removeUpload(req); }
   }
 );
 
@@ -608,9 +700,14 @@ app.get('/api/admin/oidc/test', requireAuth, requireAdmin, async (req, res) => {
 });
 
 app.get('/api/admin/settings', requireAuth, requireAdmin, (req, res) => res.json(db.getAllSettings()));
+// Solo le chiavi che il pannello admin gestisce davvero, e solo valori
+// semplici: prima si poteva scrivere qualsiasi chiave con qualsiasi valore.
+const SETTING_KEY = /^(ldap|oidc|whisper)_[a-z_]+$/;
 app.post('/api/admin/settings', requireAuth, requireAdmin, (req, res) => {
-  const settings = req.body;
-  Object.entries(settings).forEach(([k,v]) => db.setSetting(k, v));
+  const settings = req.body || {};
+  const bad = Object.keys(settings).filter(k => !SETTING_KEY.test(k) || !['string','number','boolean'].includes(typeof settings[k]));
+  if (bad.length) return res.status(400).json({ error: `Impostazioni non valide: ${bad.join(', ')}` });
+  Object.entries(settings).forEach(([k,v]) => db.setSetting(k, String(v)));
   res.json({ ok: true });
 });
 
@@ -631,26 +728,28 @@ app.get('/api/admin/export', requireAuth, requireAdmin, async (req, res) => {
 });
 
 // Import globale
-app.post('/api/admin/import', requireAuth, requireAdmin,
-  multer({storage:multer.memoryStorage(),limits:{fileSize:10*1024*1024*1024}}).single('archive'),
+app.post('/api/admin/import', requireAuth, requireAdmin, importUpload(IMPORT_MAX_BYTES * 4),
   async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Nessun file' });
     try {
-      const zip = new AdmZip(req.file.buffer);
+      const zip = new AdmZip(req.file.path);
       const data = JSON.parse(zip.getEntry('manifest.json')?.getData().toString('utf8')||'null');
       if (!data) return res.status(400).json({ error: 'ZIP non valido' });
-      let imported=0, skipped=0, usersImported=0;
-      // Importa utenti se presenti
+      let imported=0, skipped=0, usersImported=0, usersWithoutPassword=0;
+      // Importa utenti se presenti. L'archivio non contiene le password:
+      // gli account locali nascono senza password (non possono entrare) finché
+      // l'admin non ne imposta una provvisoria dal tab Utenti. Prima ricevevano
+      // tutti "changeme123", nota a chiunque abbia letto il codice.
       if (data.users) {
         for (const u of data.users) {
           if (!u.username) continue;
           const ex = db.getUserByUsername(u.username);
           if (!ex) {
             try {
-              db.createUser(u.username, 'changeme123', u.display_name||u.username, 0, u.source||'local');
-              // Password provvisoria: va cambiata al primo accesso
-              db.resetPassword(u.username, 'changeme123', true);
+              const source = ['ldap', 'oidc'].includes(u.source) ? u.source : 'local';
+              db.createUser(u.username, null, u.display_name||u.username, 0, source);
               usersImported++;
+              if (source === 'local') usersWithoutPassword++;
             } catch {}
           }
         }
@@ -663,8 +762,9 @@ app.post('/api/admin/import', requireAuth, requireAdmin,
         restoreAudioFromZip(zip, note.id, owner);
         imported++;
       }
-      res.json({ ok:true, imported, skipped, usersImported });
+      res.json({ ok:true, imported, skipped, usersImported, usersWithoutPassword });
     } catch(e) { res.status(500).json({ error: e.message }); }
+    finally { removeUpload(req); }
   }
 );
 
@@ -675,21 +775,20 @@ app.get('/admin', requireAuth, requireAdmin, (req, res) => res.sendFile(path.joi
 app.get('*', (req, res) => res.sendFile(path.join(__dirname,'public','index.html')));
 
 // ── Server ────────────────────────────────────────────────────
-// Con i certificati: HTTPS su HTTPS_PORT E la stessa app in HTTP puro su
-// PORT (non più solo un redirect) — utile su LAN dove il certificato è
-// self-signed e genera avvisi, o quando semplicemente non serve TLS.
-// Il cookie di sessione si adatta da solo (cookie.secure:'auto', sopra),
-// quindi login e sessione funzionano correttamente su entrambe le porte.
-// Nota: la registrazione audio (getUserMedia) resta bloccata dal browser
-// su HTTP non-localhost — è una restrizione di sicurezza del browser
-// stesso, non qualcosa che il server possa aggirare.
+// Con i certificati: HTTPS su HTTPS_PORT e, su PORT, il redirect verso HTTPS
+// (middleware sopra). Con ALLOW_HTTP=true PORT serve l'app intera in chiaro:
+// il cookie di sessione si adatta da solo (cookie.secure:'auto'), ma la
+// registrazione audio (getUserMedia) resta bloccata dal browser fuori da
+// HTTPS o localhost.
 // Senza certificati: solo HTTP su PORT.
 if (HAS_CERTS) {
   https.createServer({ cert: fs.readFileSync(CERT_PATH), key: fs.readFileSync(KEY_PATH) }, app)
     .listen(HTTPS_PORT, () => console.log(`Quetza HTTPS :${HTTPS_PORT}`));
 
   http.createServer(app)
-    .listen(PORT, () => console.log(`Quetza HTTP :${PORT} (registrazione audio non disponibile qui — richiede HTTPS o localhost)`));
+    .listen(PORT, () => console.log(ALLOW_HTTP
+      ? `Quetza HTTP :${PORT} (ALLOW_HTTP: app completa in chiaro, registrazione audio non disponibile)`
+      : `Quetza HTTP :${PORT} (solo redirect verso HTTPS)`));
 } else {
   console.warn(`[quetza] Certificati non trovati (${CERT_PATH}) — avvio in HTTP puro. La registrazione audio richiede HTTPS o localhost.`);
   app.listen(PORT, () => console.log(`Quetza HTTP :${PORT}`));

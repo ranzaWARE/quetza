@@ -1,5 +1,4 @@
 node_modules/
-package-lock.json
 
 # Configurazione locale con i segreti
 .env
@@ -19,3 +18,8 @@ __pycache__/
 
 # CA locali facoltative montate nel container (docker-compose.yml)
 /ca/
+
+# Cartelle create da installa.sh accanto al compose
+/certs/
+/backups/
+/logo/

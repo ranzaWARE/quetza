@@ -91,21 +91,13 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)
 <div class="hdr">
   <div class="hdr-brand">
     <div class="brand-mark">
-      <svg width="18" height="18" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-        <path d="M32 30 C22 22 6 28 2 20 C8 18 18 20 28 27Z" fill="#c0392b" opacity=".9"/>
-        <path d="M32 30 C18 26 4 32 2 26 C10 22 22 24 30 30Z" fill="#c0392b" opacity=".4"/>
-        <path d="M32 30 C42 22 58 28 62 20 C56 18 46 20 36 27Z" fill="#c0392b" opacity=".9"/>
-        <path d="M32 30 C46 26 60 32 62 26 C54 22 42 24 34 30Z" fill="#c0392b" opacity=".4"/>
-        <ellipse cx="32" cy="31" rx="5" ry="8" fill="#e8e8f0"/>
-        <path d="M32 23 L30 16 L32 19 L34 16 Z" fill="#e8e8f0"/>
-        <path d="M32 38 L30 46 L32 44 L34 46 Z" fill="#e8e8f0"/>
-        <path d="M31.2 44 L32 48 L32.8 44" fill="#c0392b"/>
-      </svg>
+      <svg width="24" height="9" viewBox="0 0 55 21" aria-hidden="true"><path fill="currentColor" d="M1 0h2v1h-2zM2 1h3v1h-3zM3 2h3v1h-3zM37 2h3v1h-3zM4 3h5v1h-5zM36 3h6v1h-6zM5 4h5v1h-5zM35 4h10v1h-10zM7 5h6v1h-6zM35 5h3v1h-3zM39 5h10v1h-10zM8 6h7v1h-7zM34 6h18v1h-18zM9 7h8v1h-8zM34 7h21v1h-21zM10 8h8v1h-8zM33 8h15v1h-15zM11 9h9v1h-9zM32 9h4v1h-4zM12 10h9v1h-9zM31 10h4v1h-4zM13 11h9v1h-9zM30 11h4v1h-4zM13 12h10v1h-10zM29 12h4v1h-4zM14 13h10v1h-10zM27 13h5v1h-5zM14 14h16v1h-16zM13 15h16v1h-16zM11 16h17v1h-17zM12 17h14v1h-14zM10 18h2v1h-2zM15 18h8v1h-8zM8 19h3v1h-3zM14 19h2v1h-2zM6 20h3v1h-3zM12 20h3v1h-3z"/></svg>
     </div>
     <span class="brand-word">Quetza</span>
     <span class="badge badge-admin">Admin</span>
   </div>
   <div class="hdr-right">
+    <a href="/guida.html#admin" class="back-link" target="_blank" rel="noopener">Guida</a>
     <a href="/" class="back-link">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h18M3 12l6-6M3 12l6 6"/></svg>
       Torna all'app
@@ -169,7 +161,7 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)
       </div>
       <hr class="section-sep">
       <div class="form-row">
-        <div class="form-group"><label>Issuer URL</label><input type="url" id="oidcIssuer" placeholder="https://sso.example.com/realms/graphimecc"></div>
+        <div class="form-group"><label>Issuer URL</label><input type="url" id="oidcIssuer" placeholder="https://sso.azienda.local/realms/azienda"></div>
         <div class="form-group"><label>Client ID</label><input type="text" id="oidcClientId" placeholder="quetza"></div>
       </div>
       <div class="form-row">
@@ -177,7 +169,7 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)
         <div class="form-group"><label>Redirect URI</label><input type="url" id="oidcRedirectUri" placeholder="https://quetza.example.com/auth/callback"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>URL interno dell'issuer (opzionale)</label><input type="url" id="oidcInternalUrl" placeholder="http://192.168.1.x:8080/realms/graphimecc"></div>
+        <div class="form-group"><label>URL interno dell'issuer (opzionale)</label><input type="url" id="oidcInternalUrl" placeholder="http://192.168.1.x:8080/realms/azienda"></div>
         <div class="form-group"><label>&nbsp;</label><span class="toggle-desc">Usato dal server per discovery e token se l'Issuer pubblico non è raggiungibile dal container. Vuoto = Issuer.</span></div>
       </div>
       <div class="toggle-row">
@@ -205,12 +197,12 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)
       </div>
       <hr class="section-sep">
       <div class="form-row">
-        <div class="form-group"><label>URL Server LDAP</label><input type="url" id="ldapUrl" placeholder="ldap://dc.graphimecc.local"></div>
+        <div class="form-group"><label>URL Server LDAP</label><input type="url" id="ldapUrl" placeholder="ldap://dc.azienda.local"></div>
         <div class="form-group"><label>Bind DN</label><input type="text" id="ldapBindDn" placeholder="CN=svc-quetza,OU=Service,DC=..."></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>Bind Password</label><input type="password" id="ldapBindPass" placeholder="••••••••"></div>
-        <div class="form-group"><label>Search Base</label><input type="text" id="ldapSearchBase" placeholder="DC=graphimecc,DC=local"></div>
+        <div class="form-group"><label>Search Base</label><input type="text" id="ldapSearchBase" placeholder="DC=azienda,DC=local"></div>
       </div>
       <div class="form-group" style="margin-bottom:12px"><label>Search Filter</label><input type="text" id="ldapFilter" placeholder="(sAMAccountName={{username}})"></div>
       <div class="toggle-row">
@@ -276,7 +268,7 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)
         </div>
         <div style="border:1px solid var(--border);border-radius:var(--auror-r);padding:16px">
           <div style="font-size:.85rem;font-weight:600;margin-bottom:4px">Import globale</div>
-          <div style="font-size:.76rem;color:var(--text-muted);margin-bottom:12px;line-height:1.45">Carica un archivio esportato da un'altra istanza. Gli utenti mancanti vengono creati con password temporanea <code>changeme123</code>.</div>
+          <div style="font-size:.76rem;color:var(--text-muted);margin-bottom:12px;line-height:1.45">Carica un archivio esportato da un'altra istanza. Gli utenti mancanti vengono creati; gli account locali restano senza password finché non ne imposti una da Utenti → Reset pw.</div>
           <div id="importAlert" style="margin-bottom:8px"></div>
           <label class="aurorBtn" style="cursor:pointer">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -588,7 +580,8 @@ async function doImport(input) {
   const r = await fetch('/api/admin/import',{method:'POST',body:fd});
   const d = await r.json();
   if (!r.ok) return alert_('importAlert', d.error);
-  alert_('importAlert',`✓ Importate ${d.imported} note, ${d.usersImported||0} nuovi utenti`,'success');
+  const noPw = d.usersWithoutPassword ? ` — ${d.usersWithoutPassword} account locali senza password: impostala dal tab Utenti (Reset password)` : '';
+  alert_('importAlert',`✓ Importate ${d.imported} note, ${d.usersImported||0} nuovi utenti${noPw}`,'success');
   await load();
   input.value='';
 }
