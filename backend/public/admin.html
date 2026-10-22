@@ -257,6 +257,13 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)
 
     <!-- BACKUP -->
     <div class="tab-content card-body" id="tab-backup">
+      <div style="border:1px solid var(--border);border-radius:var(--auror-r);padding:16px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <div style="font-size:.85rem;font-weight:600;flex:1">Backup automatici</div>
+          <button class="aurorBtn xs" id="backupNowB" onclick="backupNow()">Esegui backup adesso</button>
+        </div>
+        <div id="backupStatus" style="font-size:.78rem;line-height:1.6;color:var(--text-muted)">…</div>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         <div style="border:1px solid var(--border);border-radius:var(--auror-r);padding:16px">
           <div style="font-size:.85rem;font-weight:600;margin-bottom:4px">Export globale</div>
@@ -286,10 +293,17 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)
 
   <!-- Per-user stats -->
   <div class="card">
-    <div class="card-hdr"><h2>Utilizzo per utente</h2></div>
+    <div class="card-hdr"><h2>Utilizzo per utente</h2>
+      <label style="font-size:.76rem;color:var(--text-muted);display:flex;align-items:center;gap:6px">
+        Spazio massimo per utente
+        <input type="number" min="0" step="100" id="defQuota" style="width:90px;padding:4px 6px;border:1px solid var(--border);border-radius:var(--auror-r);background:transparent;color:var(--text)"> MB
+        <button class="aurorBtn xs" onclick="saveDefaultQuota()">Salva</button>
+      </label>
+    </div>
     <div class="card-body" style="padding:0">
+      <div style="font-size:.72rem;color:var(--text-muted);padding:8px 18px 0">0 = nessun limite. Lo spazio comprende note, immagini, audio e cestino. Superato il limite l'utente non può aggiungere altro, ma il suo lavoro resta sul dispositivo finché non libera spazio.</div>
       <table>
-        <thead><tr><th>Utente</th><th>Note</th><th>Storage audio</th><th>Ultimo accesso</th><th>Ruolo</th></tr></thead>
+        <thead><tr><th>Utente</th><th>Note</th><th>Spazio usato</th><th>Audio</th><th>Ultimo accesso</th><th>Ruolo</th></tr></thead>
         <tbody id="perUserTbody"></tbody>
       </table>
     </div>
@@ -383,6 +397,61 @@ function alert_(el, msg, type='error') {
   document.getElementById(el).innerHTML = msg ? `<div class="alert alert-${type}">${msg}</div>` : '';
 }
 
+// Spazio usato rispetto al limite (personale o generale)
+function usage(u) {
+  if (!u.quota_bytes) return fmt(u.used_bytes || 0);
+  const pct = Math.round(100 * (u.used_bytes || 0) / u.quota_bytes);
+  const own = u.quota_mb != null ? ' (personale)' : '';
+  return `<span style="${pct >= 90 ? 'color:var(--danger);font-weight:600' : ''}">${fmt(u.used_bytes || 0)} / ${fmt(u.quota_bytes)}${own} · ${pct}%</span>`;
+}
+async function saveDefaultQuota() {
+  const v = Number(document.getElementById('defQuota').value || 0);
+  const r = await fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ storage_quota_mb: Math.max(0, Math.round(v)) }) });
+  if (!r.ok) return alert((await r.json()).error);
+  await load();
+}
+async function editQuota(username, cur) {
+  const v = prompt(`Spazio massimo per "${username}" in MB.\nVuoto = quello generale, 0 = nessun limite.`, cur);
+  if (v === null) return;
+  const r = await fetch(`${userUrl(username)}/quota`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quotaMb: v.trim() === '' ? null : Number(v) }) });
+  if (!r.ok) return alert((await r.json()).error);
+  await load();
+}
+
+// Stato dei backup: ultimo esito, copie conservate, copia esterna
+function renderBackup(b) {
+  const el = document.getElementById('backupStatus');
+  const st = b.status;
+  const lines = [];
+  if (!st) lines.push(`<div class="alert alert-error" style="margin:0 0 6px">Nessun backup ancora eseguito.</div>`);
+  else {
+    const age = (Date.now() - Date.parse(st.at)) / 3600000;
+    const when = fmtDate(st.at);
+    if (!st.ok) lines.push(`<div class="alert alert-error" style="margin:0 0 6px">Ultimo backup (${when}) NON riuscito: ${h(st.error)}</div>`);
+    else if (age > 36) lines.push(`<div class="alert alert-error" style="margin:0 0 6px">L'ultimo backup riuscito è del ${when}: più di un giorno fa. Controlla il cron e <code>backup.log</code>.</div>`);
+    else lines.push(`✓ Ultimo backup: <strong>${when}</strong>, ${fmt(st.size || 0)}, verificato.`);
+  }
+  lines.push(`${b.count} copie conservate in <code>${h(b.dir)}</code> (al massimo ${b.keep}).`);
+  if (!b.copyDir) lines.push(`<span style="color:var(--warn)">Copia esterna non configurata: imposta <code>BACKUP_COPY_PATH</code> nel .env con una cartella del NAS montata sul server. Un backup sullo stesso disco non protegge da un guasto del disco.</span>`);
+  else if (st?.copy?.ok === false) lines.push(`<div class="alert alert-error" style="margin:6px 0 0">Copia esterna NON riuscita: ${h(st.copy.error)}</div>`);
+  else if (st?.copy?.ok) lines.push(`✓ Copia esterna riuscita.`);
+  else lines.push(`Copia esterna configurata, partirà con il prossimo backup.`);
+  el.innerHTML = lines.join('<br>');
+}
+async function loadBackup() {
+  try { renderBackup(await fetch('/api/admin/backup').then(r => r.json())); } catch {}
+}
+async function backupNow() {
+  const b = document.getElementById('backupNowB');
+  b.disabled = true; b.textContent = 'Backup in corso…';
+  try {
+    const r = await fetch('/api/admin/backup', { method: 'POST' });
+    const d = await r.json();
+    if (d.dir) renderBackup(d);
+    if (!r.ok) alert(d.error || 'Backup non riuscito');
+  } finally { b.disabled = false; b.textContent = 'Esegui backup adesso'; }
+}
+
 async function load() {
   // Me
   const me = await fetch('/api/me').then(r=>r.json());
@@ -395,15 +464,20 @@ async function load() {
   document.getElementById('statAudio').textContent = fmt(stats.audio_bytes||0);
 
   // Per-user
+  document.getElementById('defQuota').value = stats.default_quota_mb || 0;
   const pb = document.getElementById('perUserTbody');
   pb.innerHTML = (stats.per_user||[]).map(u=>`
     <tr>
       <td><strong>${h(u.username)}</strong><br><span class="sz">${h(u.display_name)}</span></td>
       <td>${u.note_count}</td>
+      <td>${usage(u)}
+        <button class="aurorBtn xs" style="margin-left:6px" data-u="${h(u.username)}" data-q="${u.quota_mb ?? ''}" onclick="editQuota(this.dataset.u,this.dataset.q)">Limite</button></td>
       <td>${fmt(u.audio_bytes||0)}</td>
       <td class="sz">${fmtDate(u.last_login)}</td>
       <td>${u.is_admin?'<span class="badge badge-admin">Admin</span>':'<span class="badge badge-user">Utente</span>'}</td>
     </tr>`).join('');
+
+  loadBackup();
 
   // Users
   users = await fetch('/api/admin/users').then(r=>r.json());

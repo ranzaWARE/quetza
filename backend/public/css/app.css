@@ -122,6 +122,14 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 .noteCard .title .dirty{color:var(--brand);margin-left:3px;font-size:.6rem}
 .noteCard .date{font-size:.68rem;color:var(--muted)}
 .noteCard .audioBadge{font-size:.64rem;color:var(--accent-hover);font-weight:600}
+.noteCard .tags,.tagBar{display:flex;flex-wrap:wrap;gap:4px}
+.noteCard .tag{font-size:.62rem;padding:1px 6px;border-radius:999px;background:var(--surface-sunken);color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.noteCard .owner{font-size:.64rem;color:var(--muted)}
+.tagBar{flex-shrink:0;margin-top:-4px}
+.tagBar:empty{display:none}
+.tagChip{font:inherit;font-size:.72rem;padding:3px 10px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--text);cursor:pointer}
+.tagChip.on{background:var(--brand);border-color:var(--brand-dark);color:var(--text-on-accent);font-weight:600}
+.tagChip .n{opacity:.6;margin-left:4px}
 .noteCard .snippet{font-size:.68rem;font-style:italic;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .noteCard .menuBtn{
   position:absolute;top:6px;right:6px;width:24px;height:24px;
@@ -332,6 +340,18 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 .mk:hover{background:var(--brand-dark)}
 
 /* ── Link di condivisione — righe con azioni a icona AUROR ─────────────── */
+.collAdd{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.collAdd select{flex:1}
+.collAdd input{flex:1 1 100%;min-width:0;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r);background:transparent;color:var(--text);font:inherit;font-size:.8rem}
+.collAdd select,.collItem select{padding:5px 6px;border:1px solid var(--line);border-radius:var(--r);background:var(--card);color:var(--text);font:inherit;font-size:.76rem}
+.collAll{display:flex;align-items:center;gap:6px;font-size:.78rem;color:var(--text);margin-bottom:8px;cursor:pointer}
+.collItem{display:flex;align-items:center;gap:6px;background:var(--surface-sunken);border-radius:var(--r-sm);padding:6px 8px;margin-bottom:5px;font-size:.78rem;color:var(--text)}
+.collItem .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.collItem button{border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:1rem;line-height:1;padding:2px 4px}
+.shareSep{border:none;border-top:1px solid var(--line);margin:12px 0}
+/* Nota di un collega: in sola lettura spariscono gli strumenti per scrivere,
+   e la condivisione resta comunque al proprietario */
+#EDITOR.ro .R2,#EDITOR.ro #SVB,#EDITOR.ro #RCB,#EDITOR.ro #PAUSEB,#EDITOR.ro #TRANSCB,#EDITOR.ro #PGADD,#EDITOR.ro #AOSTARTPAGE,#EDITOR.guest #SHAREB,#EDITOR.guest #DELAUD{display:none!important}
 .shareItem{background:var(--surface-sunken);border-radius:var(--r-sm);padding:8px 10px;margin-bottom:6px}
 .shareItem .shareMeta{display:flex;align-items:center;gap:6px;margin-bottom:6px}
 .shareItem .shareTok{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.72rem;color:var(--muted)}
