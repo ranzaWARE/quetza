@@ -17,8 +17,17 @@ const KEEP       = Number(process.env.BACKUP_KEEP) || 30;
   const dest  = path.join(BACKUP_DIR, `quetza_${stamp}.db`);
 
   const db = new Database(DB_PATH, { readonly: true, fileMustExist: true });
-  await db.backup(dest);
-  db.close();
+  try { await db.backup(dest); } finally { db.close(); }
+
+  // Si verifica la copia prima di ruotare: un backup illeggibile non deve
+  // far cancellare quelli buoni più vecchi.
+  const chk = new Database(dest, { readonly: true });
+  let ok;
+  try { ok = chk.pragma('quick_check', { simple: true }); } finally { chk.close(); }
+  if (ok !== 'ok') {
+    fs.rmSync(dest, { force: true });
+    throw new Error(`copia non integra (${ok}), backup precedenti lasciati intatti`);
+  }
 
   const old = fs.readdirSync(BACKUP_DIR)
     .filter(f => /^quetza_.*\.db$/.test(f))

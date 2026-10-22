@@ -147,6 +147,33 @@ process.env.TRUST_PROXY = '0';
   check('conteggio note corretto', arow.note_count === 1, `${arow.note_count}`);
   check('nessun audio → 0 byte', Number(arow.audio_bytes) === 0, `${arow.audio_bytes}`);
 
+  section('Versioni, audio e trascrizioni nel ripristino');
+  const asForm = (buf) => { const f = new FormData(); f.append('archive', new Blob([buf], { type: 'application/zip' }), 'a.zip'); return f; };
+  const v0 = (await (await req('GET', `/api/notes/${note.id}`)).json()).version;
+  r = await req('PUT', `/api/notes/${note.id}/content`, { strokes: [], pagesData: pages, textItems: [], baseVersion: v0 });
+  const v1 = (await r.json()).version;
+  check('salvataggio dalla versione giusta → versione nuova', r.ok && v1 === v0 + 1, `${v0} → ${v1}`);
+  r = await req('PUT', `/api/notes/${note.id}/content`, { strokes: [], pagesData: [], baseVersion: v0 });
+  const kept = await (await req('GET', `/api/notes/${note.id}`)).json();
+  check('salvataggio da una versione vecchia → 409 e nulla sovrascritto', r.status === 409 && kept.pages_data?.length === 2, r.status);
+
+  const afd = new FormData();
+  afd.append('audio', new Blob([Buffer.from('audio-di-prova')], { type: 'audio/webm' }), 'a.webm');
+  check('audio caricato', (await req('POST', `/api/notes/${note.id}/audio`, afd)).ok);
+  require('../db').saveWhisperText(note.id, 'trascrizione di prova', [{ start: 0, end: 1, text: 'trascrizione di prova' }]);
+  const zip2 = Buffer.from(await (await req('GET', '/api/export')).arrayBuffer());
+  r = await req('POST', '/api/import', asForm(zip2));
+  check('reimport dello stesso archivio: nota lasciata com\'è', (await r.json()).unchanged === 1);
+  await req('DELETE', `/api/notes/${note.id}`);
+  r = await req('POST', '/api/import', asForm(zip2));
+  const tr = await (await req('GET', `/api/notes/${note.id}/transcript`)).json();
+  check('il ripristino conserva la trascrizione', tr.text === 'trascrizione di prova', tr.text);
+  const au = await req('GET', `/api/notes/${note.id}/audio`);
+  check('il ripristino conserva l\'audio', au.ok && Buffer.from(await au.arrayBuffer()).toString() === 'audio-di-prova');
+  await req('PATCH', `/api/notes/${note.id}`, { title: 'Verbale cantiere' });
+  check('rinominata: la ricerca la trova col titolo nuovo', (await (await req('GET', '/api/search?q=cantiere')).json()).some(x => x.id === note.id));
+  await req('PATCH', `/api/notes/${note.id}`, { title: 'Riunione' });
+
   section('Condivisione dopo il reimport');
   // Eliminando la nota, la FK ON DELETE CASCADE revoca anche i suoi link:
   // il token vecchio non deve più funzionare, e serve rigenerarlo.
@@ -195,6 +222,13 @@ process.env.TRUST_PROXY = '0';
   cookie = adminCookie;
   const orig = await (await req('GET', `/api/notes/${note.id}`)).json();
   check('la nota di admin non è stata toccata', orig.title === 'Riunione', orig.title);
+  cookie = marioCookie;
+  check('mario non cancella audio e trascrizione di admin', (await req('DELETE', `/api/notes/${note.id}/audio`)).status === 404);
+  check('mario non vede i link di admin', (await req('GET', `/api/notes/${note.id}/shares`)).status === 404);
+  check('mario non revoca i link di admin', (await req('DELETE', `/api/shares/${share2.token}`)).status === 404);
+  cookie = adminCookie;
+  const tr2 = await (await req('GET', `/api/notes/${note.id}/transcript`)).json();
+  check('trascrizione di admin intatta', tr2.text === 'trascrizione di prova', tr2.text);
 
   r = await req('PATCH', '/api/admin/users/mario', { isActive: false });
   check('mario disattivato', r.ok);
