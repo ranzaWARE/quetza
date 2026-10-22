@@ -112,6 +112,10 @@ async function init() {
     if (d.user.is_admin) { const al=document.getElementById('adminLink'); if(al) al.style.display='flex'; }
     // Password provvisoria: nessuna API è utilizzabile finché non viene cambiata
     if (d.must_change_password) { showChangePasswordModal(true); return; }
+    S.storage = d.storage;
+    // Spazio quasi finito: meglio saperlo prima che i salvataggi si fermino
+    if (d.storage?.quota && d.storage.used > 0.9 * d.storage.quota)
+      setTimeout(() => toast(`⚠ Spazio quasi esaurito: ${Math.round(100 * d.storage.used / d.storage.quota)}% usato. Svuota il cestino o elimina audio e note che non servono.`, 9000), 1500);
   } catch { window.location.href = '/login.html'; return; }
 
   await loadNotes();
@@ -197,9 +201,27 @@ function showChangePasswordModal(forced) {
 
 // ── Notes API ─────────────────────────────────────────────
 async function loadNotes() {
-  const r = await fetch('/api/notes');
+  const [r, rs] = await Promise.all([fetch('/api/notes'), fetch('/api/notes/shared').catch(() => null)]);
+  if (!r.ok) { if (r.status === 401 || r.status === 403) sessionLost(); return; }
   S.notes = await r.json();
+  if (rs && rs.ok) S.shared = await rs.json();
   renderNL();
+}
+
+// Nota di un collega: 'read' = solo da guardare, 'write' = si scrive ma
+// condivisione, etichette ed eliminazione restano al proprietario.
+function applyRole() {
+  EDITOR.classList.toggle('ro', S.role === 'read');
+  EDITOR.classList.toggle('guest', S.role !== 'owner');
+  NTT.readOnly = S.role === 'read';
+}
+const readOnly = () => S.role === 'read';
+
+async function leaveShared(n) {
+  const r = await fetch(`/api/notes/${n.id}/access`, { method: 'DELETE' }).catch(() => null);
+  if (!r || !r.ok) return toast('⚠ Operazione non riuscita: server non raggiungibile');
+  await loadNotes();
+  toast('Nota tolta dalle tue condivise');
 }
 
 function restoreDarkMode() {
@@ -266,6 +288,7 @@ function leaveNote() {
   clearTimeout(S.autoSaveTimer); clearTimeout(S._draftT);
   S.curId = null; S.version = null; S.dirty = false;
   S.strokes = []; S.textItems = []; S.imgs = [];
+  S.role = 'owner'; applyRole();
 }
 
 // Barra audio nascosta di default: si vede solo se la nota ha già un audio,
@@ -298,6 +321,9 @@ async function openNote(id) {
   S.curId = id;
   S.version = n.version ?? null;
   S.dirty = false;
+  S.role = n.role || 'owner';
+  applyRole();
+  if (S.role !== 'owner') toast(`👥 Nota di ${n.owner_name || n.owner}: ${S.role === 'read' ? 'sola lettura' : 'puoi modificarla'}`, 4000);
   // Carica pagine
   if (n.pages_data && Array.isArray(n.pages_data) && n.pages_data.length > 0) {
     S.pages = n.pages_data;
@@ -408,6 +434,46 @@ async function deleteNote(id) {
         { label: 'Annulla', fn: () => restoreNote(id) });
 }
 
+// ── Etichette ─────────────────────────────────────────────
+function editTags(n) {
+  document.getElementById('_tags')?.remove();
+  const all = [...new Map(S.notes.flatMap(x => x.tags || []).map(t => [tagKey(t), t])).values()].sort((a, b) => a.localeCompare(b, 'it'));
+  const m = document.createElement('div');
+  m.id = '_tags';
+  m.className = 'MW';
+  m.innerHTML = `
+    <div class="MD" style="width:360px;max-width:calc(100vw - 32px)">
+      <h3>Etichette</h3>
+      <p class="ms">Separate da virgola, es. <em>riunioni, cliente rossi</em>. Servono a filtrare la libreria e si trovano con la ricerca.</p>
+      <input type="text" id="_tags_in" value="${esc((n.tags || []).join(', '))}" placeholder="riunioni, progetti…"
+             style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);font-size:.9rem;font-family:inherit;margin-bottom:8px">
+      <div class="tagBar" id="_tags_sug">${all.map(t => `<button class="tagChip" data-t="${esc(t)}"># ${esc(t)}</button>`).join('')}</div>
+      <div class="ma">
+        <button class="mc" id="_tags_canc">Annulla</button>
+        <button class="mk" id="_tags_ok">Salva</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  const inp = m.querySelector('#_tags_in');
+  const list = () => inp.value.split(',').map(t => t.trim()).filter(Boolean);
+  m.querySelectorAll('#_tags_sug .tagChip').forEach(b => b.onclick = () => {
+    const cur = list();
+    if (!cur.some(t => tagKey(t) === tagKey(b.dataset.t))) inp.value = [...cur, b.dataset.t].join(', ');
+    inp.focus();
+  });
+  m.querySelector('#_tags_canc').onclick = () => m.remove();
+  const save = async () => {
+    const tags = list();
+    const r = await fetch(`/api/notes/${n.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tags }) }).catch(() => null);
+    if (!r || !r.ok) { toast('⚠ Etichette non salvate: server non raggiungibile'); return; }
+    m.remove();
+    await loadNotes();
+  };
+  m.querySelector('#_tags_ok').onclick = save;
+  inp.onkeydown = e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') m.remove(); };
+  setTimeout(() => inp.focus(), 50);
+}
+
 async function restoreNote(id) {
   const r = await fetch(`/api/trash/${id}/restore`, { method: 'POST' }).catch(() => null);
   if (!r || !r.ok) { toast('⚠ Nota non ripristinata: server non raggiungibile'); return false; }
@@ -474,31 +540,35 @@ async function openTrash() {
 }
 
 async function duplicateNote(id) {
-  const src = S.notes.find(n => n.id === id);
-  if (!src) return;
-  // Carica il contenuto completo
-  const full = await fetch(`/api/notes/${id}`).then(r => r.json());
+  if (S.curId === id) await flushSave();
+  // Carica il contenuto completo (anche di una nota condivisa da un collega)
+  const fr = await fetch(`/api/notes/${id}`).catch(() => null);
+  if (!fr || !fr.ok) return toast('⚠ Nota non duplicata: server non raggiungibile');
+  const full = await fr.json();
   // Crea nuova nota
-  const nr = await fetch('/api/notes', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title: full.title + ' (copia)', voiceFirst: !!full.voice_first})});
+  const nr = await fetch('/api/notes', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title: full.title + ' (copia)', voiceFirst: !!full.voice_first})}).catch(() => null);
+  if (!nr || !nr.ok) return toast('⚠ Nota non duplicata: server non raggiungibile');
   const newNote = await nr.json();
   // Copia contenuto — pagine e testo inclusi, altrimenti la copia perdeva
   // tutte le pagine oltre la prima e il testo digitato
   const pagesData = (Array.isArray(full.pages_data) && full.pages_data.length)
     ? full.pages_data
     : [{ strokes: full.strokes || [], textItems: full.text_items || [], images: full.images || [] }];
-  await fetch(`/api/notes/${newNote.id}/content`, {
+  const cr = await fetch(`/api/notes/${newNote.id}/content`, {
     method:'PUT', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
       strokes: full.strokes, images: full.images, thumbnail: full.thumbnail,
       grid: full.grid, canvasText: full.canvas_text,
       textItems: full.text_items || [], pagesData: pagesData
     })
-  });
+  }).catch(() => null);
   await loadNotes();
-  toast('Nota duplicata');
+  if (!cr || !cr.ok) return toast(cr?.status === 507 ? '⚠ Spazio esaurito: la copia è rimasta vuota' : '⚠ Copia creata ma contenuto non salvato');
+  toast(full.role && full.role !== 'owner' ? '✓ Copiata nelle tue note' : 'Nota duplicata');
 }
 
 function scheduleAutoSave() {
+  if (readOnly()) return;
   S.rev++;
   S.dirty = true;
   queueDraft();
@@ -601,7 +671,7 @@ function flushDraftNow() {
 // volo riceve quella stessa promessa; le modifiche fatte nel frattempo
 // restano "sporche" e partono subito dopo.
 function saveNote(silent = false) {
-  if (!S.curId) return Promise.resolve(true);
+  if (!S.curId || readOnly()) return Promise.resolve(true);
   if (S._saveP) { S._resaveAfter = true; return S._saveP; }
   S._saveP = doSave(silent).finally(() => {
     S._saveP = null;
@@ -661,6 +731,8 @@ async function doSave(silent) {
     const [note] = S.notes.splice(idx, 1);
     S.notes.unshift(note);
   }
+  const sh = (S.shared || []).find(n => n.id === noteId);
+  if (sh) Object.assign(sh, { title, thumbnail, updated_at: new Date().toISOString() });
   // Modifiche arrivate durante l'invio: la nota resta da salvare (e la copia
   // locale, più recente, resta dov'è)
   if (S.curId === noteId && S.rev === rev) S.dirty = false;
@@ -674,9 +746,10 @@ function saveFailed(noteId, local, err, status) {
   console.error('saveNote:', err);
   if (status === 401 || status === 403) sessionLost();
   else if (status === 413) { toast('⚠ Nota troppo grande per il server: togli qualche immagine. Le modifiche restano su questo dispositivo.', 9000); }
+  else if (status === 507) { toast('⚠ Spazio esaurito: svuota il cestino o elimina audio e note che non servono. Le modifiche restano su questo dispositivo.', 9000); }
   else setNetStatus('offline');
   if (S.curId === noteId) { S.dirty = true; armAutoSave(15000); }
-  if (status !== 413) toast(local
+  if (status !== 413 && status !== 507) toast(local
     ? '⚠ Non ancora salvata sul server: è al sicuro su questo dispositivo, riprovo tra poco'
     : '⚠ Salvataggio non riuscito — riprovo tra poco. Non chiudere la pagina.', 5000);
   renderNL();
@@ -703,6 +776,7 @@ async function createNoteWithContent(title, payload) {
 // L'audio resta con la nota di prima.
 function continueOnCopy(copy, title, rev) {
   S.curId = copy.id; S.version = copy.version;
+  S.role = 'owner'; applyRole();          // la copia è sempre nelle proprie note
   NTT.value = title;
   if (S.rev === rev) S.dirty = false; else { S.dirty = true; armAutoSave(500); }
   if (!S.recOn) {
@@ -725,12 +799,13 @@ async function resolveConflict(noteId, payload, title, rev) {
   await dropDraft(noteId);
   if (S.curId === noteId) continueOnCopy(copy, copyTitle, rev);
   await loadNotes();
-  toast(`⚠ Nota modificata anche da un altro dispositivo: stai lavorando su "${copyTitle}", l'originale ha la versione dell'altro dispositivo`, 10000);
+  toast(`⚠ Nota modificata nel frattempo altrove (un altro dispositivo o un collega): stai lavorando su "${copyTitle}", l'originale ha l'altra versione`, 10000);
   return true;
 }
 
-// La nota è stata eliminata da un altro dispositivo mentre era aperta qui:
-// il contenuto torna come nota nuova e l'editor passa su quella.
+// La nota è stata eliminata da un altro dispositivo mentre era aperta qui (o
+// il collega ha tolto la condivisione): il contenuto torna come nota nuova,
+// nelle proprie note, e l'editor passa su quella.
 async function recoverDeleted(noteId, payload, title, rev) {
   const copyTitle = `${title} (recuperata)`;
   const copy = await createNoteWithContent(copyTitle, payload);
@@ -738,7 +813,7 @@ async function recoverDeleted(noteId, payload, title, rev) {
   await dropDraft(noteId);
   if (S.curId === noteId) continueOnCopy(copy, copyTitle, rev);
   await loadNotes();
-  toast(`⚠ La nota era stata eliminata da un altro dispositivo: il tuo lavoro è in "${copyTitle}"`, 9000);
+  toast(`⚠ La nota non è più disponibile (eliminata altrove o non più condivisa con te): il tuo lavoro è in "${copyTitle}"`, 9000);
   return true;
 }
 
@@ -842,14 +917,44 @@ function sortedNotes() {
   }
 }
 
+// Filtro della libreria: null = tutte, '__shared' = condivise con me,
+// altrimenti un'etichetta. Si ricorda per questo browser.
+S.filter = (() => { try { return localStorage.getItem('quetza-filter') || null; } catch { return null; } })();
+function setFilter(f) {
+  S.filter = f;
+  try { f ? localStorage.setItem('quetza-filter', f) : localStorage.removeItem('quetza-filter'); } catch {}
+  renderNL();
+}
+const tagKey = t => t.toLowerCase();
+function renderTagBar() {
+  const bar = document.getElementById('TAGBAR');
+  if (!bar) return;
+  const counts = new Map();
+  S.notes.forEach(n => (n.tags || []).forEach(t => {
+    const k = tagKey(t); const c = counts.get(k) || { tag: t, n: 0 }; c.n++; counts.set(k, c);
+  }));
+  const shared = (S.shared || []).length;
+  // filtro rimasto su un'etichetta che non c'è più
+  if (S.filter && S.filter !== '__shared' && !counts.has(tagKey(S.filter))) S.filter = null;
+  if (S.filter === '__shared' && !shared) S.filter = null;
+  if (!counts.size && !shared) { bar.innerHTML = ''; return; }
+  const chip = (f, label, n) => `<button class="tagChip${S.filter === f ? ' on' : ''}" data-f="${esc(f ?? '')}">${label}${n != null ? `<span class="n">${n}</span>` : ''}</button>`;
+  bar.innerHTML = chip(null, 'Tutte', S.notes.length)
+    + (shared ? chip('__shared', '👥 Condivise con me', shared) : '')
+    + [...counts.values()].sort((a, b) => a.tag.localeCompare(b.tag, 'it')).map(c => chip(c.tag, '# ' + esc(c.tag), c.n)).join('');
+  bar.querySelectorAll('.tagChip').forEach(b => b.onclick = () => setFilter(b.dataset.f || null));
+}
+
 function renderNL() {
   const el = document.getElementById('NL');
   el.innerHTML = '';
+  renderTagBar();
   const q = (S.searchQ || '').toLowerCase().trim();
-  let notes = sortedNotes();
-  if (q) notes = notes.filter(n => n.title.toLowerCase().includes(q));
+  let notes = S.filter === '__shared' ? [...(S.shared || [])] : sortedNotes();
+  if (S.filter && S.filter !== '__shared') notes = notes.filter(n => (n.tags || []).some(t => tagKey(t) === tagKey(S.filter)));
+  if (q) notes = notes.filter(n => n.title.toLowerCase().includes(q) || (n.tags || []).some(t => t.toLowerCase().includes(q)));
   if (!notes.length) {
-    el.innerHTML = `<div class="empty-msg">${q ? 'Nessun risultato' : 'Nessuna nota — creane una per iniziare'}</div>`;
+    el.innerHTML = `<div class="empty-msg">${q || S.filter ? 'Nessun risultato' : 'Nessuna nota — creane una per iniziare'}</div>`;
     return;
   }
   notes.forEach(n => el.appendChild(buildNoteCard(n)));
@@ -869,13 +974,16 @@ function buildNoteCard(n) {
     <div class="meta">
       <div class="title" title="${esc(n.title)} — doppio click per rinominare">${esc(n.title)}${isDirty?'<span class="dirty">●</span>':''}</div>
       <div class="date">${date}</div>
+      ${n.owner ? `<div class="owner">👥 di ${esc(n.owner_name || n.owner)}${n.perm === 'write' ? ' · può modificare' : ' · sola lettura'}</div>` : ''}
       ${n.has_audio?'<div class="audioBadge">⏺ audio</div>':''}
+      ${(n.tags || []).length ? `<div class="tags">${n.tags.map(t => `<span class="tag"># ${esc(t)}</span>`).join('')}</div>` : ''}
     </div>
     <button class="menuBtn" title="Altro">⋯</button>
   `;
   // Doppio click sul titolo → rinomina inline
   d.querySelector('.title').ondblclick = e => {
     e.stopPropagation();
+    if (n.owner && n.perm !== 'write') return;
     const input = document.createElement('input');
     input.value = n.title;
     input.className = 'aurorInput';
@@ -910,10 +1018,16 @@ function showNoteMenu(n, anchor) {
   const r = anchor.getBoundingClientRect();
   m.style.right = (window.innerWidth - r.right) + 'px';
   m.style.top   = (r.bottom + 4) + 'px';
-  const items = [
-    ['Duplica', () => duplicateNote(n.id)],
-    ['Elimina', () => deleteNote(n.id)],
-  ];
+  const items = n.owner
+    ? [
+        ['Copia nelle mie note', () => duplicateNote(n.id)],
+        ['Togli dalle mie condivise', () => leaveShared(n)],
+      ]
+    : [
+        ['Etichette…', () => editTags(n)],
+        ['Duplica', () => duplicateNote(n.id)],
+        ['Elimina', () => deleteNote(n.id)],
+      ];
   items.forEach(([label, fn]) => {
     const b = document.createElement('button');
     b.textContent = label;
@@ -1855,6 +1969,8 @@ function setupCanvas() {
     if (e.button === 1 || e.button === 2) { CV.setPointerCapture(e.pointerId); startMPan(e.clientX, e.clientY); return; }
     // Spazio+click → pan
     if (_spaceDown && e.button === 0) { CV.setPointerCapture(e.pointerId); startMPan(e.clientX, e.clientY); return; }
+    // Sola lettura: col tasto sinistro si sposta la pagina invece di scrivere
+    if (readOnly()) { CV.setPointerCapture(e.pointerId); startMPan(e.clientX, e.clientY); return; }
     // Modalità posizionamento testo
     if (S.textMode && S._pendingText) {
       const p = gP(e.clientX, e.clientY);
@@ -2348,11 +2464,20 @@ function setupToolbar() {
   const shareB = document.getElementById('SHAREB');
   if (shareB) {
     shareB.onclick = () => {
-      if (!S.curId) return;
-      loadShares();
+      if (!S.curId || S.role !== 'owner') return;
+      loadShares(); loadAccess(); loadDirectory();
       document.getElementById('SHAREM').classList.remove('off');
     };
   }
+  document.getElementById('COLLADD').onclick = addColleague;
+  document.getElementById('COLLIN').onkeydown = e => { if (e.key === 'Enter') addColleague(); };
+  document.getElementById('COLLALL').onchange = async e => {
+    const on = e.target.checked;
+    const ok = on ? await putAccess('*', 'read')
+                  : await fetch(`/api/notes/${S.curId}/access/*`, { method: 'DELETE' }).then(r => r.ok || r.status === 404).catch(() => false);
+    if (!ok) { e.target.checked = !on; return; }
+    toast(on ? '✓ Ora tutti i colleghi la vedono' : 'Non più visibile a tutti');
+  };
   const shareCancB = document.getElementById('SHARECANCB');
   if (shareCancB) shareCancB.onclick = () => document.getElementById('SHAREM').classList.add('off');
   const shareCreB = document.getElementById('SHARECREB');
@@ -2430,6 +2555,7 @@ function setupKeyboard() {
     // Alcuni browser zoomano anche con Ctrl+frecce verticali
     if (m && (e.key==='ArrowUp'||e.key==='ArrowDown')) { e.preventDefault(); return; }
     if (m && e.key==='v')  { pasteImg(); return; }
+    if (readOnly() && !m && e.key !== 'PageDown' && e.key !== 'PageUp' && e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== ' ') return;
 
     // Cambio pagina: PageUp/PageDown, o Ctrl/Cmd + frecce orizzontali
     if (e.key==='PageDown' || (m && e.key==='ArrowRight')) { e.preventDefault(); goPage(S.curPage + 1); return; }
@@ -2592,6 +2718,7 @@ async function imageSrcFor(blob, img) {
   return c.toDataURL('image/jpeg', 0.85);
 }
 async function pasteImg() {
+  if (readOnly()) return;
   try {
     const items = await navigator.clipboard.read();
     for (const item of items) {
@@ -2792,7 +2919,12 @@ async function uploadRecording(rec, blob) {
         body: JSON.stringify({ title: `Registrazione recuperata ${hhmm()}`, voiceFirst: true }) }).catch(() => null);
       if (nr?.ok) { rec.noteId = (await nr.json()).id; r = await send(rec.noteId).catch(() => null); }
     }
-    if (!r || !r.ok) { if (r && (r.status === 401 || r.status === 403)) sessionLost(); return false; }
+    if (!r || !r.ok) {
+      if (r && (r.status === 401 || r.status === 403)) sessionLost();
+      rec.lastStatus = r?.status;
+      if (r && r.status === 507) toast('⚠ Spazio esaurito: la registrazione resta su questo dispositivo finché non liberi spazio', 9000);
+      return false;
+    }
     await dropRecording(rec.key);
     const idx = S.notes.findIndex(n => n.id === rec.noteId);
     if (idx >= 0) S.notes[idx].has_audio = 1; else loadNotes();
@@ -2828,6 +2960,7 @@ async function retryRecordings() {
 }
 
 async function startRec() {
+  if (readOnly()) return;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     toast('⚠ Microfono non supportato'); return;
   }
@@ -2940,7 +3073,7 @@ async function onRecStop() {
       await saveRecMeta(rec, 'pending');
       uploaded = await uploadRecording(rec, newBlob);
       if (!uploaded) {
-        toast('⚠ Registrazione non ancora sul server: è al sicuro su questo dispositivo, riprovo tra poco', 7000);
+        if (rec.lastStatus !== 507) toast('⚠ Registrazione non ancora sul server: è al sicuro su questo dispositivo, riprovo tra poco', 7000);
         setTimeout(retryRecordings, 20000);
       }
     }
@@ -3485,6 +3618,65 @@ async function loadShares() {
       </div>
     </div>`;
   }).join('');
+}
+
+// ── Condivisione con i colleghi ───────────────────────────
+async function loadDirectory() {
+  const r = await fetch('/api/users').catch(() => null);
+  if (!r || !r.ok) return;
+  S.directory = await r.json();
+  document.getElementById('USERLIST').innerHTML = S.directory
+    .map(u => `<option value="${esc(u.username)}">${esc(u.display_name || u.username)}</option>`).join('');
+}
+
+async function putAccess(username, perm) {
+  const r = await fetch(`/api/notes/${S.curId}/access/${encodeURIComponent(username)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ perm }),
+  }).catch(() => null);
+  if (r && r.ok) return true;
+  const d = r ? await r.json().catch(() => ({})) : {};
+  toast('⚠ ' + (d.error || 'Server non raggiungibile'));
+  return false;
+}
+
+async function addColleague() {
+  const inp = document.getElementById('COLLIN');
+  const q = inp.value.trim().toLowerCase();
+  if (!q) return;
+  const dir = S.directory || [];
+  const u = dir.find(x => x.username.toLowerCase() === q) || dir.find(x => (x.display_name || '').toLowerCase() === q);
+  if (!u) return toast('⚠ Collega non trovato: sceglilo dall\'elenco');
+  if (!(await putAccess(u.username, document.getElementById('COLLPERM').value))) return;
+  inp.value = '';
+  toast(`✓ Condivisa con ${u.display_name || u.username}`);
+  loadAccess();
+}
+
+async function loadAccess() {
+  const el = document.getElementById('COLLLIST');
+  const r = await fetch(`/api/notes/${S.curId}/access`).catch(() => null);
+  if (!r || !r.ok) { el.innerHTML = '<p class="ms">Elenco non disponibile</p>'; return; }
+  const list = await r.json();
+  document.getElementById('COLLALL').checked = list.some(a => a.username === '*');
+  const people = list.filter(a => a.username !== '*');
+  if (!people.length) { el.innerHTML = '<p class="ms" style="margin-bottom:0">Non ancora condivisa con nessun collega</p>'; return; }
+  el.innerHTML = people.map(a => `<div class="collItem" data-u="${esc(a.username)}">
+      <span class="nm" title="${esc(a.username)}">${esc(a.display_name || a.username)}</span>
+      <select>
+        <option value="read"${a.perm === 'read' ? ' selected' : ''}>Può vedere</option>
+        <option value="write"${a.perm === 'write' ? ' selected' : ''}>Può modificare</option>
+      </select>
+      <button class="iconBtnSm danger" title="Togli l'accesso">${SHARE_ICON_REVOKE}</button>
+    </div>`).join('');
+  el.querySelectorAll('.collItem').forEach(row => {
+    const who = row.dataset.u;
+    row.querySelector('select').onchange = async e => { if (!(await putAccess(who, e.target.value))) loadAccess(); };
+    row.querySelector('button').onclick = async () => {
+      const r = await fetch(`/api/notes/${S.curId}/access/${encodeURIComponent(who)}`, { method: 'DELETE' }).catch(() => null);
+      if (!r || !r.ok) return toast('⚠ Accesso non tolto: server non raggiungibile');
+      loadAccess();
+    };
+  });
 }
 
 async function deleteShare(token) {

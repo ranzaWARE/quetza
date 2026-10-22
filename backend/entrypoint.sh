@@ -28,9 +28,9 @@ fi
 # Backup automatico del DB (default ogni notte alle 02:00). crond non passa
 # le variabili d'ambiente ai job: si scrivono nella riga del crontab.
 BACKUP_CRON="${BACKUP_CRON:-0 2 * * *}"
-BACKUP_DIR="${BACKUP_DIR:-/app/backups}"
+export BACKUP_DIR="${BACKUP_DIR:-/app/backups}"
 mkdir -p "$BACKUP_DIR"
-echo "$BACKUP_CRON DB_PATH=${DB_PATH:-/app/data/quetza.db} BACKUP_DIR=$BACKUP_DIR BACKUP_KEEP=${BACKUP_KEEP:-30} node /app/backup.js >> $BACKUP_DIR/backup.log 2>&1" | crontab -
+echo "$BACKUP_CRON DB_PATH=${DB_PATH:-/app/data/quetza.db} BACKUP_DIR=$BACKUP_DIR BACKUP_COPY_DIR=${BACKUP_COPY_DIR:-} BACKUP_KEEP=${BACKUP_KEEP:-30} node /app/backup.js >> $BACKUP_DIR/backup.log 2>&1" | crontab -
 crond -b 2>/dev/null || true
 
 if [ "$NODE_ENV" = "development" ]; then

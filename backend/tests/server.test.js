@@ -14,6 +14,9 @@ process.env.SESSION_SECRET = 'x'.repeat(40);
 process.env.CERT_PATH = '/non/esiste.crt';   // forza il ramo HTTP puro
 process.env.KEY_PATH  = '/non/esiste.key';
 process.env.TRUST_PROXY = '0';
+const BKD = fs.mkdtempSync(path.join(os.tmpdir(), 'quetza-bk-'));
+process.env.BACKUP_DIR = path.join(BKD, 'locali');
+process.env.BACKUP_COPY_DIR = path.join(BKD, 'nas');
 
 (async () => {
   require('../server.js');
@@ -276,6 +279,229 @@ process.env.TRUST_PROXY = '0';
   let noEmpty = false;
   try { await auth.ldapAuthenticate('admin', ''); } catch { noEmpty = true; }
   check('LDAP: password vuota rifiutata senza contattare il server', noEmpty);
+
+  async function loginAs(username, password) {
+    cookie = '';
+    await req('POST', '/api/login', { username, password, method: 'local' });
+    return cookie;
+  }
+  // il testo finisce due volte nel contenuto: canvasText e pagina
+  const content = (text, extra = {}) => ({
+    strokes: [], images: [], thumbnail: 'data:,', grid: 'lines', canvasText: text,
+    textItems: [], pagesData: [{ strokes: [], textItems: [{ text, x: 1, y: 1, size: 18 }], images: [] }], ...extra,
+  });
+
+  section('Etichette');
+  cookie = adminCookie;
+  const tagged = await (await req('POST', '/api/notes', { title: 'Preventivo Rossi' })).json();
+  r = await req('PATCH', `/api/notes/${tagged.id}`, { tags: [' Clienti ', 'clienti', 'Urgente', '', 42] });
+  check('etichette salvate', r.ok, r.status);
+  let listed = (await (await req('GET', '/api/notes')).json()).find(n => n.id === tagged.id);
+  check('etichette ripulite e senza doppioni', JSON.stringify(listed?.tags) === '["Clienti","Urgente"]', JSON.stringify(listed?.tags));
+  let found = await (await req('GET', '/api/search?q=urgente')).json();
+  check('la ricerca trova le note per etichetta', found.some(n => n.id === tagged.id), JSON.stringify(found.map(n => n.title)));
+  await req('PATCH', `/api/notes/${tagged.id}`, { title: 'Preventivo Rossi bis' });
+  listed = (await (await req('GET', '/api/notes')).json()).find(n => n.id === tagged.id);
+  check('cambiare il titolo non toglie le etichette', listed?.tags?.length === 2);
+  found = await (await req('GET', '/api/search?q=clienti')).json();
+  check('dopo il cambio titolo la ricerca per etichetta funziona ancora', found.some(n => n.id === tagged.id));
+  r = await req('GET', '/api/export');
+  const tman = JSON.parse(new AdmZip(Buffer.from(await r.arrayBuffer())).getEntry('manifest.json').getData().toString('utf8'));
+  check('le etichette finiscono nell\'export', JSON.stringify(tman.find(n => n.id === tagged.id)?.tags) === '["Clienti","Urgente"]');
+  await req('PATCH', `/api/notes/${tagged.id}`, { tags: Array.from({ length: 40 }, (_, i) => i + 'x'.repeat(50)) });
+  listed = (await (await req('GET', '/api/notes')).json()).find(n => n.id === tagged.id);
+  check('etichette limitate in numero e lunghezza', listed.tags.length === 20 && listed.tags.every(t => t.length <= 30));
+
+  section('Condivisione con i colleghi');
+  await req('POST', '/api/admin/users', { username: 'luca', password: 'passwordLuca1', displayName: 'Luca' });
+  await req('POST', '/api/admin/users', { username: 'sara', password: 'passwordSara1', displayName: 'Sara' });
+  const lucaCookie = await loginAs('luca', 'passwordLuca1');
+  const saraCookie = await loginAs('sara', 'passwordSara1');
+  cookie = adminCookie;
+  const sn = await (await req('POST', '/api/notes', { title: 'Verbale' })).json();
+  r = await req('PUT', `/api/notes/${sn.id}/content`, content('testo del verbale'));
+  let ver = (await r.json()).version;
+  await req('PATCH', `/api/notes/${sn.id}`, { tags: ['Privata'] });
+  const dir = await (await req('GET', '/api/users')).json();
+  check('rubrica: colleghi attivi, senza se stessi', dir.some(u => u.username === 'luca') && !dir.some(u => u.username === 'admin') && !dir.some(u => u.username === 'mario'));
+
+  cookie = lucaCookie;
+  check('senza condivisione: la nota non si vede', (await req('GET', `/api/notes/${sn.id}`)).status === 404);
+  check('senza condivisione: non si scrive', (await req('PUT', `/api/notes/${sn.id}/content`, content('x'))).status === 404);
+
+  cookie = adminCookie;
+  check('condivisione con se stessi rifiutata', (await req('PUT', `/api/notes/${sn.id}/access/admin`, { perm: 'read' })).status === 400);
+  check('condivisione con utente inesistente rifiutata', (await req('PUT', `/api/notes/${sn.id}/access/nessuno`, { perm: 'read' })).status === 400);
+  check('condivisione con utente disattivato rifiutata', (await req('PUT', `/api/notes/${sn.id}/access/mario`, { perm: 'read' })).status === 400);
+  check('"tutti" solo in lettura', (await req('PUT', `/api/notes/${sn.id}/access/*`, { perm: 'write' })).status === 400);
+  check('permesso sconosciuto rifiutato', (await req('PUT', `/api/notes/${sn.id}/access/luca`, { perm: 'admin' })).status === 400);
+  r = await req('PUT', `/api/notes/${sn.id}/access/luca`, { perm: 'read' });
+  check('condivisa con luca in lettura', r.ok, r.status);
+
+  cookie = lucaCookie;
+  let sh = await (await req('GET', '/api/notes/shared')).json();
+  check('luca la trova tra le condivise', sh.length === 1 && sh[0].id === sn.id && sh[0].perm === 'read' && sh[0].owner === 'admin', JSON.stringify(sh));
+  check('ma non tra le sue note', !(await (await req('GET', '/api/notes')).json()).some(n => n.id === sn.id));
+  let got = await (await req('GET', `/api/notes/${sn.id}`)).json();
+  check('luca la apre in sola lettura', got.role === 'read' && got.canvas_text === 'testo del verbale' && got.owner === 'admin');
+  check('le etichette del proprietario restano private', Array.isArray(got.tags) && !got.tags.length);
+  check('in lettura non si salva il contenuto', (await req('PUT', `/api/notes/${sn.id}/content`, content('vandalo', { baseVersion: ver }))).status === 404);
+  check('in lettura non si rinomina', (await req('PATCH', `/api/notes/${sn.id}`, { title: 'vandalo' })).status === 404);
+  check('in lettura non si registra audio', (await req('POST', `/api/notes/${sn.id}/audio/append`, (() => { const f = new FormData(); f.append('chunk', new Blob([Buffer.alloc(10)], { type: 'audio/webm' }), 'c.webm'); return f; })())).status === 404);
+  check('il destinatario non vede chi altro ha accesso', (await req('GET', `/api/notes/${sn.id}/access`)).status === 404);
+  check('il destinatario non condivide a sua volta', (await req('PUT', `/api/notes/${sn.id}/access/sara`, { perm: 'read' })).status === 404);
+  check('il destinatario non crea link pubblici', (await req('POST', `/api/notes/${sn.id}/share`, {})).status === 404);
+  check('il destinatario non la elimina', (await req('DELETE', `/api/notes/${sn.id}`)).status === 404);
+  check('la trascrizione si legge', (await req('GET', `/api/notes/${sn.id}/transcript`)).ok);
+
+  cookie = adminCookie;
+  await req('PUT', `/api/notes/${sn.id}/access/luca`, { perm: 'write' });
+  cookie = lucaCookie;
+  r = await req('PUT', `/api/notes/${sn.id}/content`, content('aggiunta di luca', { baseVersion: ver }));
+  check('con "può modificare" luca salva', r.ok, r.status);
+  const ver2 = (await r.json()).version;
+  r = await req('PUT', `/api/notes/${sn.id}/content`, content('versione vecchia', { baseVersion: ver }));
+  check('anche tra colleghi una versione superata dà conflitto', r.status === 409, r.status);
+  check('luca rinomina', (await req('PATCH', `/api/notes/${sn.id}`, { title: 'Verbale (rivisto)', tags: ['Rubata'] })).ok);
+  cookie = adminCookie;
+  got = await (await req('GET', `/api/notes/${sn.id}`)).json();
+  check('il proprietario vede le modifiche del collega', got.canvas_text === 'aggiunta di luca' && got.version === ver2 && got.title === 'Verbale (rivisto)');
+  check('un collega non cambia le etichette del proprietario', JSON.stringify(got.tags) === '["Privata"]', JSON.stringify(got.tags));
+  check('la nota resta del proprietario', (await (await req('GET', '/api/notes')).json()).some(n => n.id === sn.id));
+  found = await (await req('GET', '/api/search?q=aggiunta')).json();
+  check('la ricerca del proprietario trova il testo scritto dal collega', found.some(n => n.id === sn.id));
+
+  cookie = saraCookie;
+  check('sara non la vede', (await req('GET', `/api/notes/${sn.id}`)).status === 404 && !(await (await req('GET', '/api/notes/shared')).json()).length);
+  cookie = adminCookie;
+  check('visibile a tutti i colleghi', (await req('PUT', `/api/notes/${sn.id}/access/*`, { perm: 'read' })).ok);
+  cookie = saraCookie;
+  sh = await (await req('GET', '/api/notes/shared')).json();
+  check('ora sara la trova, in sola lettura', sh.length === 1 && sh[0].perm === 'read');
+  check('"tutti" non dà la scrittura', (await req('PUT', `/api/notes/${sn.id}/content`, content('x'))).status === 404);
+  cookie = lucaCookie;
+  check('"tutti" non toglie la scrittura a chi ce l\'ha', (await (await req('GET', `/api/notes/${sn.id}`)).json()).role === 'write');
+
+  cookie = saraCookie;
+  r = await req('DELETE', `/api/notes/${sn.id}/access`);
+  check('sara la toglie dalle sue condivise', r.ok && !(await (await req('GET', '/api/notes/shared')).json()).length);
+  check('e non la apre più', (await req('GET', `/api/notes/${sn.id}`)).status === 404);
+  cookie = adminCookie;
+  check('il proprietario non "lascia" la propria nota', (await req('DELETE', `/api/notes/${sn.id}/access`)).status === 400);
+  let acc = await (await req('GET', `/api/notes/${sn.id}/access`)).json();
+  check('elenco accessi: tutti + luca, senza chi l\'ha tolta', acc.map(a => a.username).join() === '*,luca', JSON.stringify(acc));
+  await req('PUT', `/api/notes/${sn.id}/access/sara`, { perm: 'read' });
+  cookie = saraCookie;
+  check('ricondivisa esplicitamente, sara la rivede', (await (await req('GET', '/api/notes/shared')).json()).length === 1);
+
+  cookie = adminCookie;
+  await req('DELETE', `/api/notes/${sn.id}`);
+  cookie = lucaCookie;
+  check('nota nel cestino: sparisce ai colleghi', (await req('GET', `/api/notes/${sn.id}`)).status === 404
+        && !(await (await req('GET', '/api/notes/shared')).json()).length);
+  check('nota nel cestino: il collega non ci scrive', (await req('PUT', `/api/notes/${sn.id}/content`, content('x'))).status === 404);
+  cookie = adminCookie;
+  await req('POST', `/api/trash/${sn.id}/restore`);
+  cookie = lucaCookie;
+  check('ripristinata: torna visibile con gli stessi permessi', (await (await req('GET', `/api/notes/${sn.id}`)).json()).role === 'write');
+
+  cookie = adminCookie;
+  check('accesso tolto a luca', (await req('DELETE', `/api/notes/${sn.id}/access/luca`)).ok);
+  cookie = lucaCookie;
+  check('luca resta in lettura grazie a "tutti"', (await (await req('GET', `/api/notes/${sn.id}`)).json()).role === 'read');
+  cookie = adminCookie;
+  await req('DELETE', `/api/notes/${sn.id}/access/*`);
+  cookie = lucaCookie;
+  check('tolto anche "tutti": luca non la vede più', (await req('GET', `/api/notes/${sn.id}`)).status === 404);
+
+  section('Migrazione: condivisioni nell\'export completo');
+  cookie = adminCookie;
+  await req('PUT', `/api/notes/${sn.id}/access/luca`, { perm: 'write' });
+  r = await req('GET', '/api/admin/export');
+  const fz = Buffer.from(await r.arrayBuffer());
+  const fman = JSON.parse(new AdmZip(fz).getEntry('manifest.json').getData().toString('utf8'));
+  check('l\'export completo contiene le condivisioni', fman.access?.some(a => a.note_id === sn.id && a.username === 'luca' && a.perm === 'write'));
+  await req('DELETE', `/api/notes/${sn.id}/access/luca`);
+  const ffd = new FormData();
+  ffd.append('archive', new Blob([fz], { type: 'application/zip' }), 'completo.zip');
+  r = await req('POST', '/api/admin/import', ffd);
+  const fimp = await r.json();
+  check('l\'import completo le ripristina', r.ok && fimp.shares >= 1, JSON.stringify(fimp));
+  cookie = lucaCookie;
+  check('luca ritrova la nota, ancora in modifica', (await (await req('GET', `/api/notes/${sn.id}`)).json()).role === 'write');
+  cookie = adminCookie;
+  await req('DELETE', `/api/notes/${sn.id}/access/luca`);
+
+  section('Spazio per utente');
+  cookie = adminCookie;
+  check('quota non valida rifiutata', (await req('PUT', '/api/admin/users/luca/quota', { quotaMb: -3 })).status === 400);
+  check('quota di 1 MB a luca', (await req('PUT', '/api/admin/users/luca/quota', { quotaMb: 1 })).ok);
+  cookie = lucaCookie;
+  let me2 = await (await req('GET', '/api/me')).json();
+  check('/api/me riporta spazio usato e limite', me2.storage?.quota === 1048576 && me2.storage.used >= 0, JSON.stringify(me2.storage));
+  const q1 = await (await req('POST', '/api/notes', { title: 'grande' })).json();
+  r = await req('PUT', `/api/notes/${q1.id}/content`, content('a'.repeat(300 * 1024)));
+  check('salvataggio entro il limite', r.ok, r.status);
+  const q2 = await (await req('POST', '/api/notes', { title: 'troppo' })).json();
+  r = await req('PUT', `/api/notes/${q2.id}/content`, content('b'.repeat(300 * 1024)));
+  const qerr = await r.json();
+  check('oltre il limite → 507 con un messaggio chiaro', r.status === 507 && /spazio/i.test(qerr.error), `${r.status} ${qerr.error}`);
+  check('il contenuto rifiutato non è stato scritto', !(await (await req('GET', `/api/notes/${q2.id}`)).json()).canvas_text);
+  r = await req('PUT', `/api/notes/${q1.id}/content`, content('a'.repeat(600 * 1024)));
+  check('anche ingrandire una nota oltre il limite → 507', r.status === 507, r.status);
+  r = await req('PUT', `/api/notes/${q1.id}/content`, content('a'.repeat(100 * 1024)));
+  check('ridurre una nota è sempre permesso', r.ok, r.status);
+  {
+    const z = new AdmZip();
+    z.addFile('manifest.json', Buffer.from(JSON.stringify([{ id: 'imp-' + Date.now(), title: 'importata', canvas_text: 'q'.repeat(2 * 1048576) }])));
+    const zfd = new FormData(); zfd.append('archive', new Blob([z.toBuffer()], { type: 'application/zip' }), 'q.zip');
+    r = await req('POST', '/api/import', zfd);
+    check('import oltre il limite → 507, niente importato', r.status === 507 && !(await (await req('GET', '/api/notes')).json()).some(n => n.title === 'importata'), r.status);
+  }
+  const big = new FormData(); big.append('audio', new Blob([Buffer.alloc(2 * 1048576)], { type: 'audio/webm' }), 'a.webm');
+  check('audio oltre il limite → 507', (await req('POST', `/api/notes/${q1.id}/audio`, big)).status === 507);
+  // Il collega che scrive consuma lo spazio del proprietario, non il suo
+  cookie = adminCookie;
+  const an = await (await req('POST', '/api/notes', { title: 'di admin' })).json();
+  await req('PUT', `/api/notes/${an.id}/access/luca`, { perm: 'write' });
+  cookie = lucaCookie;
+  r = await req('PUT', `/api/notes/${an.id}/content`, content('c'.repeat(1200 * 1024)));
+  check('scrivendo nella nota di un altro conta lo spazio del proprietario', r.ok, r.status);
+  cookie = adminCookie;
+  await req('POST', '/api/admin/settings', { storage_quota_mb: '5' });
+  cookie = saraCookie;
+  check('limite generale applicato a chi non ne ha uno suo', (await (await req('GET', '/api/me')).json()).storage.quota === 5 * 1048576);
+  cookie = adminCookie;
+  await req('PUT', '/api/admin/users/sara/quota', { quotaMb: 0 });
+  cookie = saraCookie;
+  check('0 sul singolo utente = nessun limite, anche col limite generale', (await (await req('GET', '/api/me')).json()).storage.quota === 0);
+  cookie = adminCookie;
+  const st = await (await req('GET', '/api/admin/stats')).json();
+  const lu = st.per_user.find(u => u.username === 'luca');
+  check('statistiche admin: spazio usato e limite per utente', lu?.quota_mb === 1 && lu.used_bytes > 100 * 1024 && st.default_quota_mb === 5, JSON.stringify(lu));
+  await req('POST', '/api/admin/settings', { storage_quota_mb: '0' });
+  await req('PUT', '/api/admin/users/luca/quota', { quotaMb: null });
+  cookie = lucaCookie;
+  check('tolto il limite si torna a salvare', (await req('PUT', `/api/notes/${q2.id}/content`, content('b'.repeat(300 * 1024)))).ok);
+
+  section('Backup dal pannello admin');
+  cookie = lucaCookie;
+  check('solo l\'admin vede i backup', (await req('GET', '/api/admin/backup')).status === 403);
+  cookie = adminCookie;
+  let bk = await (await req('GET', '/api/admin/backup')).json();
+  check('nessun backup ancora', bk.count === 0 && !bk.status && bk.copyDir === process.env.BACKUP_COPY_DIR, JSON.stringify(bk));
+  r = await req('POST', '/api/admin/backup');
+  bk = await r.json();
+  check('backup manuale riuscito', r.ok && bk.status?.ok && bk.count === 1, JSON.stringify(bk));
+  check('copia esterna fatta e segnalata', bk.status?.copy?.ok && fs.readdirSync(process.env.BACKUP_COPY_DIR).filter(f => /^quetza_.*\.db$/.test(f)).length === 1);
+  check('nessun file a metà nella copia esterna', !fs.readdirSync(process.env.BACKUP_COPY_DIR).some(f => f.endsWith('.parziale')));
+  const bkFile = path.join(process.env.BACKUP_DIR, bk.status.file);
+  {
+    const Database = require('better-sqlite3');
+    const b = new Database(bkFile, { readonly: true });
+    check('il backup contiene le note', b.prepare('SELECT COUNT(*) n FROM notes WHERE id = ?').get(sn.id).n === 1);
+    b.close();
+  }
 
   section('SSO / OIDC con un provider finto (PKCE, nonce, aud)');
   {

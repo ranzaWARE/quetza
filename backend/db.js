@@ -96,6 +96,8 @@ try {
 
 // Migra colonne nuove se mancanti
 try { db.exec(`ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0`); } catch {}
+// Spazio massimo per utente in MB: NULL = quello generale (impostazione storage_quota_mb)
+try { db.exec(`ALTER TABLE users ADD COLUMN quota_mb INTEGER`); } catch {}
 try { db.exec(`ALTER TABLE notes ADD COLUMN canvas_text TEXT`); } catch {}
 try { db.exec(`ALTER TABLE notes ADD COLUMN whisper_text TEXT`); } catch {}
 try { db.exec(`ALTER TABLE notes ADD COLUMN text_items TEXT`); } catch {}
@@ -113,6 +115,23 @@ try { db.exec(`ALTER TABLE notes ADD COLUMN version INTEGER NOT NULL DEFAULT 1`)
 // Cestino: una nota eliminata ha deleted_at valorizzato e resta recuperabile
 // per TRASH_DAYS giorni, poi viene cancellata davvero (purgeTrash).
 try { db.exec(`ALTER TABLE notes ADD COLUMN deleted_at TEXT`); } catch {}
+// Note condivise con i colleghi: perm 'read' o 'write'; username '*' =
+// tutti gli utenti (sola lettura); 'hidden' = l'utente l'ha tolta dalle sue
+// condivise (vale anche contro '*').
+db.exec(`
+  CREATE TABLE IF NOT EXISTS note_access (
+    note_id    TEXT NOT NULL,
+    username   TEXT NOT NULL,
+    perm       TEXT NOT NULL DEFAULT 'read',
+    granted_by TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (note_id, username),
+    FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_note_access_user ON note_access(username);
+`);
+// Etichette della nota: array JSON di stringhe
+try { db.exec(`ALTER TABLE notes ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'`); } catch {}
 
 // Indice FTS — ricrea se schema cambiato (rimuove vecchia versione con content table)
 try {
@@ -206,7 +225,7 @@ if (!adminExists) {
 
 // ── Users ─────────────────────────────────────────────────────
 function getUsers() {
-  return db.prepare(`SELECT username, display_name, is_admin, is_active, source, must_change_password, created_at, last_login FROM users ORDER BY is_admin DESC, username ASC`).all();
+  return db.prepare(`SELECT username, display_name, is_admin, is_active, source, must_change_password, quota_mb, created_at, last_login FROM users ORDER BY is_admin DESC, username ASC`).all();
 }
 
 function getUserByUsername(username) {
@@ -243,6 +262,8 @@ function resetPassword(username, newPassword, mustChange = true) {
 
 function deleteUser(username) {
   db.prepare(`DELETE FROM users WHERE username = ?`).run(username);
+  // Un nuovo utente con lo stesso nome non deve ereditare le condivisioni
+  db.prepare(`DELETE FROM note_access WHERE username = ?`).run(username);
 }
 
 function countAdmins() {
@@ -272,6 +293,31 @@ function touchLogin(username) {
 }
 
 // ── Settings ──────────────────────────────────────────────────
+// ── Spazio occupato ───────────────────────────────────────────
+// Byte di una nota (contenuto, immagini, anteprima, trascrizione) e di tutto
+// quello che un utente occupa, audio e cestino compresi.
+const NOTE_BYTES = `COALESCE(length(CAST(strokes AS BLOB)),0) + COALESCE(length(CAST(images AS BLOB)),0)
+  + COALESCE(length(CAST(thumbnail AS BLOB)),0) + COALESCE(length(CAST(pages_data AS BLOB)),0)
+  + COALESCE(length(CAST(text_items AS BLOB)),0) + COALESCE(length(CAST(canvas_text AS BLOB)),0)
+  + COALESCE(length(CAST(whisper_text AS BLOB)),0) + COALESCE(length(CAST(whisper_segments AS BLOB)),0)`;
+function noteBytes(id) {
+  return db.prepare(`SELECT ${NOTE_BYTES} AS n FROM notes WHERE id = ?`).get(id)?.n || 0;
+}
+function storageUsed(username) {
+  const notes = db.prepare(`SELECT COALESCE(SUM(${NOTE_BYTES}),0) AS n FROM notes WHERE username = ?`).get(username).n;
+  const audio = db.prepare(`SELECT COALESCE(SUM(length(data)),0) AS n FROM audio WHERE username = ?`).get(username).n;
+  return notes + audio;
+}
+// Byte disponibili in tutto (0 = nessun limite)
+function quotaFor(username) {
+  const u = db.prepare(`SELECT quota_mb FROM users WHERE username = ?`).get(username);
+  const mb = u?.quota_mb ?? Number(getSetting('storage_quota_mb') || 0);
+  return mb > 0 ? mb * 1048576 : 0;
+}
+function setUserQuota(username, mb) {
+  return db.prepare(`UPDATE users SET quota_mb = ? WHERE username = ?`).run(mb == null || mb === '' ? null : Math.max(0, Math.round(Number(mb))), username).changes > 0;
+}
+
 function getSetting(key) {
   const row = db.prepare(`SELECT value FROM settings WHERE key = ?`).get(key);
   return row ? row.value : null;
@@ -288,8 +334,24 @@ function getAllSettings() {
 
 // ── Notes ─────────────────────────────────────────────────────
 function getNotesByUser(username) {
-  return db.prepare(`SELECT id, title, thumbnail, grid, has_audio, created_at, updated_at FROM notes WHERE username = ? AND deleted_at IS NULL ORDER BY updated_at DESC`).all(username);
+  return db.prepare(`SELECT id, title, thumbnail, grid, has_audio, tags, created_at, updated_at FROM notes WHERE username = ? AND deleted_at IS NULL ORDER BY updated_at DESC`).all(username)
+    .map(n => ({ ...n, tags: parseTags(n.tags) }));
 }
+
+// Etichette: testo libero, senza doppioni (maiuscole comprese), al massimo
+// 20 da 30 caratteri.
+function normTags(v) {
+  const out = [], seen = new Set();
+  for (const t of Array.isArray(v) ? v : []) {
+    if (typeof t !== 'string') continue;
+    const tag = t.replace(/\s+/g, ' ').trim().slice(0, 30);
+    if (!tag || seen.has(tag.toLowerCase())) continue;
+    seen.add(tag.toLowerCase()); out.push(tag);
+    if (out.length === 20) break;
+  }
+  return out;
+}
+function parseTags(v) { try { return normTags(JSON.parse(v || '[]')); } catch { return []; } }
 
 function getNoteById(id, username) {
   const note = username
@@ -303,6 +365,7 @@ function getNoteById(id, username) {
     text_items:       note.text_items       ? JSON.parse(note.text_items)       : [],
     whisper_segments: note.whisper_segments ? JSON.parse(note.whisper_segments) : null,
     pages_data:       note.pages_data       ? JSON.parse(note.pages_data)       : null,
+    tags:             parseTags(note.tags),
   };
 }
 
@@ -312,16 +375,17 @@ function createNote(id, username, title, voiceFirst) {
   return getNoteById(id, username);
 }
 
-function updateNoteMeta(id, username, { title, grid }) {
+function updateNoteMeta(id, username, { title, grid, tags }) {
   const sets = [], vals = [];
   if (title !== undefined) { sets.push('title = ?'); vals.push(title); }
   if (grid  !== undefined) { sets.push('grid = ?');  vals.push(grid); }
+  if (tags  !== undefined) { sets.push('tags = ?');  vals.push(JSON.stringify(normTags(tags))); }
   if (!sets.length) return true;
   sets.push("updated_at = datetime('now')");
   vals.push(id, username);
   const ok = db.prepare(`UPDATE notes SET ${sets.join(', ')} WHERE id = ? AND username = ? AND deleted_at IS NULL`).run(...vals).changes > 0;
   // senza, la ricerca trovava la nota solo col titolo vecchio
-  if (ok && title !== undefined) { try { rebuildFts(id); } catch(e) { console.warn('FTS rebuild title:', e.message); } }
+  if (ok && (title !== undefined || tags !== undefined)) { try { rebuildFts(id); } catch(e) { console.warn('FTS rebuild title:', e.message); } }
   return ok;
 }
 
@@ -351,12 +415,12 @@ function saveWhisperText(noteId, text, segments) {
 }
 
 function rebuildFts(noteId) {
-  const n = db.prepare(`SELECT id, username, title, canvas_text, whisper_text FROM notes WHERE id=? AND deleted_at IS NULL`).get(noteId);
+  const n = db.prepare(`SELECT id, username, title, tags, canvas_text, whisper_text FROM notes WHERE id=? AND deleted_at IS NULL`).get(noteId);
   if (!n) { db.prepare(`DELETE FROM notes_fts WHERE note_id = ?`).run(noteId); return; }
   // Cancella record esistente e reinserisci
   db.prepare(`DELETE FROM notes_fts WHERE note_id = ?`).run(n.id);
   db.prepare(`INSERT INTO notes_fts(note_id, username, title, canvas_text, whisper_text) VALUES(?,?,?,?,?)`)
-    .run(n.id, n.username||'', n.title||'', n.canvas_text||'', n.whisper_text||'');
+    .run(n.id, n.username||'', [n.title||'', ...parseTags(n.tags)].join(' '), n.canvas_text||'', n.whisper_text||'');
 }
 
 function searchNotes(username, query) {
@@ -383,6 +447,62 @@ const deleteNote = db.transaction((id, username) => {
   }
   return ok;
 });
+
+// ── Condivisione con i colleghi ───────────────────────────────
+// { owner, role: 'owner' | 'write' | 'read' } oppure null se la nota non
+// esiste, è nel cestino o l'utente non ha accesso.
+function noteAccess(id, username) {
+  const n = db.prepare(`SELECT username FROM notes WHERE id = ? AND deleted_at IS NULL`).get(id);
+  if (!n) return null;
+  if (n.username === username) return { owner: n.username, role: 'owner' };
+  const rows = db.prepare(`SELECT username, perm FROM note_access WHERE note_id = ? AND username IN (?, '*')`).all(id, username);
+  const mine = rows.find(r => r.username === username);
+  if (mine) return mine.perm === 'hidden' ? null : { owner: n.username, role: mine.perm };
+  return rows.length ? { owner: n.username, role: 'read' } : null;
+}
+function getSharedWithMe(username) {
+  return db.prepare(`
+    SELECT n.id, n.title, n.thumbnail, n.has_audio, n.created_at, n.updated_at,
+           n.username AS owner, COALESCE(u.display_name, n.username) AS owner_name,
+           COALESCE(mine.perm, 'read') AS perm
+    FROM notes n
+    LEFT JOIN users u ON u.username = n.username
+    LEFT JOIN note_access mine ON mine.note_id = n.id AND mine.username = ?
+    WHERE n.deleted_at IS NULL AND n.username != ?
+      AND (mine.perm IN ('read', 'write')
+           OR (mine.perm IS NULL AND EXISTS (SELECT 1 FROM note_access a WHERE a.note_id = n.id AND a.username = '*')))
+    ORDER BY n.updated_at DESC`).all(username, username);
+}
+function getAccessList(noteId) {
+  return db.prepare(`SELECT a.username, a.perm, COALESCE(u.display_name, a.username) AS display_name
+                     FROM note_access a LEFT JOIN users u ON u.username = a.username
+                     WHERE a.note_id = ? AND a.perm != 'hidden' ORDER BY a.username = '*' DESC, display_name`).all(noteId);
+}
+function setAccess(noteId, username, perm, by) {
+  db.prepare(`INSERT INTO note_access (note_id, username, perm, granted_by) VALUES (?, ?, ?, ?)
+              ON CONFLICT(note_id, username) DO UPDATE SET perm = excluded.perm, granted_by = excluded.granted_by`)
+    .run(noteId, username, perm, by);
+}
+function removeAccess(noteId, username) {
+  return db.prepare(`DELETE FROM note_access WHERE note_id = ? AND username = ?`).run(noteId, username).changes > 0;
+}
+// Per l'export completo e la migrazione su un altro server
+function getAllAccess() {
+  return db.prepare(`SELECT note_id, username, perm, granted_by FROM note_access`).all();
+}
+// Import: non tocca un accesso già presente (nemmeno un 'hidden' scelto dal destinatario)
+function importAccess(a) {
+  if (!['read', 'write', 'hidden'].includes(a.perm) || (a.username === '*' && a.perm !== 'read')) return false;
+  const owner = getNoteOwner(a.note_id);
+  if (!owner || owner === a.username) return false;
+  if (a.username !== '*' && !getUserByUsername(a.username)) return false;
+  return db.prepare(`INSERT OR IGNORE INTO note_access (note_id, username, perm, granted_by) VALUES (?, ?, ?, ?)`)
+    .run(a.note_id, a.username, a.perm, a.granted_by || owner).changes > 0;
+}
+// Rubrica per scegliere con chi condividere: solo utenti attivi
+function getDirectory() {
+  return db.prepare(`SELECT username, display_name FROM users WHERE is_active = 1 ORDER BY display_name, username`).all();
+}
 
 function getTrash(username) {
   return db.prepare(`SELECT id, title, thumbnail, has_audio, updated_at, deleted_at FROM notes
@@ -482,7 +602,7 @@ function getSharesForNote(noteId, username) {
 // un ciclo export→import perdeva pagine, testo digitato e trascrizioni.
 const EXPORT_COLS = `id, title, grid, strokes, images, thumbnail, has_audio,
                      canvas_text, text_items, pages_data, whisper_text, whisper_segments,
-                     voice_first, created_at, updated_at, deleted_at, username`;
+                     voice_first, tags, created_at, updated_at, deleted_at, username`;
 
 function getAllNotesForExport(username) {
   return username
@@ -514,13 +634,13 @@ function upsertNoteFromImport(id, username, note) {
   db.prepare(`
     INSERT INTO notes (id, username, title, strokes, images, thumbnail, grid, has_audio,
                        canvas_text, text_items, pages_data, whisper_text, whisper_segments,
-                       voice_first, created_at, updated_at, deleted_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       voice_first, tags, created_at, updated_at, deleted_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET title=excluded.title, strokes=excluded.strokes, images=excluded.images,
       thumbnail=excluded.thumbnail, grid=excluded.grid, has_audio=excluded.has_audio,
       canvas_text=excluded.canvas_text, text_items=excluded.text_items,
       pages_data=excluded.pages_data, whisper_text=excluded.whisper_text,
-      whisper_segments=excluded.whisper_segments, voice_first=excluded.voice_first,
+      whisper_segments=excluded.whisper_segments, voice_first=excluded.voice_first, tags=excluded.tags,
       updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, version=notes.version+1
     WHERE notes.username = excluded.username
   `).run(id, username, note.title||'Senza titolo',
@@ -529,6 +649,7 @@ function upsertNoteFromImport(id, username, note) {
     note.canvas_text||null, asJsonText(note.text_items, '[]'),
     asJsonText(note.pages_data, null), note.whisper_text||null,
     asJsonText(note.whisper_segments, null), note.voice_first?1:0,
+    JSON.stringify(normTags(typeof note.tags === 'string' ? parseTags(note.tags) : note.tags)),
     note.created_at||new Date().toISOString(), note.updated_at||new Date().toISOString(),
     note.deleted_at||null);
   rebuildFts(id);
@@ -545,11 +666,13 @@ function getStats() {
   const perUser = db.prepare(`
     SELECT u.username, u.display_name, u.is_admin, u.last_login,
            (SELECT COUNT(*)                    FROM notes n WHERE n.username = u.username AND n.deleted_at IS NULL) as note_count,
-           (SELECT COALESCE(SUM(length(a.data)),0) FROM audio a WHERE a.username = u.username) as audio_bytes
+           (SELECT COALESCE(SUM(length(a.data)),0) FROM audio a WHERE a.username = u.username) as audio_bytes,
+           u.quota_mb
     FROM users u
     ORDER BY u.username
   `).all();
-  return { users, notes, audio_bytes: audio, per_user: perUser };
+  perUser.forEach(u => { u.used_bytes = storageUsed(u.username); u.quota_bytes = quotaFor(u.username); });
+  return { users, notes, audio_bytes: audio, per_user: perUser, default_quota_mb: Number(getSetting('storage_quota_mb') || 0) };
 }
 
 function close() { try { db.close(); } catch {} }
@@ -561,9 +684,11 @@ module.exports = {
   countAdmins, verifyPassword, touchLogin, hashPassword, mustChangePassword,
   // settings
   getSetting, setSetting, getAllSettings, getNoteOwner,
+  noteBytes, storageUsed, quotaFor, setUserQuota,
   // notes
   getNotesByUser, getNoteById, createNote, updateNoteMeta, saveContent, deleteNote,
   getTrash, restoreNote, purgeNote, purgeTrash,
+  noteAccess, getSharedWithMe, getAccessList, setAccess, removeAccess, getDirectory, getAllAccess, importAccess,
   saveWhisperText, searchNotes, rebuildFts,
   // audio
   saveAudio, getAudio, deleteAudio, replaceAudio, appendAudioChunk,

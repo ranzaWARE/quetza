@@ -116,6 +116,7 @@
     </button>
   </div>
 
+  <div class="tagBar" id="TAGBAR"></div>
   <div class="noteGrid" id="NL"></div>
 </div>
 
@@ -335,9 +336,19 @@
 
     <!-- Share Modal -->
     <div class="MW off" id="SHAREM">
-      <div class="MD" style="width:320px">
+      <div class="MD" style="width:380px;max-width:calc(100vw - 32px);max-height:calc(100vh - 32px);overflow-y:auto">
         <h3>Condividi nota</h3>
-        <p class="ms">Genera un link di sola lettura — chi lo riceve vede la nota senza bisogno di account.</p>
+        <p class="ms">Con i colleghi: la trovano in libreria sotto «Condivise con me».</p>
+        <div class="collAdd">
+          <input type="text" id="COLLIN" list="USERLIST" placeholder="Nome o username del collega…" autocomplete="off">
+          <select id="COLLPERM"><option value="read">Può vedere</option><option value="write">Può modificare</option></select>
+          <button class="mk" id="COLLADD">Aggiungi</button>
+        </div>
+        <datalist id="USERLIST"></datalist>
+        <label class="collAll"><input type="checkbox" id="COLLALL"> Tutti i colleghi possono vederla</label>
+        <div id="COLLLIST"></div>
+        <hr class="shareSep">
+        <p class="ms">Link pubblico di sola lettura: chi lo riceve vede la nota senza bisogno di account.</p>
         <div style="margin-bottom:10px">
           <label style="font-size:.76rem;color:var(--ink);font-weight:500;display:block;margin-bottom:5px">Scadenza link</label>
           <select id="SHAREEXP" style="width:100%;padding:6px 8px;border:1px solid var(--tbr);border-radius:var(--r);background:var(--tb);color:var(--ink);font-size:.8rem">

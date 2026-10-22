@@ -27,6 +27,9 @@ services:
       - ./certs:/app/certs
       # Backup notturni del DB: copiali anche fuori dal server (NAS, nastro…).
       - ${BACKUP_PATH:-./backups}:/app/backups
+      # Facoltativo: seconda copia di ogni backup su un'altra macchina (cartella
+      # del NAS montata sul server, vedi BACKUP_COPY_PATH nel .env).
+      - ${BACKUP_COPY_PATH:-./backups}:/app/backups-copy
       # Facoltativo: CA aziendale che firma LDAPS o il provider SSO (*.crt / *.pem).
       - ./ca:/app/ca:ro
       # Facoltativo: logo aziendale nell'intestazione (logo.svg, .png, .webp o .jpg).
@@ -46,6 +49,7 @@ services:
       TRASH_DAYS: ${TRASH_DAYS:-30}
       BACKUP_CRON: "${BACKUP_CRON:-0 2 * * *}"
       BACKUP_KEEP: ${BACKUP_KEEP:-30}
+      BACKUP_COPY_DIR: ${BACKUP_COPY_PATH:+/app/backups-copy}
       LDAP_ENABLED: ${LDAP_ENABLED:-false}
       LDAP_URL: ${LDAP_URL:-}
       LDAP_BIND_DN: ${LDAP_BIND_DN:-}

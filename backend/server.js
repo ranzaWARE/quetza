@@ -287,28 +287,69 @@ app.get('/api/login-config', (req, res) => {
   });
 });
 app.get('/api/me', requireSession, (req, res) => {
-  res.json({ user: req.session.user, must_change_password: req.session.user.must_change_password ? 1 : 0 });
+  const u = req.session.user.username;
+  res.json({ user: req.session.user, must_change_password: req.session.user.must_change_password ? 1 : 0,
+             storage: { used: db.storageUsed(u), quota: db.quotaFor(u) } });
 });
+
+// ── Spazio per utente ─────────────────────────────────────────
+// 507 se dopo l'operazione l'utente supererebbe il suo spazio. Si lascia
+// sempre passare chi riduce lo spazio (togliere immagini, svuotare note).
+function overQuota(username, addBytes, freedBytes = 0) {
+  const quota = db.quotaFor(username);
+  if (!quota || addBytes <= freedBytes) return null;
+  const used = db.storageUsed(username);
+  return used - freedBytes + addBytes > quota ? { used, quota } : null;
+}
+const QUOTA_MSG = 'Spazio esaurito: svuota il cestino o elimina note e audio che non servono, oppure chiedi all\'IT più spazio';
 
 // ── Notes API ─────────────────────────────────────────────────
 app.get('/api/notes', requireAuth, (req, res) => res.json(db.getNotesByUser(req.session.user.username)));
+// Note che i colleghi hanno condiviso con me (prima di /:id)
+app.get('/api/notes/shared', requireAuth, (req, res) => res.json(db.getSharedWithMe(req.session.user.username)));
+
+// Chi può fare cosa su una nota: il proprietario tutto, chi ha "modifica"
+// contenuto, titolo e audio, chi ha "lettura" solo guardare e ascoltare.
+// Per chi non ha accesso la nota non esiste (404, mai 403: il client
+// leggerebbe 403 come sessione scaduta).
+const CAN = { read: ['owner', 'write', 'read'], write: ['owner', 'write'], own: ['owner'] };
+function noteFor(req, res, need) {
+  const a = db.noteAccess(req.params.id, req.session.user.username);
+  if (!a || !CAN[need].includes(a.role)) { res.status(404).json({ error: 'Nota non trovata' }); return null; }
+  return a;
+}
+
 app.get('/api/notes/:id', requireAuth, (req, res) => {
-  const n = db.getNoteById(req.params.id, req.session.user.username);
-  if (!n) return res.status(404).json({ error: 'Nota non trovata' });
-  res.json(n);
+  const a = noteFor(req, res, 'read'); if (!a) return;
+  const n = db.getNoteById(req.params.id, a.owner);
+  if (a.role !== 'owner') {
+    n.tags = [];                                   // le etichette sono del proprietario
+    n.owner = a.owner;
+    n.owner_name = db.getUserByUsername(a.owner)?.display_name || a.owner;
+  }
+  res.json({ ...n, role: a.role });
 });
 app.post('/api/notes', requireAuth, (req, res) => {
   const n = db.createNote(crypto.randomUUID(), req.session.user.username, req.body.title||'Nuova nota', !!req.body.voiceFirst);
   res.status(201).json(n);
 });
 app.patch('/api/notes/:id', requireAuth, (req, res) => {
-  if (!db.updateNoteMeta(req.params.id, req.session.user.username, req.body)) return res.status(404).json({ error: 'Nota non trovata' });
+  const a = noteFor(req, res, 'write'); if (!a) return;
+  const { title, grid, tags } = req.body || {};
+  const meta = a.role === 'owner' ? { title, grid, tags } : { title, grid };
+  if (!db.updateNoteMeta(req.params.id, a.owner, meta)) return res.status(404).json({ error: 'Nota non trovata' });
   res.json({ ok: true });
 });
 app.put('/api/notes/:id/content', requireAuth, (req, res) => {
   try {
     const { strokes, images, thumbnail, grid, canvasText, textItems, pagesData, baseVersion } = req.body;
-    const r = db.saveContent(req.params.id, req.session.user.username, strokes, images, thumbnail, grid, canvasText, textItems, pagesData, baseVersion);
+    const size = [strokes, images, textItems, pagesData].reduce((a, v) => a + (v ? JSON.stringify(v).length : 0), 0)
+               + (thumbnail || '').length + (canvasText || '').length;
+    const a = noteFor(req, res, 'write'); if (!a) return;
+    // Lo spazio è del proprietario, anche quando scrive un collega
+    const q = overQuota(a.owner, size, db.noteBytes(req.params.id));
+    if (q) return res.status(507).json({ error: QUOTA_MSG, ...q });
+    const r = db.saveContent(req.params.id, a.owner, strokes, images, thumbnail, grid, canvasText, textItems, pagesData, baseVersion);
     if (!r) return res.status(404).json({ error: 'Nota non trovata' });
     if (r.conflict) return res.status(409).json({ error: 'La nota è stata modificata da un altro dispositivo', version: r.version });
     res.json({ ok: true, version: r.version });
@@ -353,25 +394,33 @@ setInterval(purgeTrash, 6 * 3600 * 1000).unref();
 // ── Audio ─────────────────────────────────────────────────────
 app.post('/api/notes/:id/audio', requireAuth, upload.single('audio'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Nessun file audio' });
-  if (!db.saveAudio(req.params.id, req.session.user.username, req.file.buffer, req.file.mimetype)) return res.status(404).json({ error: 'Nota non trovata' });
+  const a = noteFor(req, res, 'write'); if (!a) return;
+  const q = overQuota(a.owner, req.file.size);
+  if (q) return res.status(507).json({ error: QUOTA_MSG, ...q });
+  if (!db.saveAudio(req.params.id, a.owner, req.file.buffer, req.file.mimetype)) return res.status(404).json({ error: 'Nota non trovata' });
   res.json({ ok: true });
 });
 app.post('/api/notes/:id/audio/append', requireAuth, upload.single('chunk'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Nessun chunk' });
-  if (!db.appendAudioChunk(req.params.id, req.session.user.username, req.file.buffer, req.file.mimetype)) return res.status(404).json({ error: 'Nota non trovata' });
+  const a = noteFor(req, res, 'write'); if (!a) return;
+  const q = overQuota(a.owner, req.file.size);
+  if (q) return res.status(507).json({ error: QUOTA_MSG, ...q });
+  if (!db.appendAudioChunk(req.params.id, a.owner, req.file.buffer, req.file.mimetype)) return res.status(404).json({ error: 'Nota non trovata' });
   res.json({ ok: true });
 });
 app.get('/api/notes/:id/audio', requireAuth, (req, res) => {
-  const sessions = db.getAudio(req.params.id, req.session.user.username);
+  const a = noteFor(req, res, 'read'); if (!a) return;
+  const sessions = db.getAudio(req.params.id, a.owner);
   if (!sessions?.length) return res.status(404).json({ error: 'Audio non trovato' });
-  if (sessions.length === 1) { const a=sessions[0]; res.set('Content-Type',a.mime||'audio/webm').set('Content-Length',a.data.length).set('X-Audio-Sessions','1'); return res.send(a.data); }
+  if (sessions.length === 1) { const au = sessions[0]; res.set('Content-Type',au.mime||'audio/webm').set('Content-Length',au.data.length).set('X-Audio-Sessions','1'); return res.send(au.data); }
   res.json({ sessions: sessions.map((s,i)=>({index:i,mime:s.mime,size:s.data.length})) });
 });
 app.get('/api/notes/:id/audio/:session', requireAuth, (req, res) => {
-  const sessions = db.getAudio(req.params.id, req.session.user.username);
+  const a = noteFor(req, res, 'read'); if (!a) return;
+  const sessions = db.getAudio(req.params.id, a.owner);
   const idx = parseInt(req.params.session);
   if (!sessions || !(idx >= 0) || idx >= sessions.length) return res.status(404).json({ error: 'Sessione non trovata' });
-  const a=sessions[idx]; res.set('Content-Type',a.mime||'audio/webm').set('Content-Length',a.data.length); res.send(a.data);
+  const au = sessions[idx]; res.set('Content-Type',au.mime||'audio/webm').set('Content-Length',au.data.length); res.send(au.data);
 });
 app.delete('/api/notes/:id/audio', requireAuth, (req, res) => {
   if (!db.deleteAudio(req.params.id, req.session.user.username)) return res.status(404).json({ error: 'Nota non trovata' });
@@ -380,8 +429,8 @@ app.delete('/api/notes/:id/audio', requireAuth, (req, res) => {
 
 // GET trascrizione salvata
 app.get('/api/notes/:id/transcript', requireAuth, (req, res) => {
-  const note = db.getNoteById(req.params.id, req.session.user.username);
-  if (!note) return res.status(404).json({ error: 'Nota non trovata' });
+  const a = noteFor(req, res, 'read'); if (!a) return;
+  const note = db.getNoteById(req.params.id, a.owner);
   res.json({
     text:     note.whisper_text     || null,
     segments: note.whisper_segments || null,
@@ -460,11 +509,10 @@ async function transcribeNote(noteId, username) {
 
 // Whisper trascrizione con diarizzazione (via microservizio Python)
 app.post('/api/notes/:id/transcribe', requireAuth, async (req, res) => {
-  const note = db.getNoteById(req.params.id, req.session.user.username);
-  if (!note) return res.status(404).json({ error: 'Nota non trovata' });
+  const a = noteFor(req, res, 'write'); if (!a) return;
 
   try {
-    const result = await transcribeNote(req.params.id, req.session.user.username);
+    const result = await transcribeNote(req.params.id, a.owner);
     res.json({
       ok:       true,
       text:     result.text,
@@ -495,6 +543,7 @@ function noteForManifest(n) {
     text_items:       parse(n.text_items, []),
     pages_data:       parse(n.pages_data, null),
     whisper_segments: parse(n.whisper_segments, null),
+    tags:             parse(n.tags, []),
   };
 }
 
@@ -556,6 +605,9 @@ app.post('/api/import', requireAuth, importUpload(IMPORT_MAX_BYTES),
       const manifest = JSON.parse(zip.getEntry('manifest.json')?.getData().toString('utf8') || 'null');
       if (!manifest) return res.status(400).json({ error: 'ZIP non valido' });
       const notes = Array.isArray(manifest) ? manifest : (manifest.notes || []);
+      // Lo spazio vale anche per l'import: si conta l'archivio scompattato
+      const q = overQuota(username, zip.getEntries().reduce((a, e) => a + e.header.size, 0));
+      if (q) return res.status(507).json({ error: QUOTA_MSG, ...q });
       let imported=0, skipped=0, copies=0, unchanged=0;
       for (const note of notes) {
         if (!note.id||!note.title){skipped++;continue;}
@@ -581,6 +633,41 @@ app.post('/api/import', requireAuth, importUpload(IMPORT_MAX_BYTES),
     finally { removeUpload(req); }
   }
 );
+
+// ── Condivisione con i colleghi ───────────────────────────────
+app.get('/api/users', requireAuth, (req, res) =>
+  res.json(db.getDirectory().filter(u => u.username !== req.session.user.username)));
+app.get('/api/notes/:id/access', requireAuth, (req, res) => {
+  const a = noteFor(req, res, 'own'); if (!a) return;
+  res.json(db.getAccessList(req.params.id));
+});
+// username '*' = tutti gli utenti, solo in lettura
+app.put('/api/notes/:id/access/:username', requireAuth, (req, res) => {
+  const a = noteFor(req, res, 'own'); if (!a) return;
+  const who = req.params.username, perm = req.body?.perm;
+  if (!['read', 'write'].includes(perm) || (who === '*' && perm !== 'read'))
+    return res.status(400).json({ error: 'Permesso non valido' });
+  if (who !== '*') {
+    const u = db.getUserByUsername(who);
+    if (!u || !u.is_active) return res.status(400).json({ error: 'Utente non trovato o disattivato' });
+    if (who === a.owner) return res.status(400).json({ error: 'La nota è già tua' });
+  }
+  db.setAccess(req.params.id, who, perm, a.owner);
+  res.json({ ok: true });
+});
+// Un destinatario toglie la nota dalle sue condivise
+app.delete('/api/notes/:id/access', requireAuth, (req, res) => {
+  const a = noteFor(req, res, 'read'); if (!a) return;
+  if (a.role === 'owner') return res.status(400).json({ error: 'La nota è tua' });
+  db.setAccess(req.params.id, req.session.user.username, 'hidden', req.session.user.username);
+  res.json({ ok: true });
+});
+// Il proprietario toglie l'accesso a qualcuno
+app.delete('/api/notes/:id/access/:username', requireAuth, (req, res) => {
+  const a = noteFor(req, res, 'own'); if (!a) return;
+  if (!db.removeAccess(req.params.id, req.params.username)) return res.status(404).json({ error: 'Accesso non trovato' });
+  res.json({ ok: true });
+});
 
 // ── Shares ────────────────────────────────────────────────────
 app.post('/api/notes/:id/share', requireAuth, (req, res) => {
@@ -647,9 +734,9 @@ app.get('/api/admin/stats', requireAuth, requireAdmin, (req, res) => res.json(db
 // Auto-trascrizione in background (chiamata dopo stop registrazione)
 // Non aspetta il risultato — risponde subito 202 e processa in background
 app.post('/api/notes/:id/transcribe-async', requireAuth, async (req, res) => {
-  if (!req.params.id) return res.status(400).json({ error: 'ID mancante' });
+  const a = noteFor(req, res, 'write'); if (!a) return;
   const noteId   = req.params.id;
-  const username = req.session.user.username;
+  const username = a.owner;
 
   // Risponde subito
   res.status(202).json({ ok: true, message: 'Trascrizione avviata in background' });
@@ -718,6 +805,13 @@ app.patch('/api/admin/users/:username', requireAuth, requireAdmin, (req, res) =>
   res.json({ ok: true });
 });
 
+app.put('/api/admin/users/:username/quota', requireAuth, requireAdmin, (req, res) => {
+  const mb = req.body?.quotaMb;
+  if (mb != null && mb !== '' && !(Number(mb) >= 0)) return res.status(400).json({ error: 'Quota non valida' });
+  if (!db.setUserQuota(req.params.username, mb)) return res.status(404).json({ error: 'Utente non trovato' });
+  res.json({ ok: true });
+});
+
 app.post('/api/admin/users/:username/reset-password', requireAuth, requireAdmin, (req, res) => {
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'Password richiesta' });
@@ -750,7 +844,7 @@ app.get('/api/admin/oidc/test', requireAuth, requireAdmin, async (req, res) => {
 app.get('/api/admin/settings', requireAuth, requireAdmin, (req, res) => res.json(db.getAllSettings()));
 // Solo le chiavi che il pannello admin gestisce davvero, e solo valori
 // semplici: prima si poteva scrivere qualsiasi chiave con qualsiasi valore.
-const SETTING_KEY = /^(ldap|oidc|whisper)_[a-z_]+$/;
+const SETTING_KEY = /^(ldap|oidc|whisper|storage)_[a-z_]+$/;
 app.post('/api/admin/settings', requireAuth, requireAdmin, (req, res) => {
   const settings = req.body || {};
   const bad = Object.keys(settings).filter(k => !SETTING_KEY.test(k) || !['string','number','boolean'].includes(typeof settings[k]));
@@ -759,13 +853,41 @@ app.post('/api/admin/settings', requireAuth, requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Backup (stato e backup al volo) ───────────────────────────
+// Stessi valori che entrypoint.sh passa al cron di backup.js.
+const BACKUP_DIR = process.env.BACKUP_DIR || path.join(path.dirname(process.env.DB_PATH || path.join(__dirname, 'data', 'quetza.db')), 'backups');
+function backupInfo() {
+  let status = null;
+  try { status = JSON.parse(fs.readFileSync(path.join(BACKUP_DIR, 'status.json'), 'utf8')); } catch {}
+  let files = [];
+  try { files = fs.readdirSync(BACKUP_DIR).filter(f => /^quetza_.*\.db$/.test(f)).sort(); } catch {}
+  return {
+    status, count: files.length, latest: files[files.length - 1] || null,
+    dir: BACKUP_DIR, copyDir: process.env.BACKUP_COPY_DIR || null,
+    keep: Number(process.env.BACKUP_KEEP) || 30, cron: process.env.BACKUP_CRON || null,
+  };
+}
+let backupRunning = false;
+app.get('/api/admin/backup', requireAuth, requireAdmin, (req, res) => res.json(backupInfo()));
+app.post('/api/admin/backup', requireAuth, requireAdmin, (req, res) => {
+  if (backupRunning) return res.status(409).json({ error: 'Backup già in corso' });
+  backupRunning = true;
+  require('child_process').execFile(process.execPath, [path.join(__dirname, 'backup.js')],
+    { env: { ...process.env, BACKUP_DIR }, timeout: 30 * 60 * 1000 }, (err, stdout, stderr) => {
+      backupRunning = false;
+      const info = backupInfo();
+      if (err) return res.status(500).json({ ...info, error: (stderr || err.message).trim() });
+      res.json(info);
+    });
+});
+
 // Export globale (tutti gli utenti)
 app.get('/api/admin/export', requireAuth, requireAdmin, async (req, res) => {
   const notes = db.getAllNotesForExport(); // tutti
   const users = db.getUsers();
   res.set('Content-Type','application/zip').set('Content-Disposition',`attachment; filename="quetza-full-${new Date().toISOString().slice(0,10)}.zip"`);
   const arc = archiver('zip',{zlib:{level:6}}); arc.pipe(res);
-  arc.append(JSON.stringify({ users, notes: notes.map(noteForManifest) },null,2),{name:'manifest.json'});
+  arc.append(JSON.stringify({ users, notes: notes.map(noteForManifest), access: db.getAllAccess() },null,2),{name:'manifest.json'});
   for (const note of notes) {
     const audio = db.getAudio(note.id, null);
     if (!audio?.length) continue;
@@ -795,6 +917,7 @@ app.post('/api/admin/import', requireAuth, requireAdmin, importUpload(IMPORT_MAX
             try {
               const source = ['ldap', 'oidc'].includes(u.source) ? u.source : 'local';
               db.createUser(u.username, null, u.display_name||u.username, 0, source);
+              if (u.quota_mb != null) db.setUserQuota(u.username, u.quota_mb);
               usersImported++;
               if (source === 'local') usersWithoutPassword++;
             } catch {}
@@ -814,7 +937,10 @@ app.post('/api/admin/import', requireAuth, requireAdmin, importUpload(IMPORT_MAX
         restoreAudioFromZip(zip, note.id, owner);
         imported++;
       }
-      res.json({ ok:true, imported, skipped, unchanged, usersImported, usersWithoutPassword });
+      // Condivisioni tra colleghi, dopo note e utenti
+      let shares = 0;
+      for (const a of Array.isArray(data.access) ? data.access : []) if (db.importAccess(a)) shares++;
+      res.json({ ok:true, imported, skipped, unchanged, usersImported, usersWithoutPassword, shares });
     } catch(e) { res.status(500).json({ error: e.message }); }
     finally { removeUpload(req); }
   }
