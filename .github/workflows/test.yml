@@ -1,0 +1,61 @@
+# Test a ogni push su main e a ogni pull request: suite Node (DB, server,
+# app), test del servizio Whisper con modelli finti, build delle immagini
+# Docker con avvio di prova di Quetza e controllo della config nginx.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  whisper:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # Solo quello che serve al server: i modelli nei test sono finti
+      - run: pip install flask==3.0.3 huggingface_hub
+      - run: python whisper/test_server.py
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Quetza
+        run: docker build --target production -t quetza:ci backend
+      - name: Avvio di prova
+        run: |
+          docker run -d --name q -e SESSION_SECRET=ci-0123456789abcdef0123456789abcdef -p 3000:3000 quetza:ci
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:3000/healthz && exit 0
+            sleep 1
+          done
+          docker logs q
+          exit 1
+      - name: Build nginx e controllo della configurazione
+        run: |
+          docker build -t quetza-nginx:ci nginx
+          docker run --rm --add-host quetza:127.0.0.1 --entrypoint sh quetza-nginx:ci -c \
+            'mkdir -p /etc/nginx/certs && openssl req -x509 -nodes -days 1 -newkey rsa:2048 -subj /CN=ci \
+               -keyout /etc/nginx/certs/quetza.key -out /etc/nginx/certs/quetza.crt 2>/dev/null && nginx -t'
