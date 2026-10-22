@@ -139,7 +139,7 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)
     <div class="card-body" style="padding-bottom:0">
       <div class="nav">
         <button class="nav-tab active" onclick="switchTab('users')">Utenti</button>
-        <button class="nav-tab" onclick="switchTab('oidc')">Keycloak / OIDC</button>
+        <button class="nav-tab" onclick="switchTab('oidc')">SSO / OIDC</button>
         <button class="nav-tab" onclick="switchTab('ldap')">LDAP / AD</button>
         <button class="nav-tab" onclick="switchTab('backup')">Backup & Migrazione</button>
         <button class="nav-tab" onclick="switchTab('whisper')">Whisper</button>
@@ -162,14 +162,14 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)
       <div id="oidcAlert"></div>
       <div class="toggle-row">
         <div class="toggle-info">
-          <span class="toggle-lbl">Keycloak OIDC abilitato</span>
-          <span class="toggle-desc">Quando attivo, il login reindirizza a Keycloak</span>
+          <span class="toggle-lbl">Login SSO (OIDC) abilitato</span>
+          <span class="toggle-desc">Quando attivo, il login reindirizza al provider OIDC (Keycloak, Entra ID, ...)</span>
         </div>
         <label class="aurorSwitch"><input type="checkbox" id="oidcEnabled"><span class="track"><span class="thumb"></span></span></label>
       </div>
       <hr class="section-sep">
       <div class="form-row">
-        <div class="form-group"><label>Issuer URL (realm)</label><input type="url" id="oidcIssuer" placeholder="https://keycloak.example.com/realms/graphimecc"></div>
+        <div class="form-group"><label>Issuer URL</label><input type="url" id="oidcIssuer" placeholder="https://sso.example.com/realms/graphimecc"></div>
         <div class="form-group"><label>Client ID</label><input type="text" id="oidcClientId" placeholder="quetza"></div>
       </div>
       <div class="form-row">
@@ -177,13 +177,13 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:var(--focus-ring)
         <div class="form-group"><label>Redirect URI</label><input type="url" id="oidcRedirectUri" placeholder="https://quetza.example.com/auth/callback"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>URL interno del realm (opzionale)</label><input type="url" id="oidcInternalUrl" placeholder="http://keycloak:8080/realms/graphimecc"></div>
+        <div class="form-group"><label>URL interno dell'issuer (opzionale)</label><input type="url" id="oidcInternalUrl" placeholder="http://192.168.1.x:8080/realms/graphimecc"></div>
         <div class="form-group"><label>&nbsp;</label><span class="toggle-desc">Usato dal server per discovery e token se l'Issuer pubblico non è raggiungibile dal container. Vuoto = Issuer.</span></div>
       </div>
       <div class="toggle-row">
         <div class="toggle-info">
           <span class="toggle-lbl">Verifica certificato TLS</span>
-          <span class="toggle-desc">Disabilita solo con un Keycloak su certificato self-signed / CA interna</span>
+          <span class="toggle-desc">Disabilita solo con un provider su certificato self-signed / CA interna</span>
         </div>
         <label class="aurorSwitch"><input type="checkbox" id="oidcTls" checked><span class="track"><span class="thumb"></span></span></label>
       </div>

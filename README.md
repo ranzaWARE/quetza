@@ -68,7 +68,7 @@ Tre metodi, combinabili:
 
 - **Locale** — utenti nel DB, password con hash scrypt e salt per utente.
 - **LDAP / Active Directory** — configurabile dal pannello admin o da `.env`.
-- **OIDC / Keycloak** — configurabile dal pannello admin.
+- **SSO OIDC** — client per qualsiasi provider OpenID Connect (Keycloak, Entra ID, Authentik, ...), configurabile dal pannello admin. Quetza non installa alcun provider.
 
 Gli account locali restano sempre utilizzabili come fallback: se l'AD non
 risponde, l'amministratore può comunque entrare dal tab "Locale".

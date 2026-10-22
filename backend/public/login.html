@@ -249,10 +249,10 @@
     <!-- OIDC -->
     <form class="formPane" id="form-oidc">
       <div class="infoNote">
-        Single sign-on via Keycloak.<br>
+        Single sign-on aziendale.<br>
         Verrai reindirizzato al provider per autenticarti.
       </div>
-      <button class="aurorBtn primary" type="submit">Accedi con Keycloak SSO</button>
+      <button class="aurorBtn primary" type="submit">Accedi con SSO</button>
     </form>
 
     <!-- LDAP -->
@@ -361,7 +361,7 @@
       body: JSON.stringify({ username: '__oidc__', password: '__oidc__' })
     }).then(function(r){ return r.json(); }).then(function(d){
       if (d.redirect) window.location.href = d.redirect;
-    }).catch(function(){ btn.disabled = false; btn.textContent = 'Accedi con Keycloak SSO'; });
+    }).catch(function(){ btn.disabled = false; btn.textContent = 'Accedi con SSO'; });
   });
 
   // LDAP
