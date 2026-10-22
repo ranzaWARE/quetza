@@ -33,10 +33,10 @@ Gli utenti entrano con l'account aziendale (LDAP o SSO) e niente esce dalla rete
   <tr><td width="32%">✍️ <b>Scrittura a mano vera</b></td><td>Penna con pressione su iPad, Android e Windows, evidenziatore, gomma, lasso, forme, frecce, testo, immagini. Più pagine A4 per nota, con righe, quadretti o puntini.</td></tr>
   <tr><td width="32%">🎙️ <b>Audio sincronizzato</b></td><td>Registri mentre scrivi. Riascoltando, i tratti di quel momento si illuminano; clicchi la forma d'onda e salti lì.</td></tr>
   <tr><td width="32%">📝 <b>Trascrizione automatica</b></td><td>Whisper gira in un container accanto all'app: niente audio verso servizi esterni. Riconosce chi parla e la trascrizione entra nella ricerca.</td></tr>
-  <tr><td width="32%">🔎 <b>Ricerca</b></td><td>Trova le note dal titolo, dal testo digitato e da quello che è stato detto in riunione.</td></tr>
-  <tr><td width="32%">🔗 <b>Condivisione</b></td><td>Link di sola lettura, con scadenza, per chi non ha un account. Export in PDF di tutte le pagine.</td></tr>
-  <tr><td width="32%">🏢 <b>Pronta per l'organizzazione</b></td><td>Account locali, LDAP / Active Directory e SSO con qualsiasi provider OIDC. Pannello di amministrazione, logo e nome dell'organizzazione.</td></tr>
-  <tr><td width="32%">💾 <b>Backup ogni notte</b></td><td>Copia coerente del database in una cartella del server, pronta da portare sul NAS. Export e import completi per cambiare server.</td></tr>
+  <tr><td width="32%">🔎 <b>Ricerca</b></td><td>Trova le note dal titolo, dalle etichette, dal testo digitato e da quello che è stato detto in riunione. Etichette per filtrare la libreria.</td></tr>
+  <tr><td width="32%">🔗 <b>Condivisione</b></td><td>Con i colleghi, in lettura o in modifica, o con tutti. Link di sola lettura, con scadenza, per chi non ha un account. Export in PDF di tutte le pagine.</td></tr>
+  <tr><td width="32%">🏢 <b>Pronta per l'organizzazione</b></td><td>Account locali, LDAP / Active Directory e SSO con qualsiasi provider OIDC. Pannello di amministrazione con spazio massimo per utente, logo e nome dell'organizzazione.</td></tr>
+  <tr><td width="32%">💾 <b>Backup ogni notte</b></td><td>Copia coerente e verificata del database, anche su una cartella del NAS. Stato dei backup nel pannello. Export e import completi per cambiare server.</td></tr>
   <tr><td width="32%">📱 <b>Ovunque</b></td><td>Computer, tablet e telefono. Si installa come app (PWA). Tema chiaro, scuro ed e-ink.</td></tr>
 </table>
 
@@ -82,6 +82,7 @@ Tutto sta nel file `.env`, commentato riga per riga ([`.env.example`](.env.examp
 | `ORG_NAME` | Nome dell'organizzazione nella pagina di accesso. |
 | `QUETZA_HTTPS_PORT`, `QUETZA_HTTP_PORT` | Porte (8443 e 8080). La HTTP fa solo il redirect a HTTPS. |
 | `BACKUP_PATH`, `BACKUP_KEEP` | Dove finiscono i backup notturni e quanti tenerne. |
+| `BACKUP_COPY_PATH` | Cartella del NAS, montata sul server, dove copiare anche ogni backup. |
 | `WHISPER_MODEL`, `HF_TOKEN` | Modello di trascrizione e token per distinguere chi parla. |
 | `LDAP_*`, `OIDC_INTERNAL_URL` | Accesso aziendale (si configura anche dal pannello). |
 
@@ -90,7 +91,7 @@ Accanto a `docker-compose.yml` ci sono quattro cartelle:
 | Cartella | Cosa metterci |
 |---|---|
 | `certs/` | `server.crt` e `server.key` emessi dalla CA aziendale. Se mancano, Quetza ne genera uno self-signed. |
-| `backups/` | Qui arrivano i backup notturni. **Copiala fuori dal server.** |
+| `backups/` | Qui arrivano i backup notturni. **Tienine una copia fuori dal server** (`BACKUP_COPY_PATH`). |
 | `ca/` | Certificati delle CA interne di cui fidarsi per LDAPS e SSO. |
 | `logo/` | `logo.svg` o `logo.png` dell'organizzazione, per l'intestazione. |
 
@@ -105,7 +106,8 @@ Gli account locali restano sempre utilizzabili: se l'AD o il provider SSO non ri
 ## 🛡️ I dati
 
 - Note, audio, trascrizioni e utenti stanno in un database SQLite nel volume `quetza_data`.
-- Ogni notte una copia coerente va in `backups/` (ultime 30). Ripristino e aggiornamento sono spiegati nella guida.
+- Ogni notte una copia coerente e verificata va in `backups/` (ultime 30) e, con `BACKUP_COPY_PATH`, anche sul NAS. Il pannello admin segnala un backup fallito o vecchio. Ripristino e aggiornamento sono spiegati nella guida.
+- Nessun salvataggio si perde: le modifiche restano sul dispositivo finché il server non le ha ricevute, e se due persone scrivono insieme sulla stessa nota nessuna versione viene sovrascritta.
 - Nessun servizio esterno, nessun CDN: Internet serve solo per installare e per scaricare i modelli di trascrizione.
 - Solo HTTPS per gli utenti; utenti disattivati e permessi revocati hanno effetto subito.
 
@@ -116,7 +118,8 @@ Gli account locali restano sempre utilizzabili: se l'AD o il provider SSO non ri
 - La trascrizione gira su CPU: per una riunione di un'ora possono servire decine di minuti, una registrazione alla volta.
 - Con il certificato self-signed i browser mostrano un avviso e alcuni bloccano il microfono: in produzione usate un certificato della CA aziendale.
 - I link condivisi sono leggibili da chiunque abbia il link: usate la scadenza per le note riservate.
-- Un solo server: niente alta affidabilità. Il backup notturno va portato altrove.
+- Un solo server: niente alta affidabilità. Il backup notturno va portato altrove (`BACKUP_COPY_PATH`).
+- Due persone sulla stessa nota non scrivono in tempo reale insieme: chi salva per secondo trova le sue modifiche in una copia a parte.
 
 ---
 
@@ -152,13 +155,14 @@ Senza certificati parte in HTTP: la registrazione audio funziona solo su `localh
 <summary><b>Test</b></summary>
 
 ```bash
-cd backend && npm install && npm test        # 117 test: DB, API HTTP, sicurezza, SSO con provider finto, canvas/PDF
+cd backend && npm install && npm test        # 215 test: DB, API HTTP, sicurezza, SSO con provider finto, canvas/PDF
 cd whisper && python3 test_server.py         # trascrizione con ffmpeg e modelli finti (serve solo flask)
 ```
 
 Le suite coprono password e cambio obbligatorio, sessioni, import con id di altri utenti, utenti disattivati,
 impostazioni del pannello, flusso OIDC (PKCE, nonce, aud, state), escape LDAP, export/import multipagina,
-condivisione, ricerca e PDF pagina per pagina.
+condivisione con link e tra colleghi, etichette, spazio per utente, backup con copia esterna, ricerca e PDF pagina per pagina.
+GitHub Actions le esegue a ogni push e pull request, insieme alla build delle immagini Docker con un avvio di prova.
 </details>
 
 <details>

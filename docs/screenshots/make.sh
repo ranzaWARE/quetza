@@ -13,6 +13,7 @@ python3 "$HERE/scrittura.py" "$WORK"
 python3 "$HERE/whisper-finto.py" & WPID=$!
 ( cd "$ROOT/backend" && DB_PATH="$WORK/data/q.db" CERT_PATH=/nessuno KEY_PATH=/nessuno PORT=$PORT TRUST_PROXY=0 \
   SESSION_SECRET=schermate-della-guida-0123456789 WHISPER_URL=http://127.0.0.1:9876 \
+  BACKUP_DIR="$WORK/app/backups" BACKUP_COPY_DIR="$WORK/app/backups-copy" \
   ORG_NAME="Azienda Esempio S.r.l." node server.js > "$WORK/server.log" 2>&1 ) & SPID=$!
 trap 'kill $WPID $SPID 2>/dev/null; rm -rf "$WORK"' EXIT
 sleep 2

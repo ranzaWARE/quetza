@@ -7,7 +7,7 @@ const BASE = process.env.BASE || 'http://localhost:3300';
 const WORK = process.env.WORK;
 const J = f => JSON.parse(fs.readFileSync(path.join(WORK, f)));
 const RI = J('strokes-riunione.json'), CO = J('strokes-collaudo.json'), ST = J('strokes-stand.json');
-const shot = (p, name, clip) => p.screenshot({ path: path.join(WORK, 'out', `${name}.png`), ...(clip ? { clip } : {}) });
+const shot = (p, name, clip) => p.screenshot({ path: path.join(WORK, 'out', `${name}.png`), ...(clip ? { clip, fullPage: true } : {}) });
 
 async function cmap(p) {
   const c = await p.evaluate(() => { const r = document.getElementById('C').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width }; });
@@ -100,12 +100,32 @@ async function saveBack(p) {
   await shot(p, 'trascrizione');
   await p.click('#TRANSCB').catch(() => {}); await p.waitForTimeout(300);
 
+  // colleghi con cui condividere
+  const api = (url, method, body) => p.evaluate(([u, m, b]) => fetch(u, { method: m, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then(r => r.ok), [url, method, body]);
+  await api('/api/admin/users', 'POST', { username: 'giulia', password: 'Password123!', displayName: 'Giulia Verdi' });
+  await api('/api/admin/users', 'POST', { username: 'marco', password: 'Password123!', displayName: 'Marco Neri' });
+
   await p.click('#SHAREB'); await p.waitForTimeout(600);
-  const genBtn = p.locator('#SHAREM button:not(#SHARECANCB)').first();
-  await genBtn.click().catch(() => {}); await p.waitForTimeout(800);
-  await shot(p, 'condividi');
+  await p.fill('#COLLIN', 'giulia'); await p.selectOption('#COLLPERM', 'write'); await p.click('#COLLADD'); await p.waitForTimeout(500);
+  await p.fill('#COLLIN', 'marco'); await p.selectOption('#COLLPERM', 'read'); await p.click('#COLLADD'); await p.waitForTimeout(500);
+  await p.click('#SHARECREB'); await p.waitForTimeout(800);
+  await shot(p, 'condividi', await p.locator('#SHAREM .MD').boundingBox());
   await p.click('#SHARECANCB').catch(() => {}); await p.waitForTimeout(300);
   await p.click('#BACKB'); await p.waitForTimeout(1200);
+
+  // una nota che Giulia condivide con l'admin, per «Condivise con me»
+  const g = await (await b.newContext({ viewport: { width: 1280, height: 800 } })).newPage();
+  await g.goto(BASE + '/login.html'); await g.fill('#u', 'giulia'); await g.fill('#p', 'Password123!'); await g.click('#btn');
+  await g.waitForSelector('#newB');
+  m = await newNote(g, 'Ordini fornitori'); await pen(g, m, CO[1]); await g.click('#SVB'); await g.waitForTimeout(800);
+  await g.evaluate(() => fetch(`/api/notes/${S.curId}/access/admin`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ perm: 'read' }) }));
+  await g.context().close();
+
+  // etichette
+  const ids = await p.evaluate(() => Object.fromEntries(S.notes.map(n => [n.title, n.id])));
+  for (const [t, tags] of [['Collaudo linea 3', ['Produzione']], ['Schema stand fiera', ['Fiere']], ['Riunione progetto', ['Clienti', 'Progetti']]])
+    await api(`/api/notes/${ids[t]}`, 'PATCH', { tags });
+  await p.evaluate(() => loadNotes()); await p.waitForTimeout(800);
 
   await shot(p, 'libreria');
   await p.fill('#SRCH', 'preventivi'); await p.waitForTimeout(1200);
@@ -120,13 +140,22 @@ async function saveBack(p) {
   await p.click('#BACKB'); await p.waitForTimeout(800);
   await p.click('.dkToggle'); await p.click('.dkToggle'); await p.waitForTimeout(300); // eink -> chiaro
 
-  // amministrazione
+  // amministrazione: un limite di spazio per far vedere la colonna
+  await api('/api/admin/settings', 'POST', { storage_quota_mb: 500 });
+  await api('/api/admin/users/giulia/quota', 'PUT', { quotaMb: 2000 });
   await p.goto(BASE + '/admin'); await p.waitForTimeout(1200);
   await shot(p, 'admin');
+  await shot(p, 'admin-spazio', await p.locator('.card', { has: p.locator('#perUserTbody') }).boundingBox());
   for (const [t, n] of [['SSO / OIDC', 'admin-sso'], ['LDAP / AD', 'admin-ldap'], ['Whisper', 'admin-whisper'], ['Backup & Migrazione', 'admin-backup']]) {
     const loc = p.locator('button').filter({ hasText: t }).first();
-    if (await loc.count()) { await loc.click(); await p.waitForTimeout(600); await shot(p, n); }
-    else console.log('tab mancante', t);
+    if (!(await loc.count())) { console.log('tab mancante', t); continue; }
+    await loc.click(); await p.waitForTimeout(600);
+    if (n === 'admin-backup') {
+      // backup vero, con la copia esterna; nel testo i percorsi del container
+      await p.click('#backupNowB'); await p.waitForTimeout(3000);
+      await p.evaluate(w => { const e = document.getElementById('backupStatus'); e.innerHTML = e.innerHTML.split(w).join(''); }, WORK);
+    }
+    await shot(p, n);
   }
   await b.close();
 })();

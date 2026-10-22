@@ -67,6 +67,7 @@ ENV = [
     ("TRUST_PROXY", "1 se davanti c'è nginx (profilo <code>nginx</code>), altrimenti 0."),
     ("DNS_SERVER", "DNS interno per i container, se LDAP o SSO si raggiungono per nome e Docker non li risolve."),
     ("BACKUP_PATH, BACKUP_CRON, BACKUP_KEEP", "Dove, quando e quante copie del DB tenere (./backups, 02:00, 30)."),
+    ("BACKUP_COPY_PATH", "Cartella fuori dal server (NAS montato sul server) dove copiare anche ogni backup. Vuota = nessuna copia."),
     ("IMPORT_MAX_MB", "Dimensione massima di un archivio importato (serve altrettanta RAM)."),
     ("TRASH_DAYS", "Giorni in cui una nota eliminata resta nel cestino (30)."),
     ("WHISPER_MODEL, LANGUAGE", "Modello e lingua della trascrizione (small, it)."),
@@ -195,7 +196,7 @@ footer {{ color: var(--muted); font-size: 13px; text-align: center; padding: 0 0
   Ogni tratto ricorda l’istante in cui l’hai scritto: quando riascolti, Quetza evidenzia quello che stavi scrivendo in quel momento.
   A fine registrazione l’audio viene trascritto in automatico, distinguendo chi parla, e la trascrizione diventa cercabile.</p>
   <p>Tutto resta sul server dell’organizzazione: niente cloud, niente servizi esterni.</p>
-  {fig("libreria", "Le tue note: anteprima del foglio, titolo, data e il segno «audio» se c’è una registrazione.")}
+  {fig("libreria", "Le tue note: anteprima del foglio, titolo, data, etichette e il segno «audio» se c’è una registrazione. Sopra, i filtri per etichetta e le note condivise dai colleghi.")}
 </section>
 
 <section id="accesso">
@@ -224,12 +225,16 @@ footer {{ color: var(--muted); font-size: 13px; text-align: center; padding: 0 0
     <li><strong>Il salvataggio è automatico</strong>, pochi secondi dopo l’ultimo tratto. Il pulsante arancione (o <kbd>Ctrl</kbd> <kbd>S</kbd>) salva subito.
       Ogni modifica resta anche sul dispositivo finché il server non l’ha ricevuta: se la rete cade, la sessione scade
       o la scheda si chiude, al prossimo accesso Quetza la invia da solo. Vale anche per le registrazioni.</li>
-    <li><strong>Duplica ed elimina</strong> stanno nel menu «…» di ogni nota. Una nota eliminata va nel <strong>Cestino</strong>
+    <li><strong>Etichette, duplica ed elimina</strong> stanno nel menu «…» di ogni nota. Una nota eliminata va nel <strong>Cestino</strong>
       (pulsante in fondo alla barra della libreria) e si può ripristinare per 30 giorni, audio e trascrizione compresi;
       poi sparisce da sola. Dal cestino si può anche eliminare per sempre.</li>
   </ol>
+  <h3>Etichette</h3>
+  <p>Dal menu «…» → <strong>Etichette…</strong> dai a una nota una o più etichette, separate da virgola (<em>clienti, riunioni</em>).
+  Compaiono sopra le note: un clic mostra solo quelle con l’etichetta, <strong>Tutte</strong> le rimostra tutte.
+  Lì c’è anche <strong>👥 Condivise con me</strong>, con le note che i colleghi ti hanno condiviso.</p>
   <h3>Cercare</h3>
-  <p>La ricerca trova le parole nel titolo, nel testo digitato con lo strumento Testo e nella trascrizione dell’audio.
+  <p>La ricerca trova le parole nel titolo, nelle etichette, nel testo digitato con lo strumento Testo e nella trascrizione dell’audio.
   La scrittura a mano non viene letta: per ritrovare una nota scritta a penna conta il titolo, oppure quello che è stato detto.</p>
   {fig("ricerca", "«preventivi» non è nel titolo, ma è stato detto in riunione: la nota si trova dalla trascrizione.", 700)}
 </section>
@@ -278,8 +283,15 @@ footer {{ color: var(--muted); font-size: 13px; text-align: center; padding: 0 0
   <h2>Condividere ed esportare</h2>
   <div class="cols">
     <div>
-      <h3 style="margin-top:0">Link di sola lettura</h3>
-      <p>Il pulsante <strong>condividi</strong> crea un link che chiunque nella rete può aprire senza account: vede tutte le pagine e può ascoltare l’audio.
+      <h3 style="margin-top:0">Con i colleghi</h3>
+      <p>Nel pulsante <strong>condividi</strong> scegli un collega (scrivi il nome o lo username) e cosa può fare:
+      <strong>Può vedere</strong> la apre in sola lettura, <strong>Può modificare</strong> ci scrive e registra come te.
+      <strong>Tutti i colleghi possono vederla</strong> la rende leggibile a ogni utente di Quetza. Il permesso si cambia o si toglie dallo stesso elenco.</p>
+      <p>Chi la riceve la trova in libreria sotto <strong>👥 Condivise con me</strong>, con il nome del proprietario. La nota resta tua:
+      solo tu la condividi, la etichetti o la elimini, e lo spazio che occupa è il tuo. Dal menu «…» il collega può
+      <strong>copiarla nelle sue note</strong> o <strong>toglierla dalle sue condivise</strong>.</p>
+      <h3>Link di sola lettura</h3>
+      <p>Sempre da <strong>condividi</strong> si crea un link che chiunque nella rete può aprire senza account: vede tutte le pagine e può ascoltare l’audio.
       Puoi farlo scadere dopo 1, 7 o 30 giorni e revocarlo quando vuoi (cestino). Eliminando la nota, i suoi link smettono di funzionare.</p>
       <h3>PDF</h3>
       <p>Il pulsante <strong>scarica</strong> crea un PDF con tutte le pagine, con o senza righe.</p>
@@ -287,7 +299,7 @@ footer {{ color: var(--muted); font-size: 13px; text-align: center; padding: 0 0
       <p><strong>Esporta</strong> (nella pagina delle note) scarica uno ZIP con tutte le tue note e gli audio; <strong>Importa</strong> lo ricarica.
       Utile per spostarle o tenerne una copia personale.</p>
     </div>
-    <div>{fig("condividi", "Link creato: copialo o mandalo per email.", 380)}</div>
+    <div>{fig("condividi", "Condivisa con due colleghi e con un link: copialo o mandalo per email.", 380)}</div>
   </div>
 </section>
 
@@ -321,8 +333,12 @@ footer {{ color: var(--muted); font-size: 13px; text-align: center; padding: 0 0
   <details><summary>La trascrizione non distingue chi parla</summary>
     <p>Il riconoscimento dei parlanti richiede un token Hugging Face configurato dall’IT. Senza, il testo arriva comunque, tutto di seguito.</p></details>
   <details><summary>È comparsa una nota «(conflitto …)» o «(recuperata)»</summary>
-    <p>La stessa nota è stata modificata da due dispositivi insieme, oppure eliminata su uno mentre era aperta sull’altro.
-    Quetza non sovrascrive nulla: le modifiche di questo dispositivo finiscono in una nota a parte. Confrontale e tieni quella giusta.</p></details>
+    <p>La stessa nota è stata modificata da due dispositivi (o da te e da un collega) insieme, oppure eliminata, o non più condivisa con te,
+    mentre la stavi scrivendo. Quetza non sovrascrive nulla: le tue modifiche finiscono in una nota a parte, tra le tue. Confrontale e tieni quella giusta.</p></details>
+  <details><summary>«Spazio esaurito»</summary>
+    <p>Hai raggiunto lo spazio che l’amministratore ti ha assegnato: note, immagini e audio, anche quelli nel cestino.
+    Quello che stavi scrivendo resta al sicuro sul dispositivo. Svuota il cestino o elimina audio e note che non servono, oppure chiedi più spazio all’IT:
+    al salvataggio successivo Quetza invia tutto. Già oltre il 90% Quetza lo segnala all’accesso.</p></details>
   <details><summary>Ho dimenticato la password</summary>
     <p>Con SSO o LDAP vale la password aziendale. Per un account locale, un amministratore imposta una password provvisoria
     (Amministrazione → Utenti → Reset pw) e al primo accesso ne sceglierai una nuova.</p></details>
@@ -340,6 +356,11 @@ footer {{ color: var(--muted); font-size: 13px; text-align: center; padding: 0 0
   {fig("admin", "Utenti: ruolo, stato, origine (locale, ldap, oidc) e ultimo accesso.")}
   <p><strong>+ Nuovo utente</strong> crea un account locale. Gli utenti LDAP e SSO si creano da soli al primo accesso, come utenti normali:
   rendili amministratori da qui. <strong>Disattiva</strong> blocca subito l’accesso, anche alle sessioni già aperte. Non si può togliere l’ultimo amministratore.</p>
+  <p><strong>Spazio per utente</strong>: nella tabella sotto le statistiche si vede quanto occupa ciascuno (note, immagini, audio, cestino compreso).
+  <em>Spazio massimo per utente</em> vale per tutti (0 = nessun limite); <strong>Limite</strong> su una riga ne dà uno personale
+  (vuoto = quello generale, 0 = nessun limite). Chi lo supera non perde nulla: le modifiche restano sul suo dispositivo finché non libera spazio.
+  Le note condivise in modifica pesano sullo spazio del proprietario.</p>
+  {fig("admin-spazio", "Spazio usato da ciascuno rispetto al suo limite.")}
   <h3>SSO / OIDC</h3>
   <p>Quetza fa solo da client: funziona con il provider che l’organizzazione ha già (Keycloak, Microsoft Entra ID, Authentik, Google Workspace…)
   e non ne installa nessuno. Sul provider registra un client «confidential» con il flusso <em>authorization code</em> e come redirect URI
@@ -358,9 +379,11 @@ footer {{ color: var(--muted); font-size: 13px; text-align: center; padding: 0 0
   <table><tr><th>Modello</th><th>RAM</th><th>Velocità su CPU</th><th>Quando</th></tr>{model_rows}</table>
   {fig("admin-whisper", "Whisper: modello, token e test del servizio.")}
   <h3>Backup &amp; Migrazione</h3>
-  <p>Esporta e importa tutte le note di tutti gli utenti in uno ZIP, per spostare Quetza su un altro server.
+  <p>In alto lo stato dei backup notturni: quando è stato fatto l’ultimo, se è riuscito, quante copie ci sono e se la copia esterna è arrivata.
+  Diventa rosso se l’ultimo backup è fallito o è più vecchio di un giorno. <strong>Esegui backup adesso</strong> ne fa uno subito.</p>
+  <p>Sotto, esporta e importa tutte le note di tutti gli utenti (con etichette e condivisioni) in uno ZIP, per spostare Quetza su un altro server.
   L’import aggiunge e aggiorna, non cancella. Gli account locali importati nascono senza password: impostala da Utenti → Reset pw.</p>
-  {fig("admin-backup", "Backup &amp; Migrazione. Per i backup quotidiani vedi la sezione successiva.")}
+  {fig("admin-backup", "Backup &amp; Migrazione: stato dei backup, copia esterna, export e import.")}
 </section>
 
 <section id="installare" class="it">
@@ -399,9 +422,13 @@ cd quetza</code></pre></li>
   <h2>Backup e aggiornamenti</h2>
   <h3>Backup</h3>
   <p>Ogni notte Quetza copia il database (note, audio, trascrizioni, utenti, impostazioni) in <code>backups/</code>, tenendo le ultime 30 copie.
-  La copia è coerente anche mentre l’app lavora. <strong>Copia quella cartella fuori dal server</strong> (NAS, backup aziendale):
-  un backup sullo stesso disco non protegge da un guasto del disco.</p>
-  <pre><code>docker exec quetza node /app/backup.js     # backup subito</code></pre>
+  La copia è coerente anche mentre l’app lavora e viene verificata prima di cancellare le più vecchie.</p>
+  <p><strong>Tienine una copia fuori dal server</strong>: un backup sullo stesso disco non protegge da un guasto del disco.
+  Monta sul server una cartella del NAS (SMB o NFS, in <code>/etc/fstab</code>) e indicala nel <code>.env</code>:</p>
+  <pre><code>BACKUP_COPY_PATH=/mnt/nas/quetza</code></pre>
+  <p>Dopo <code>docker compose up -d</code> ogni backup riuscito viene copiato anche lì, con la stessa rotazione.
+  Se la copia non riesce (NAS spento, cartella non montata) il backup locale resta valido e il pannello Amministrazione lo segnala in rosso.</p>
+  <pre><code>docker exec quetza node /app/backup.js     # backup subito (o dal pannello admin)</code></pre>
   <h3>Ripristino</h3>
   <p>Dalla cartella di Quetza, con il nome del backup scelto. Il database attuale non viene buttato:
   finisce in <code>data/prima-del-ripristino/</code> dentro il volume, così si può tornare indietro.</p>
@@ -436,6 +463,7 @@ git pull
   <h3>Sicurezza</h3>
   <p>Password locali con scrypt e salt per utente; cookie di sessione <code>HttpOnly</code>, <code>SameSite=Lax</code> e <code>Secure</code> su HTTPS;
   limite di tentativi sul login; la porta HTTP fa solo il redirect verso HTTPS. Gli utenti SSO/LDAP non ereditano mai un account locale con lo stesso nome.
+  Una nota si apre solo al proprietario e ai colleghi a cui l’ha condivisa; gli altri ricevono «non trovata», come se non esistesse.
   I link condivisi sono pubblici per chi ha il link: usa la scadenza per le note riservate.</p>
 </section>
 
