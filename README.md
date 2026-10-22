@@ -166,6 +166,14 @@ GitHub Actions le esegue a ogni push e pull request, insieme alla build delle im
 </details>
 
 <details>
+<summary><b>Pubblicare una versione</b></summary>
+
+Aggiorna `version` in `backend/package.json`, scrivi le note in `docs/note-di-versione/v<versione>.md`,
+poi da GitHub: Actions → **Release** → *Run workflow* con la versione. Il workflow rifà i test, crea il tag `v<versione>` e la release.
+L'app Android ha il suo workflow e i suoi tag `android-v*`.
+</details>
+
+<details>
 <summary><b>Rigenerare guida, icona e schermate</b></summary>
 
 ```bash
