@@ -68,6 +68,7 @@ ENV = [
     ("DNS_SERVER", "DNS interno per i container, se LDAP o SSO si raggiungono per nome e Docker non li risolve."),
     ("BACKUP_PATH, BACKUP_CRON, BACKUP_KEEP", "Dove, quando e quante copie del DB tenere (./backups, 02:00, 30)."),
     ("IMPORT_MAX_MB", "Dimensione massima di un archivio importato (serve altrettanta RAM)."),
+    ("TRASH_DAYS", "Giorni in cui una nota eliminata resta nel cestino (30)."),
     ("WHISPER_MODEL, LANGUAGE", "Modello e lingua della trascrizione (small, it)."),
     ("WHISPER_MEMORY, WHISPER_TIMEOUT_MIN", "RAM massima del container di trascrizione e tempo massimo per un audio."),
     ("HF_TOKEN", "Token Hugging Face per distinguere chi parla."),
@@ -223,7 +224,9 @@ footer {{ color: var(--muted); font-size: 13px; text-align: center; padding: 0 0
     <li><strong>Il salvataggio è automatico</strong>, pochi secondi dopo l’ultimo tratto. Il pulsante arancione (o <kbd>Ctrl</kbd> <kbd>S</kbd>) salva subito.
       Ogni modifica resta anche sul dispositivo finché il server non l’ha ricevuta: se la rete cade, la sessione scade
       o la scheda si chiude, al prossimo accesso Quetza la invia da solo. Vale anche per le registrazioni.</li>
-    <li><strong>Duplica ed elimina</strong> stanno nel menu «…» di ogni nota.</li>
+    <li><strong>Duplica ed elimina</strong> stanno nel menu «…» di ogni nota. Una nota eliminata va nel <strong>Cestino</strong>
+      (pulsante in fondo alla barra della libreria) e si può ripristinare per 30 giorni, audio e trascrizione compresi;
+      poi sparisce da sola. Dal cestino si può anche eliminare per sempre.</li>
   </ol>
   <h3>Cercare</h3>
   <p>La ricerca trova le parole nel titolo, nel testo digitato con lo strumento Testo e nella trascrizione dell’audio.

@@ -325,8 +325,30 @@ app.get('/api/search', requireAuth, (req, res) => {
 });
 app.delete('/api/notes/:id', requireAuth, (req, res) => {
   if (!db.deleteNote(req.params.id, req.session.user.username)) return res.status(404).json({ error: 'Nota non trovata' });
+  res.json({ ok: true, trash: true, days: TRASH_DAYS });
+});
+
+// ── Cestino ───────────────────────────────────────────────────
+// Le note eliminate restano qui TRASH_DAYS giorni, poi vengono cancellate.
+const TRASH_DAYS = Math.max(1, Number(process.env.TRASH_DAYS) || 30);
+app.get('/api/trash', requireAuth, (req, res) => res.json({ days: TRASH_DAYS, notes: db.getTrash(req.session.user.username) }));
+app.post('/api/trash/:id/restore', requireAuth, (req, res) => {
+  if (!db.restoreNote(req.params.id, req.session.user.username)) return res.status(404).json({ error: 'Nota non trovata nel cestino' });
   res.json({ ok: true });
 });
+app.delete('/api/trash/:id', requireAuth, (req, res) => {
+  if (!db.purgeNote(req.params.id, req.session.user.username)) return res.status(404).json({ error: 'Nota non trovata nel cestino' });
+  res.json({ ok: true });
+});
+app.delete('/api/trash', requireAuth, (req, res) => res.json({ ok: true, deleted: db.purgeNote(null, req.session.user.username) }));
+function purgeTrash() {
+  try {
+    const n = db.purgeTrash(TRASH_DAYS);
+    if (n) console.log(`[cestino] eliminate definitivamente ${n} note più vecchie di ${TRASH_DAYS} giorni`);
+  } catch (e) { console.warn('[cestino] pulizia non riuscita:', e.message); }
+}
+purgeTrash();
+setInterval(purgeTrash, 6 * 3600 * 1000).unref();
 
 // ── Audio ─────────────────────────────────────────────────────
 app.post('/api/notes/:id/audio', requireAuth, upload.single('audio'), (req, res) => {
@@ -541,7 +563,13 @@ app.post('/api/import', requireAuth, importUpload(IMPORT_MAX_BYTES),
         // prima l'import personale aggiornava il contenuto della nota altrui.
         // La nota entra come copia con un id nuovo.
         const owner = db.getNoteOwner(note.id);
-        if (owner === username && db.importWouldOverwriteNewer(note.id, note.updated_at)) { unchanged++; continue; }
+        // Già presente e uguale o più recente: non si tocca. Se però è nel
+        // cestino, reimportarla significa volerla indietro: torna fuori così
+        // com'è (la versione nel cestino non è più vecchia dell'archivio).
+        if (owner === username && db.importWouldOverwriteNewer(note.id, note.updated_at)) {
+          if (db.restoreNote(note.id, username)) imported++; else unchanged++;
+          continue;
+        }
         const id = owner && owner !== username ? crypto.randomUUID() : note.id;
         if (id !== note.id) copies++;
         db.upsertNoteFromImport(id, username, note);

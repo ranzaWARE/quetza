@@ -393,14 +393,84 @@ function defaultNoteTitle() {
   return `Nota ${dateStr} ${timeStr}`;
 }
 
+// Eliminare sposta nel cestino: niente conferma, c'è "Annulla" nel messaggio
+// e la nota resta ripristinabile dal cestino per i giorni configurati.
 async function deleteNote(id) {
-  if (!confirm('Eliminare questa nota?')) return;
+  if (S.curId === id) await flushSave();   // nel cestino va l'ultima versione
   const r = await fetch(`/api/notes/${id}`, { method: 'DELETE' }).catch(() => null);
   if (!r || !r.ok) { toast('⚠ Nota non eliminata: server non raggiungibile'); return; }
+  const d = await r.json().catch(() => ({}));
   await dropDraft(id);
   S.notes = S.notes.filter(n => n.id !== id);
   if (S.curId === id) { leaveNote(); showLibrary(); }
   renderNL();
+  toast(`🗑 Nota spostata nel cestino${d.days ? ` (resta ${d.days} giorni)` : ''}`, 7000,
+        { label: 'Annulla', fn: () => restoreNote(id) });
+}
+
+async function restoreNote(id) {
+  const r = await fetch(`/api/trash/${id}/restore`, { method: 'POST' }).catch(() => null);
+  if (!r || !r.ok) { toast('⚠ Nota non ripristinata: server non raggiungibile'); return false; }
+  await loadNotes();
+  toast('✓ Nota ripristinata');
+  return true;
+}
+
+// ── Cestino ──────────────────────────────────────────────
+async function openTrash() {
+  let data;
+  try {
+    const r = await fetch('/api/trash');
+    if (!r.ok) { if (r.status === 401 || r.status === 403) sessionLost(); throw new Error(r.status); }
+    data = await r.json();
+  } catch { toast('⚠ Cestino non disponibile: server non raggiungibile'); return; }
+  const left = n => Math.max(0, Math.ceil(data.days - (Date.now() - dbDate(n.deleted_at)) / 86400000));
+  const when = n => dbDate(n.deleted_at).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  document.getElementById('_trash')?.remove();
+  const m = document.createElement('div');
+  m.id = '_trash';
+  m.className = 'MW';
+  m.innerHTML = `
+    <div class="MD trashMD">
+      <h3>Cestino</h3>
+      <p class="ms">Le note eliminate restano qui ${data.days} giorni, con audio e trascrizione, poi spariscono da sole.</p>
+      <div class="trashList">${data.notes.length ? data.notes.map(n => `
+        <div class="trashItem" data-id="${esc(n.id)}">
+          <div class="trashMeta">
+            <span class="trashTitle">${esc(n.title)}</span>
+            <span class="trashWhen">Eliminata ${when(n)} · sparisce tra ${left(n)} ${left(n) === 1 ? 'giorno' : 'giorni'}</span>
+          </div>
+          <button class="mk" data-act="restore">Ripristina</button>
+          <button class="mc danger" data-act="purge" title="Elimina per sempre">Elimina</button>
+        </div>`).join('') : '<p class="ms" style="text-align:center;margin-bottom:0">Il cestino è vuoto</p>'}
+      </div>
+      <div class="ma">
+        ${data.notes.length ? '<button class="mc danger" data-act="empty">Svuota cestino</button>' : ''}
+        <button class="mc" data-act="close">Chiudi</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  m.onclick = async e => {
+    if (e.target === m) return m.remove();
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (!act) return;
+    const id = e.target.closest('.trashItem')?.dataset.id;
+    if (act === 'close') return m.remove();
+    if (act === 'restore') { if (await restoreNote(id)) openTrash(); return; }
+    if (act === 'purge') {
+      if (!confirm('Eliminare per sempre questa nota? Non si potrà più recuperare.')) return;
+      const r = await fetch(`/api/trash/${id}`, { method: 'DELETE' }).catch(() => null);
+      if (!r || !r.ok) return toast('⚠ Non eliminata: server non raggiungibile');
+      return openTrash();
+    }
+    if (act === 'empty') {
+      if (!confirm(`Eliminare per sempre ${data.notes.length === 1 ? 'la nota' : `le ${data.notes.length} note`} nel cestino? Non si potranno più recuperare.`)) return;
+      const r = await fetch('/api/trash', { method: 'DELETE' }).catch(() => null);
+      if (!r || !r.ok) return toast('⚠ Cestino non svuotato: server non raggiungibile');
+      toast('Cestino svuotato');
+      return openTrash();
+    }
+  };
 }
 
 async function duplicateNote(id) {
@@ -766,9 +836,9 @@ function genThumb() {
 function sortedNotes() {
   const ns = [...S.notes];
   switch (S.sortOrder) {
-    case 'created': return ns.sort((a,b) => new Date(b.created_at)-new Date(a.created_at));
+    case 'created': return ns.sort((a,b) => dbDate(b.created_at)-dbDate(a.created_at));
     case 'alpha':   return ns.sort((a,b) => a.title.localeCompare(b.title, 'it'));
-    default:        return ns.sort((a,b) => new Date(b.updated_at||b.created_at)-new Date(a.updated_at||a.created_at));
+    default:        return ns.sort((a,b) => dbDate(b.updated_at||b.created_at)-dbDate(a.updated_at||a.created_at));
   }
 }
 
@@ -793,7 +863,7 @@ function buildNoteCard(n) {
   const isDirty = n.id === S.curId && S.dirty;
   const d = document.createElement('div');
   d.className = 'noteCard' + (n.id === S.curId ? ' on' : '');
-  const date = new Date(n.updated_at||n.created_at).toLocaleDateString('it-IT',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+  const date = dbDate(n.updated_at||n.created_at).toLocaleDateString('it-IT',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
   d.innerHTML = `
     <div class="thumb">${n.thumbnail ? `<img src="${esc(n.thumbnail)}" alt="">` : NOTE_ICON}</div>
     <div class="meta">
@@ -1035,6 +1105,12 @@ function openSizePopover(anchor) {
   }), 0);
 }
 
+// Le date di SQLite (datetime('now')) sono UTC senza fuso: lette così com'erano
+// diventavano ora locale, sfasate di una o due ore e mal ordinate rispetto a
+// quelle scritte dal browser (ISO con Z).
+function dbDate(s) {
+  return new Date(/^\d{4}-\d\d-\d\d \d\d:\d\d(:\d\d)?$/.test(s || '') ? s.replace(' ', 'T') + 'Z' : s);
+}
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 // Accessori pagina corrente
@@ -2387,6 +2463,7 @@ function setupKeyboard() {
 // ── Libreria ──────────────────────────────────────────────
 function setupLibrary() {
   document.getElementById('newB').onclick = newNote;
+  document.getElementById('trashB').onclick = openTrash;
   document.getElementById('newVoiceB').onclick = newVoiceNote;
 
   // Torna alla libreria: salva se necessario, poi cambia schermata
@@ -3052,9 +3129,18 @@ function showMP(m) {
   clearTimeout(mpT); mpT = setTimeout(()=>{ MP.style.opacity='0'; }, 1000);
 }
 let tT = null;
-function toast(msg, ms = 2400) {
-  TT.textContent = msg; TT.classList.add('on');
-  clearTimeout(tT); tT = setTimeout(()=>TT.classList.remove('on'), ms);
+// action = { label, fn }: un pulsante nel messaggio (es. "Annulla")
+function toast(msg, ms = 2400, action) {
+  TT.textContent = msg;
+  TT.classList.toggle('act', !!action);
+  if (action) {
+    const b = document.createElement('button');
+    b.textContent = action.label;
+    b.onclick = () => { TT.classList.remove('on', 'act'); action.fn(); };
+    TT.appendChild(b);
+  }
+  TT.classList.add('on');
+  clearTimeout(tT); tT = setTimeout(() => TT.classList.remove('on', 'act'), ms);
 }
 
 // ── Selezione ────────────────────────────────────────────
@@ -3394,7 +3480,7 @@ async function loadShares() {
       </div>
       <div class="shareActions">
         <button class="iconBtnSm" title="Copia link" onclick="copyShareLink('${url}')">${SHARE_ICON_COPY}</button>
-        <button class="iconBtnSm" title="Invia via mail" onclick="mailShare('${url}','${document.getElementById('NTT').value}')">${SHARE_ICON_MAIL}</button>
+        <button class="iconBtnSm" title="Invia via mail" onclick="mailShare('${url}',NTT.value)">${SHARE_ICON_MAIL}</button>
         <button class="iconBtnSm danger" title="Revoca link" onclick="deleteShare('${s.token}')">${SHARE_ICON_REVOKE}</button>
       </div>
     </div>`;

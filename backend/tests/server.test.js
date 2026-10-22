@@ -174,6 +174,38 @@ process.env.TRUST_PROXY = '0';
   check('rinominata: la ricerca la trova col titolo nuovo', (await (await req('GET', '/api/search?q=cantiere')).json()).some(x => x.id === note.id));
   await req('PATCH', `/api/notes/${note.id}`, { title: 'Riunione' });
 
+  section('Cestino');
+  const tn = await (await req('POST', '/api/notes', { title: 'Da cestinare' })).json();
+  await req('PUT', `/api/notes/${tn.id}/content`, { strokes: [], canvasText: 'ornitorinco', pagesData: [{ strokes: [], textItems: [{ text: 'ornitorinco', x: 1, y: 1 }], images: [] }] });
+  const tfd = new FormData();
+  tfd.append('audio', new Blob([Buffer.from('audio-cestino')], { type: 'audio/webm' }), 'a.webm');
+  await req('POST', `/api/notes/${tn.id}/audio`, tfd);
+  const tsh = await (await req('POST', `/api/notes/${tn.id}/share`, {})).json();
+  r = await req('DELETE', `/api/notes/${tn.id}`);
+  check('eliminare sposta nel cestino', r.ok && (await r.json()).trash === true);
+  check('nel cestino: sparisce da elenco e API', !(await (await req('GET', '/api/notes')).json()).some(n => n.id === tn.id)
+        && (await req('GET', `/api/notes/${tn.id}`)).status === 404);
+  check('nel cestino: non si salva sopra', (await req('PUT', `/api/notes/${tn.id}/content`, { strokes: [], pagesData: [] })).status === 404);
+  check('nel cestino: la ricerca non la trova', !(await (await req('GET', '/api/search?q=ornitorinco')).json()).some(x => x.id === tn.id));
+  check('nel cestino: il link condiviso è revocato', (await fetch(`${BASE}/api/shared/${tsh.token}`)).status === 404);
+  const trash = await (await req('GET', '/api/trash')).json();
+  check('il cestino la elenca, con i giorni di permanenza', trash.days === 30 && trash.notes.some(n => n.id === tn.id && n.deleted_at));
+  r = await req('POST', `/api/trash/${tn.id}/restore`);
+  const rest = await (await req('GET', `/api/notes/${tn.id}`)).json();
+  check('ripristinata con contenuto e audio', r.ok && rest.pages_data?.[0]?.textItems?.[0]?.text === 'ornitorinco' && rest.has_audio === 1);
+  check('ripristinata: la ricerca la ritrova', (await (await req('GET', '/api/search?q=ornitorinco')).json()).some(x => x.id === tn.id));
+  check('una nota fuori dal cestino non si elimina per sempre', (await req('DELETE', `/api/trash/${tn.id}`)).status === 404);
+  await req('DELETE', `/api/notes/${tn.id}`);
+  r = await req('DELETE', `/api/trash/${tn.id}`);
+  check('eliminata per sempre dal cestino', r.ok && !(await (await req('GET', '/api/trash')).json()).notes.some(n => n.id === tn.id));
+  const tdb = require('../db');
+  const old = await (await req('POST', '/api/notes', { title: 'vecchia' })).json();
+  await req('DELETE', `/api/notes/${old.id}`);
+  check('pulizia: una nota appena eliminata resta', tdb.purgeTrash(30) === 0 && tdb.getTrash('admin').some(n => n.id === old.id));
+  const activeBefore = (await (await req('GET', '/api/notes')).json()).length;
+  check('pulizia: oltre i giorni previsti sparisce, le note attive no', tdb.purgeTrash(-1) >= 1
+        && !tdb.getTrash('admin').length && (await (await req('GET', '/api/notes')).json()).length === activeBefore);
+
   section('Condivisione dopo il reimport');
   // Eliminando la nota, la FK ON DELETE CASCADE revoca anche i suoi link:
   // il token vecchio non deve più funzionare, e serve rigenerarlo.

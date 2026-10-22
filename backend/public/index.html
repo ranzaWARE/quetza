@@ -45,6 +45,7 @@
 <body>
 <div id="OFFBANNER">⚠ Connessione assente — il salvataggio verrà ritentato automaticamente. Non chiudere la pagina.</div>
 <div id="AUTHBANNER">⚠ Sessione scaduta: le modifiche restano su questo dispositivo. <a href="/login.html">Accedi di nuovo</a> e verranno salvate.</div>
+<div class="TT" id="TT"></div>
 <div id="W">
 
 <!-- ═══════════════════════════════════════════════════════
@@ -109,6 +110,10 @@
       Importa
       <input type="file" id="importFile" accept=".zip" style="display:none">
     </label>
+    <button class="aurorBtn" id="trashB" title="Note eliminate: si possono ripristinare">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+      Cestino
+    </button>
   </div>
 
   <div class="noteGrid" id="NL"></div>
@@ -149,7 +154,6 @@
 
     <!-- Overlays -->
     <div class="MP" id="MP"></div>
-    <div class="TT" id="TT"></div>
 
     <!-- TOOLBAR CARD flottante in alto -->
     <div class="TB">
