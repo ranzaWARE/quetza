@@ -73,6 +73,48 @@ Tre metodi, combinabili:
 Gli account locali restano sempre utilizzabili come fallback: se l'AD non
 risponde, l'amministratore può comunque entrare dal tab "Locale".
 
+### Keycloak incluso (realm `app`)
+
+Il profilo `keycloak` avvia un Keycloak con il realm `app` importato da
+[`keycloak/realm-app.json`](keycloak/realm-app.json):
+
+```bash
+# in .env: QUETZA_URL, QUETZA_OIDC_SECRET, QUETZA_TEST_PASSWORD, KC_ADMIN_PASSWORD
+docker compose --profile keycloak up -d
+```
+
+Il realm contiene:
+
+| Cosa | Valore |
+|---|---|
+| Client | `quetza`, confidential, solo Standard Flow (authorization code) |
+| Secret | `QUETZA_OIDC_SECRET` (default `quetza-dev-secret`) |
+| Redirect URI | `${QUETZA_URL}/auth/callback` |
+| Web origin | `${QUETZA_URL}` |
+| Utente di test | `test` / `QUETZA_TEST_PASSWORD` (default `test`), email `test@quetza.local` |
+
+Poi in **Amministrazione → Keycloak / OIDC**:
+
+| Campo | Valore |
+|---|---|
+| Issuer URL | `http://<SERVER_IP>:8180/realms/app` |
+| Client ID | `quetza` |
+| Client Secret | lo stesso di `QUETZA_OIDC_SECRET` |
+| Redirect URI | `${QUETZA_URL}/auth/callback`, identico a quello del realm |
+
+L'Issuer va scritto con l'IP/hostname del server, non `localhost`: lo usano sia
+il browser (redirect al login) sia il container di Quetza (scambio del codice).
+
+`QUETZA_URL` deve essere esattamente l'URL che il browser usa per aprire Quetza
+(es. `https://192.168.1.50:8444`, o `https://quetza.graphimecc.local` con nginx),
+altrimenti Keycloak risponde *Invalid parameter: redirect_uri*.
+
+L'import avviene **solo al primo avvio**: se il realm esiste già nel volume
+`keycloak_data`, modifiche al JSON o alle variabili vengono ignorate. Per
+reimportare: `docker compose rm -sf keycloak && docker volume rm <progetto>_keycloak_data`.
+Il Keycloak gira in modalità `start-dev` (HTTP, DB H2): adatto a test e LAN,
+non a un'esposizione pubblica.
+
 ## Backup
 
 Il container esegue un backup del DB ogni notte alle 02:00 in

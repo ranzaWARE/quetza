@@ -1,0 +1,48 @@
+{
+  "realm": "app",
+  "enabled": true,
+  "displayName": "Quetza",
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "resetPasswordAllowed": false,
+  "bruteForceProtected": true,
+  "clients": [
+    {
+      "clientId": "quetza",
+      "name": "Quetza",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${QUETZA_OIDC_SECRET}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "rootUrl": "${QUETZA_URL}",
+      "baseUrl": "/",
+      "redirectUris": ["${QUETZA_URL}/auth/callback"],
+      "webOrigins": ["${QUETZA_URL}"],
+      "attributes": {
+        "post.logout.redirect.uris": "${QUETZA_URL}/*"
+      },
+      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "basic", "email"],
+      "optionalClientScopes": ["address", "phone", "offline_access", "microprofile-jwt"]
+    }
+  ],
+  "users": [
+    {
+      "username": "test",
+      "enabled": true,
+      "email": "test@quetza.local",
+      "emailVerified": true,
+      "firstName": "Utente",
+      "lastName": "Test",
+      "credentials": [
+        { "type": "password", "value": "${QUETZA_TEST_PASSWORD}", "temporary": false }
+      ],
+      "requiredActions": []
+    }
+  ]
+}
