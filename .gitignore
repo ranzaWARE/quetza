@@ -16,3 +16,6 @@ backend/certs/
 
 __pycache__/
 *.pyc
+
+# CA locali facoltative montate nel container (docker-compose.yml)
+/ca/

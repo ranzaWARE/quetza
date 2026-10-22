@@ -9,7 +9,6 @@ const https    = require('https');
 const http     = require('http');
 const fs       = require('fs');
 const crypto   = require('crypto');
-const { Agent } = require('undici');
 const db       = require('./db');
 const auth     = require('./auth');
 
@@ -103,12 +102,19 @@ app.post('/api/login', async (req, res) => {
   if (!username || !password) return res.status(400).json({ error: 'Username e password richiesti' });
 
   // Redirect OIDC se abilitato
-  const kc = auth.getKeycloakConfig();
-  if (kc.enabled && username === '__oidc__') {
+  const oc = auth.getOidcConfig();
+  if (oc.enabled && username === '__oidc__') {
+    let disc;
+    try { disc = await auth.oidcDiscover(oc); }
+    catch (e) {
+      console.error('[oidc] discovery fallita:', e.message, e.cause || '');
+      return res.status(502).json({ error: 'Provider SSO non raggiungibile' });
+    }
     const state = crypto.randomBytes(16).toString('hex');
     req.session.oidcState = state;
-    const url = `${kc.issuer}/protocol/openid-connect/auth?client_id=${encodeURIComponent(kc.clientId)}&redirect_uri=${encodeURIComponent(kc.redirectUri)}&response_type=code&scope=openid+profile+email&state=${state}`;
-    return res.json({ redirect: url });
+    const url = new URL(disc.authorizationEndpoint);
+    url.search = new URLSearchParams({ ...Object.fromEntries(url.searchParams), client_id: oc.clientId, redirect_uri: oc.redirectUri, response_type: 'code', scope: 'openid profile email', state });
+    return res.json({ redirect: url.toString() });
   }
 
   try {
@@ -137,7 +143,7 @@ app.post('/api/change-password', requireSession, (req, res) => {
 
 // OIDC callback
 app.get('/auth/callback', async (req, res) => {
-  const kc = auth.getKeycloakConfig();
+  const kc = auth.getOidcConfig();
   const { code, state, error: providerError, error_description } = req.query;
   if (providerError) {
     console.error(`[oidc] il provider ha rifiutato la richiesta: ${providerError} — ${error_description||''}`);
@@ -148,15 +154,16 @@ app.get('/auth/callback', async (req, res) => {
     return res.redirect('/login.html?error=invalid_state');
   }
 
-  const tokenUrl = `${kc.issuer}/protocol/openid-connect/token`;
+  // Il token endpoint (da discovery) si chiama sull'URL interno se impostato:
+  // dal container l'hostname pubblico del provider può non risolversi.
+  let tokenUrl = '(discovery)';
   try {
+    tokenUrl = (await auth.oidcDiscover(kc)).tokenEndpoint;
     const tokenRes = await fetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ grant_type:'authorization_code', code, redirect_uri: kc.redirectUri, client_id: kc.clientId, client_secret: kc.clientSecret }),
-      // Scoped al solo fetch verso Keycloak (non un NODE_TLS_REJECT_UNAUTHORIZED
-      // globale, che disattiverebbe la verifica per QUALSIASI TLS del processo).
-      dispatcher: kc.tlsReject ? undefined : new Agent({ connect: { rejectUnauthorized: false } }),
+      ...auth.oidcFetchOptions(kc),
     });
     const tokens = await tokenRes.json();
     if (!tokenRes.ok) throw new Error(`token endpoint HTTP ${tokenRes.status}: ${tokens.error||''} ${tokens.error_description||''}`);
@@ -170,6 +177,7 @@ app.get('/auth/callback', async (req, res) => {
     const jwt = tokens.id_token || tokens.access_token;
     if (!jwt) throw new Error('risposta del token endpoint priva sia di id_token che di access_token');
     const payload = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString());
+    if (!auth.isAcceptedIssuer(kc, payload.iss)) throw new Error(`issuer del token inatteso: "${payload.iss}" (atteso "${kc.issuer}")`);
     const username = payload.preferred_username || payload.email || payload.sub;
     if (!username) throw new Error('nessun claim utilizzabile come username nel token (preferred_username/email/sub)');
     // Sincronizza nel DB
@@ -585,6 +593,20 @@ app.delete('/api/admin/users/:username', requireAuth, requireAdmin, (req, res) =
 });
 
 // Impostazioni
+// Diagnostica OIDC: discovery (.well-known) dall'URL che usa il server.
+// Risponde con lo stato HTTP o con la causa reale dell'errore di rete/TLS.
+app.get('/api/admin/oidc/test', requireAuth, requireAdmin, async (req, res) => {
+  const oc = auth.getOidcConfig();
+  if (!oc.issuer) return res.status(400).json({ ok: false, error: 'Issuer non configurato' });
+  try {
+    const d = await auth.oidcDiscover(oc, { fresh: true });
+    const issuerOk = auth.isAcceptedIssuer(oc, d.issuer);
+    res.json({ ok: issuerOk, url: d.url, status: d.status, issuer: d.issuer, issuerOk, tokenEndpoint: d.tokenEndpoint });
+  } catch (e) {
+    res.json({ ok: false, url: e.url, status: e.status, error: e.message, cause: e.cause ? `${e.cause.code||''} ${e.cause.message||e.cause}`.trim() : undefined });
+  }
+});
+
 app.get('/api/admin/settings', requireAuth, requireAdmin, (req, res) => res.json(db.getAllSettings()));
 app.post('/api/admin/settings', requireAuth, requireAdmin, (req, res) => {
   const settings = req.body;

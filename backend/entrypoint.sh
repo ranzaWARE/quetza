@@ -11,6 +11,15 @@ if [ ! -f /app/certs/server.crt ]; then
     -addext "subjectAltName=IP:${SERVER_IP:-127.0.0.1},DNS:localhost"
 fi
 
+# CA aggiuntive facoltative (es. provider SSO con certificato interno):
+# tutti i PEM in /app/ca concatenati e passati a Node, che altrimenti non
+# fiderebbe certificati firmati da una CA aziendale.
+if [ -z "$NODE_EXTRA_CA_CERTS" ] && ls /app/ca/*.crt /app/ca/*.pem >/dev/null 2>&1; then
+  cat /app/ca/*.crt /app/ca/*.pem 2>/dev/null > /tmp/extra-ca.pem
+  export NODE_EXTRA_CA_CERTS=/tmp/extra-ca.pem
+  echo "CA extra caricate da /app/ca"
+fi
+
 # Backup automatico ogni notte alle 02:00
 BACKUP_CRON="${BACKUP_CRON:-0 2 * * *}"
 echo "$BACKUP_CRON /app/backup.sh >> /app/data/backup.log 2>&1" | crontab -
