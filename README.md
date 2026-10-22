@@ -73,47 +73,37 @@ Tre metodi, combinabili:
 Gli account locali restano sempre utilizzabili come fallback: se l'AD non
 risponde, l'amministratore può comunque entrare dal tab "Locale".
 
-### Keycloak incluso (realm `app`)
+### Realm Keycloak `app` (facoltativo, import manuale)
 
-Il profilo `keycloak` avvia un Keycloak con il realm `app` importato da
-[`keycloak/realm-app.json`](keycloak/realm-app.json):
+Keycloak è facoltativo e Quetza non lo installa: senza, funziona con gli account
+locali e LDAP. Se in azienda c'è già un Keycloak, in
+[`keycloak/realm-app.json`](keycloak/realm-app.json) c'è un realm `app` pronto da
+importare, con:
 
-```bash
-# in .env: QUETZA_URL, QUETZA_OIDC_SECRET, QUETZA_TEST_PASSWORD, KC_ADMIN_PASSWORD
-docker compose --profile keycloak up -d
-```
-
-Il realm contiene:
-
-| Cosa | Valore |
+| Cosa | Valore nel file |
 |---|---|
 | Client | `quetza`, confidential, solo Standard Flow (authorization code) |
-| Secret | `QUETZA_OIDC_SECRET` (default `quetza-dev-secret`) |
-| Redirect URI | `${QUETZA_URL}/auth/callback` |
-| Web origin | `${QUETZA_URL}` |
-| Utente di test | `test` / `QUETZA_TEST_PASSWORD` (default `test`), email `test@quetza.local` |
+| Secret | `cambiami` |
+| Redirect URI | `https://127.0.0.1:8444/auth/callback` |
+| Web origin / root URL | `https://127.0.0.1:8444` |
+| Utente di test | `test` / `test`, email `test@quetza.local`, nessuna azione richiesta |
+
+Prima dell'import sostituire nel file `https://127.0.0.1:8444` con l'URL esatto
+con cui il browser apre Quetza (altrimenti Keycloak risponde *Invalid parameter:
+redirect_uri*) e `cambiami` con un secret vero (`openssl rand -hex 32`).
+
+Import: console admin di Keycloak → menu realm → **Create realm** → *Resource
+file* → `realm-app.json` → **Create**. Se il realm `app` esiste già, usare
+invece **Realm settings → Action → Partial import** sul realm `app`.
 
 Poi in **Amministrazione → Keycloak / OIDC**:
 
 | Campo | Valore |
 |---|---|
-| Issuer URL | `http://<SERVER_IP>:8180/realms/app` |
+| Issuer URL | `https://<keycloak>/realms/app` |
 | Client ID | `quetza` |
-| Client Secret | lo stesso di `QUETZA_OIDC_SECRET` |
-| Redirect URI | `${QUETZA_URL}/auth/callback`, identico a quello del realm |
-
-L'Issuer va scritto con l'IP/hostname del server, non `localhost`: lo usano sia
-il browser (redirect al login) sia il container di Quetza (scambio del codice).
-
-`QUETZA_URL` deve essere esattamente l'URL che il browser usa per aprire Quetza
-(es. `https://192.168.1.50:8444`, o `https://quetza.graphimecc.local` con nginx),
-altrimenti Keycloak risponde *Invalid parameter: redirect_uri*.
-
-L'import avviene **solo al primo avvio**: se il realm esiste già nel volume
-`keycloak_data`, modifiche al JSON o alle variabili vengono ignorate. Per
-reimportare: `docker compose rm -sf keycloak && docker volume rm <progetto>_keycloak_data`.
-Il Keycloak gira in modalità `start-dev` (HTTP, DB H2): adatto a test e LAN,
-non a un'esposizione pubblica.
+| Client Secret | lo stesso messo nel file |
+| Redirect URI | `<URL di Quetza>/auth/callback`, identico a quello del realm |
 
 ## Backup
 

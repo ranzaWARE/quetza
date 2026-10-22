@@ -15,17 +15,17 @@
       "protocol": "openid-connect",
       "publicClient": false,
       "clientAuthenticatorType": "client-secret",
-      "secret": "${QUETZA_OIDC_SECRET}",
+      "secret": "cambiami",
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
-      "rootUrl": "${QUETZA_URL}",
+      "rootUrl": "https://127.0.0.1:8444",
       "baseUrl": "/",
-      "redirectUris": ["${QUETZA_URL}/auth/callback"],
-      "webOrigins": ["${QUETZA_URL}"],
+      "redirectUris": ["https://127.0.0.1:8444/auth/callback"],
+      "webOrigins": ["https://127.0.0.1:8444"],
       "attributes": {
-        "post.logout.redirect.uris": "${QUETZA_URL}/*"
+        "post.logout.redirect.uris": "https://127.0.0.1:8444/*"
       },
       "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "basic", "email"],
       "optionalClientScopes": ["address", "phone", "offline_access", "microprofile-jwt"]
@@ -40,7 +40,7 @@
       "firstName": "Utente",
       "lastName": "Test",
       "credentials": [
-        { "type": "password", "value": "${QUETZA_TEST_PASSWORD}", "temporary": false }
+        { "type": "password", "value": "test", "temporary": false }
       ],
       "requiredActions": []
     }

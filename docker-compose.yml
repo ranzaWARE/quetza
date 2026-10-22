@@ -101,38 +101,8 @@ services:
     depends_on:
       - quetza
 
-  # Keycloak opzionale per l'SSO, con il realm "app" già pronto (client
-  # "quetza" + utente "test") importato da keycloak/realm-app.json.
-  # Prima il realm non era definito da nessuna parte nel repo: andava creato
-  # a mano sul Keycloak esterno, e utente/client/redirect potevano mancare.
-  #   docker compose --profile keycloak up -d
-  # Admin console: http://<SERVER_IP>:8180  (KC_ADMIN / KC_ADMIN_PASSWORD)
-  # L'import avviene solo se il realm non esiste ancora nel volume
-  # keycloak_data: dopo aver modificato il JSON serve
-  #   docker compose rm -sf keycloak && docker volume rm <progetto>_keycloak_data
-  keycloak:
-    profiles: ["keycloak"]
-    image: quay.io/keycloak/keycloak:26.0
-    container_name: quetza-keycloak
-    restart: unless-stopped
-    command: ["start-dev", "--import-realm"]
-    ports:
-      - "8180:8080"
-    environment:
-      - KC_BOOTSTRAP_ADMIN_USERNAME=${KC_ADMIN:-admin}
-      - KC_BOOTSTRAP_ADMIN_PASSWORD=${KC_ADMIN_PASSWORD:-admin}
-      # Sostituiti nei placeholder ${...} di realm-app.json al primo import.
-      # QUETZA_URL = URL con cui il browser apre Quetza, senza / finale.
-      - QUETZA_URL=${QUETZA_URL:-https://127.0.0.1:8444}
-      - QUETZA_OIDC_SECRET=${QUETZA_OIDC_SECRET:-quetza-dev-secret}
-      - QUETZA_TEST_PASSWORD=${QUETZA_TEST_PASSWORD:-test}
-    volumes:
-      - ./keycloak/realm-app.json:/opt/keycloak/data/import/realm-app.json:ro
-      - keycloak_data:/opt/keycloak/data
-
 volumes:
   quetza_data:
   quetza_certs:
   whisper_models:    # modelli persistiti tra restart
   nginx_certs:
-  keycloak_data:
