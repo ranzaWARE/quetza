@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/img/icon.png" width="160" alt="Icona di Quetza: un Quetzalcoatlus in volo in pixel art">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/quetza-dark.gif">
+    <img src="docs/img/quetza-light.gif" width="295" alt="Il Quetzalcoatlus di Quetza in pixel art sbatte le ali sopra la riga del quaderno">
+  </picture>
 </p>
 
 <h1 align="center">Quetza</h1>
@@ -162,7 +165,7 @@ condivisione, ricerca e PDF pagina per pagina.
 <summary><b>Rigenerare guida, icona e schermate</b></summary>
 
 ```bash
-python3 docs/make-icon.py              # icone in backend/public/icons e docs/img/icon.png
+python3 docs/make-icon.py              # icone in backend/public/icons, docs/img/icon.png e l'animazione del README
 python3 docs/make-guide.py             # backend/public/guida.html dalle immagini in docs/img
 sh docs/screenshots/make.sh            # schermate vere con Playwright, poi icona e guida
 ```

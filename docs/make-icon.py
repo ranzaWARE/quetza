@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Genera le icone di Quetza (serve Pillow): un Quetzalcoatlus in volo in
 pixel art 8 bit su fondo bianco, nello stesso stile dell'icona di MIMUS.
-Scrive backend/public/icons/*.png e il simbolo SVG usato nell'app.
+Scrive backend/public/icons/*.png, il simbolo SVG usato nell'app e la
+versione animata per il README (docs/img/quetza-*.gif, chiara e scura).
 Uso: python3 docs/make-icon.py"""
 import os
 from PIL import Image, ImageDraw, ImageFilter
@@ -31,6 +32,26 @@ QUETZA = """
 ........XXX...XX.......................................
 ......XXX...XXX........................................
 """
+
+# Altre due posizioni dell'ala per l'animazione: al posto dell'ala alzata
+# (righe 0-13, colonne 0-24 di QUETZA) si disegnano queste, a partire dalla riga indicata.
+WING_MID = (10, """
+....XXXXXX..............
+.XXXXXXXXXXXXXX.........
+...XXXXXXXXXXXXXXXXXX...
+.......XXXXXXXXXXXXXXXX.
+""")
+WING_DOWN = (18, """
+.............XXXXXXXXXX.
+...........XXXXXXXXX....
+.........XXXXXXXX.......
+.......XXXXXXX..........
+......XXXXX.............
+.....XXXX...............
+....XXX.................
+...XX...................
+""")
+EYE = (38, 5)
 
 ROWS = QUETZA.strip("\n").split("\n")
 W, H = max(len(r) for r in ROWS), len(ROWS)
@@ -91,6 +112,43 @@ def svg_symbol():
             f'<path fill="currentColor" d="{"".join(rects)}"/></svg>')
 
 
+def pose(wing):
+    """Pixel accesi (x, y) del Quetzalcoatlus con l'ala nella posizione data."""
+    body = {(x, y) for y, r in enumerate(ROWS) for x, c in enumerate(r) if c == "X"}
+    if wing == "up":
+        return body
+    oy, art = WING_MID if wing == "mid" else WING_DOWN
+    body = {(x, y) for x, y in body if not (y <= 13 and x <= 24)}
+    return body | {(x, oy + y) for y, r in enumerate(art.strip("\n").split("\n")) for x, c in enumerate(r) if c == "X"}
+
+
+def mascot(ink, line, path, scale=5):
+    """Il Quetzalcoatlus del README: sbatte le ali e plana, la riga del quaderno scorre."""
+    CW, CH = W + 4, 31
+    poses = {w: pose(w) for w in ("up", "mid", "down")}
+
+    def frame(wing, oy, shift, blink):
+        im = Image.new("P", (CW * scale, CH * scale), 0)
+        im.putpalette([255, 0, 255] + list(ink) + list(line) + [0] * (253 * 3))
+        d = ImageDraw.Draw(im)
+
+        def px(x, y, c):
+            d.rectangle([x * scale, y * scale, (x + 1) * scale - 1, (y + 1) * scale - 1], fill=c)
+        for x, y in poses[wing] | ({EYE} if blink else set()):
+            px(2 + x, oy + y, 1)
+        for x in range(CW):
+            if (x + shift) % 3 < 2:
+                px(x, CH - 1, 2)
+        return im
+
+    seq = []  # (ala, spostamento verticale, occhio chiuso)
+    for _ in range(4):
+        seq += [("up", 2, False), ("mid", 1, False), ("down", 0, False), ("mid", 1, False)]
+    seq += [("mid", 1, i in (5, 6)) for i in range(10)]
+    frames = [frame(w, oy, i, b) for i, (w, oy, b) in enumerate(seq)]
+    frames[0].save(path, save_all=True, append_images=frames[1:], duration=110, loop=0, transparency=0, disposal=2)
+
+
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     os.makedirs(os.path.join(HERE, "img"), exist_ok=True)
@@ -103,4 +161,6 @@ if __name__ == "__main__":
     icon(512, rounded=False, px=7).save(os.path.join(OUT, "icon-maskable-512.png"))
     icon(180, rounded=False, px=2).convert("RGB").save(os.path.join(OUT, "apple-touch-icon.png"))
     open(os.path.join(OUT, "quetza.svg"), "w").write(svg_symbol() + "\n")
+    mascot((29, 29, 31), (170, 170, 176), os.path.join(HERE, "img", "quetza-light.gif"))
+    mascot((240, 240, 245), (100, 100, 108), os.path.join(HERE, "img", "quetza-dark.gif"))
     print("ok")
