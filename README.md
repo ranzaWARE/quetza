@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/img/quetza-dark.gif">
-    <img src="docs/img/quetza-light.gif" width="295" alt="Il Quetzalcoatlus di Quetza in pixel art sbatte le ali sopra la riga del quaderno">
+    <img src="docs/img/quetza-light.gif" width="295" alt="Il Quetzalcoatlus di Quetza in pixel art sbatte le ali sopra la riga del quaderno, poi apre il becco e dice HI">
   </picture>
 </p>
 

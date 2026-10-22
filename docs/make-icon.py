@@ -52,6 +52,25 @@ WING_DOWN = (18, """
 ...XX...................
 """)
 EYE = (38, 5)
+# Testa col becco aperto: sostituisce righe 2-10, colonne 33-55 (collo compreso).
+MOUTH_OPEN = """
+....XXX................
+...XXXXXX..............
+..XXXXXXXXXX...........
+..XXX.XXXXXXXXXX.......
+.XXXXXXXXXXXXXXXXXXXX..
+.XXXXXX................
+XXXXXXXXXX.............
+XXX...XXXXXXXXX........
+XX.........XXXXXXX.....
+"""
+HI = """
+X.X.XXX
+X.X..X.
+XXX..X.
+X.X..X.
+X.X.XXX
+"""
 
 ROWS = QUETZA.strip("\n").split("\n")
 W, H = max(len(r) for r in ROWS), len(ROWS)
@@ -122,30 +141,43 @@ def pose(wing):
     return body | {(x, oy + y) for y, r in enumerate(art.strip("\n").split("\n")) for x, c in enumerate(r) if c == "X"}
 
 
-def mascot(ink, line, path, scale=5):
-    """Il Quetzalcoatlus del README: sbatte le ali e plana, la riga del quaderno scorre."""
-    CW, CH = W + 4, 31
-    poses = {w: pose(w) for w in ("up", "mid", "down")}
+def grid(art):
+    return {(x, y) for y, r in enumerate(art.strip("\n").split("\n")) for x, c in enumerate(r) if c == "X"}
 
-    def frame(wing, oy, shift, blink):
+
+def mascot(ink, line, path, scale=5):
+    """Il Quetzalcoatlus del README: sbatte le ali, plana, apre il becco e dice HI,
+    mentre la riga del quaderno scorre."""
+    CW, CH, TOP = W + 4, 34, 3
+    poses = {w: pose(w) for w in ("up", "mid", "down")}
+    head = {(x, y) for x, y in poses["mid"] if 2 <= y <= 10 and x >= 33}
+    poses["open"] = (poses["mid"] - head) | {(33 + x, 2 + y) for x, y in grid(MOUTH_OPEN)}
+    hi = grid(HI)
+
+    def frame(wing, oy, shift, blink, say):
         im = Image.new("P", (CW * scale, CH * scale), 0)
-        im.putpalette([255, 0, 255] + list(ink) + list(line) + [0] * (253 * 3))
+        im.putpalette([255, 0, 255] + list(ink) + list(line) + [245, 160, 0] + [0] * (252 * 3))
         d = ImageDraw.Draw(im)
 
         def px(x, y, c):
             d.rectangle([x * scale, y * scale, (x + 1) * scale - 1, (y + 1) * scale - 1], fill=c)
         for x, y in poses[wing] | ({EYE} if blink else set()):
-            px(2 + x, oy + y, 1)
+            px(2 + x, TOP + oy + y, 1)
+        if say:
+            for x, y in hi:
+                px(CW - 9 + x, 1 + y, 3)
         for x in range(CW):
             if (x + shift) % 3 < 2:
                 px(x, CH - 1, 2)
         return im
 
-    seq = []  # (ala, spostamento verticale, occhio chiuso)
+    seq = []  # (ala, spostamento verticale, occhio chiuso, scritta HI)
     for _ in range(4):
-        seq += [("up", 2, False), ("mid", 1, False), ("down", 0, False), ("mid", 1, False)]
-    seq += [("mid", 1, i in (5, 6)) for i in range(10)]
-    frames = [frame(w, oy, i, b) for i, (w, oy, b) in enumerate(seq)]
+        seq += [("up", 2, False, False), ("mid", 1, False, False), ("down", 0, False, False), ("mid", 1, False, False)]
+    seq += [("mid", 1, i in (5, 6), False) for i in range(8)]
+    seq += [("open", 1, False, i >= 1) for i in range(18)]
+    seq += [("mid", 1, False, False)] * 3
+    frames = [frame(w, oy, i, b, h) for i, (w, oy, b, h) in enumerate(seq)]
     frames[0].save(path, save_all=True, append_images=frames[1:], duration=110, loop=0, transparency=0, disposal=2)
 
 
