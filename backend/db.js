@@ -106,6 +106,13 @@ try { db.exec(`ALTER TABLE notes ADD COLUMN pages_data TEXT`); } catch {}
 // basta, altrimenti anche una nota normale appena creata (vuota anch'essa)
 // mostrerebbe il suggerimento invece del foglio bianco atteso.
 try { db.exec(`ALTER TABLE notes ADD COLUMN voice_first INTEGER NOT NULL DEFAULT 0`); } catch {}
+// Versione del contenuto, +1 a ogni salvataggio: il client manda quella da cui
+// è partito e, se nel frattempo un altro dispositivo ha salvato, il server
+// rifiuta (409) invece di sovrascrivere in silenzio il lavoro dell'altro.
+try { db.exec(`ALTER TABLE notes ADD COLUMN version INTEGER NOT NULL DEFAULT 1`); } catch {}
+// Cestino: una nota eliminata ha deleted_at valorizzato e resta recuperabile
+// per TRASH_DAYS giorni, poi viene cancellata davvero (purgeTrash).
+try { db.exec(`ALTER TABLE notes ADD COLUMN deleted_at TEXT`); } catch {}
 
 // Indice FTS — ricrea se schema cambiato (rimuove vecchia versione con content table)
 try {
@@ -281,13 +288,13 @@ function getAllSettings() {
 
 // ── Notes ─────────────────────────────────────────────────────
 function getNotesByUser(username) {
-  return db.prepare(`SELECT id, title, thumbnail, grid, has_audio, created_at, updated_at FROM notes WHERE username = ? ORDER BY updated_at DESC`).all(username);
+  return db.prepare(`SELECT id, title, thumbnail, grid, has_audio, created_at, updated_at FROM notes WHERE username = ? AND deleted_at IS NULL ORDER BY updated_at DESC`).all(username);
 }
 
 function getNoteById(id, username) {
   const note = username
-    ? db.prepare(`SELECT * FROM notes WHERE id = ? AND username = ?`).get(id, username)
-    : db.prepare(`SELECT * FROM notes WHERE id = ?`).get(id);
+    ? db.prepare(`SELECT * FROM notes WHERE id = ? AND username = ? AND deleted_at IS NULL`).get(id, username)
+    : db.prepare(`SELECT * FROM notes WHERE id = ? AND deleted_at IS NULL`).get(id);
   if (!note) return null;
   return {
     ...note,
@@ -312,18 +319,30 @@ function updateNoteMeta(id, username, { title, grid }) {
   if (!sets.length) return true;
   sets.push("updated_at = datetime('now')");
   vals.push(id, username);
-  return db.prepare(`UPDATE notes SET ${sets.join(', ')} WHERE id = ? AND username = ?`).run(...vals).changes > 0;
+  const ok = db.prepare(`UPDATE notes SET ${sets.join(', ')} WHERE id = ? AND username = ? AND deleted_at IS NULL`).run(...vals).changes > 0;
+  // senza, la ricerca trovava la nota solo col titolo vecchio
+  if (ok && title !== undefined) { try { rebuildFts(id); } catch(e) { console.warn('FTS rebuild title:', e.message); } }
+  return ok;
 }
 
-function saveContent(id, username, strokes, images, thumbnail, grid, canvasText, textItems, pagesData) {
-  // pagesData = array di pagine [{strokes, textItems}]
-  // Se fornito usa quello, altrimenti compatibilità con vecchio formato
+// baseVersion = versione da cui è partito il client (facoltativa). Se la nota
+// è stata salvata nel frattempo da un altro dispositivo non si scrive nulla.
+// Ritorna { version } dopo il salvataggio, { conflict, version } se la nota è
+// cambiata nel frattempo, null se la nota non esiste.
+// thumbnail assente = resta quella di prima (il recupero delle modifiche
+// salvate sul dispositivo non ha un'anteprima da mandare).
+const saveContent = db.transaction((id, username, strokes, images, thumbnail, grid, canvasText, textItems, pagesData, baseVersion) => {
+  const cur = db.prepare(`SELECT version FROM notes WHERE id = ? AND username = ? AND deleted_at IS NULL`).get(id, username);
+  if (!cur) return null;
+  if (baseVersion != null && Number(baseVersion) !== cur.version) return { conflict: true, version: cur.version };
+  // pagesData = array di pagine [{strokes, textItems, images}]
   const pagesJson = pagesData ? JSON.stringify(pagesData) : null;
-  const r = db.prepare(`UPDATE notes SET strokes=?, images=?, thumbnail=?, grid=?, canvas_text=?, text_items=?, pages_data=?, updated_at=datetime('now') WHERE id=? AND username=?`)
+  db.prepare(`UPDATE notes SET strokes=?, images=?, thumbnail=COALESCE(?, thumbnail), grid=?, canvas_text=?, text_items=?, pages_data=?,
+                version=version+1, updated_at=datetime('now') WHERE id=? AND username=?`)
     .run(JSON.stringify(strokes||[]), JSON.stringify(images||[]), thumbnail||null, grid||'lines', canvasText||null, JSON.stringify(textItems||[]), pagesJson, id, username);
-  if (r.changes > 0) { try { rebuildFts(id); } catch(e) { console.warn('FTS rebuild:', e.message); } }
-  return r.changes > 0;
-}
+  try { rebuildFts(id); } catch(e) { console.warn('FTS rebuild:', e.message); }
+  return { version: cur.version + 1 };
+});
 
 function saveWhisperText(noteId, text, segments) {
   db.prepare(`UPDATE notes SET whisper_text=?, whisper_segments=?, updated_at=datetime('now') WHERE id=?`)
@@ -332,8 +351,8 @@ function saveWhisperText(noteId, text, segments) {
 }
 
 function rebuildFts(noteId) {
-  const n = db.prepare(`SELECT id, username, title, canvas_text, whisper_text FROM notes WHERE id=?`).get(noteId);
-  if (!n) return;
+  const n = db.prepare(`SELECT id, username, title, canvas_text, whisper_text FROM notes WHERE id=? AND deleted_at IS NULL`).get(noteId);
+  if (!n) { db.prepare(`DELETE FROM notes_fts WHERE note_id = ?`).run(noteId); return; }
   // Cancella record esistente e reinserisci
   db.prepare(`DELETE FROM notes_fts WHERE note_id = ?`).run(n.id);
   db.prepare(`INSERT INTO notes_fts(note_id, username, title, canvas_text, whisper_text) VALUES(?,?,?,?,?)`)
@@ -345,22 +364,49 @@ function searchNotes(username, query) {
   try {
     return db.prepare(`
       SELECT n.id, n.title, n.thumbnail, n.has_audio, n.updated_at,
-             snippet(notes_fts, 2, '<mark>', '</mark>', '…', 20) as snippet
+             snippet(notes_fts, -1, char(1), char(2), '…', 20) as snippet
       FROM notes_fts f
-      JOIN notes n ON n.id = f.note_id
+      JOIN notes n ON n.id = f.note_id AND n.deleted_at IS NULL
       WHERE notes_fts MATCH ? AND f.username = ?
       ORDER BY rank LIMIT 50
     `).all(query.trim() + '*', username);
   } catch { return []; }
 }
 
-function deleteNote(id, username) {
-  return db.prepare(`DELETE FROM notes WHERE id = ? AND username = ?`).run(id, username).changes > 0;
+// Eliminare sposta nel cestino: contenuto e audio restano, la nota sparisce
+// da elenco, ricerca e API, e i suoi link condivisi vengono revocati.
+const deleteNote = db.transaction((id, username) => {
+  const ok = db.prepare(`UPDATE notes SET deleted_at = datetime('now') WHERE id = ? AND username = ? AND deleted_at IS NULL`).run(id, username).changes > 0;
+  if (ok) {
+    db.prepare(`DELETE FROM notes_fts WHERE note_id = ?`).run(id);
+    db.prepare(`DELETE FROM shares WHERE note_id = ?`).run(id);
+  }
+  return ok;
+});
+
+function getTrash(username) {
+  return db.prepare(`SELECT id, title, thumbnail, has_audio, updated_at, deleted_at FROM notes
+                     WHERE username = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC`).all(username);
+}
+function restoreNote(id, username) {
+  const ok = db.prepare(`UPDATE notes SET deleted_at = NULL WHERE id = ? AND username = ? AND deleted_at IS NOT NULL`).run(id, username).changes > 0;
+  if (ok) { try { rebuildFts(id); } catch(e) { console.warn('FTS rebuild restore:', e.message); } }
+  return ok;
+}
+// Cancellazione definitiva, solo di note già nel cestino (audio e link vanno
+// via con la FK ON DELETE CASCADE). id assente = svuota tutto il cestino.
+function purgeNote(id, username) {
+  return id
+    ? db.prepare(`DELETE FROM notes WHERE id = ? AND username = ? AND deleted_at IS NOT NULL`).run(id, username).changes
+    : db.prepare(`DELETE FROM notes WHERE username = ? AND deleted_at IS NOT NULL`).run(username).changes;
+}
+function purgeTrash(days) {
+  return db.prepare(`DELETE FROM notes WHERE deleted_at IS NOT NULL AND julianday(deleted_at) < julianday('now') - ?`).run(days).changes;
 }
 
 // ── Audio ─────────────────────────────────────────────────────
 function saveAudio(noteId, username, buffer, mime) {
-  const note = db.prepare(`SELECT id FROM notes WHERE id = ? AND username = ?`).get(noteId, username);
+  const note = db.prepare(`SELECT id FROM notes WHERE id = ? AND username = ? AND deleted_at IS NULL`).get(noteId, username);
   if (!note) return false;
   const row = db.prepare(`SELECT MAX(session) as m FROM audio WHERE note_id = ?`).get(noteId);
   const session = row && row.m !== null ? row.m + 1 : 0;
@@ -375,16 +421,31 @@ function getAudio(noteId, username) {
     : db.prepare(`SELECT data, mime, session FROM audio WHERE note_id = ? ORDER BY session ASC`).all(noteId);
 }
 
+// false = la nota non è di questo utente (prima l'UPDATE non guardava il
+// proprietario: chiunque conoscesse l'id cancellava la trascrizione altrui).
 function deleteAudio(noteId, username) {
+  const note = db.prepare(`SELECT id FROM notes WHERE id = ? AND username = ? AND deleted_at IS NULL`).get(noteId, username);
+  if (!note) return false;
   db.prepare(`DELETE FROM audio WHERE note_id = ? AND username = ?`).run(noteId, username);
   // Una trascrizione orfana (audio cancellato ma testo Whisper rimasto in DB)
   // riapparirebbe alla riapertura della nota, riferita a un audio inesistente.
-  db.prepare(`UPDATE notes SET has_audio = 0, whisper_text = NULL, whisper_segments = NULL WHERE id = ?`).run(noteId);
+  db.prepare(`UPDATE notes SET has_audio = 0, whisper_text = NULL, whisper_segments = NULL WHERE id = ? AND username = ?`).run(noteId, username);
   try { rebuildFts(noteId); } catch(e) { console.warn('FTS rebuild after deleteAudio:', e.message); }
+  return true;
 }
 
+// Import: sostituisce l'audio di una nota con quello dell'archivio, tutto o
+// niente, lasciando la trascrizione importata con la nota. Prima passava da
+// deleteAudio, che la cancellava: ogni ripristino perdeva le trascrizioni.
+const replaceAudio = db.transaction((noteId, username, sessions) => {
+  db.prepare(`DELETE FROM audio WHERE note_id = ?`).run(noteId);
+  const ins = db.prepare(`INSERT INTO audio (note_id, username, session, data, mime) VALUES (?, ?, ?, ?, ?)`);
+  sessions.forEach((a, i) => ins.run(noteId, username, i, a.data, a.mime));
+  db.prepare(`UPDATE notes SET has_audio = ? WHERE id = ?`).run(sessions.length ? 1 : 0, noteId);
+});
+
 function appendAudioChunk(noteId, username, chunk, mime) {
-  const note = db.prepare(`SELECT id FROM notes WHERE id = ? AND username = ?`).get(noteId, username);
+  const note = db.prepare(`SELECT id FROM notes WHERE id = ? AND username = ? AND deleted_at IS NULL`).get(noteId, username);
   if (!note) return false;
   const existing = db.prepare(`SELECT id, data, mime FROM audio WHERE note_id = ? ORDER BY session DESC LIMIT 1`).get(noteId);
   if (existing) {
@@ -409,7 +470,7 @@ function getShare(token) {
 }
 
 function deleteShare(token, username) {
-  db.prepare(`DELETE FROM shares WHERE token = ? AND username = ?`).run(token, username);
+  return db.prepare(`DELETE FROM shares WHERE token = ? AND username = ?`).run(token, username).changes > 0;
 }
 
 function getSharesForNote(noteId, username) {
@@ -421,11 +482,11 @@ function getSharesForNote(noteId, username) {
 // un ciclo export→import perdeva pagine, testo digitato e trascrizioni.
 const EXPORT_COLS = `id, title, grid, strokes, images, thumbnail, has_audio,
                      canvas_text, text_items, pages_data, whisper_text, whisper_segments,
-                     voice_first, created_at, updated_at, username`;
+                     voice_first, created_at, updated_at, deleted_at, username`;
 
 function getAllNotesForExport(username) {
   return username
-    ? db.prepare(`SELECT ${EXPORT_COLS} FROM notes WHERE username = ? ORDER BY updated_at DESC`).all(username)
+    ? db.prepare(`SELECT ${EXPORT_COLS} FROM notes WHERE username = ? AND deleted_at IS NULL ORDER BY updated_at DESC`).all(username)
     : db.prepare(`SELECT ${EXPORT_COLS} FROM notes ORDER BY username, updated_at DESC`).all();
 }
 
@@ -441,18 +502,26 @@ function getNoteOwner(id) {
   return db.prepare(`SELECT username FROM notes WHERE id = ?`).get(id)?.username || null;
 }
 
+// Una nota già presente viene sostituita dall'archivio solo se quella
+// dell'archivio è più recente: reimportare un export vecchio non deve
+// riportare indietro le note modificate dopo (né togliere le loro registrazioni).
+function importWouldOverwriteNewer(id, updatedAt) {
+  const r = db.prepare(`SELECT julianday(updated_at) >= COALESCE(julianday(?), 0) AS newer FROM notes WHERE id = ?`).get(updatedAt || null, id);
+  return !!(r && r.newer);
+}
+
 function upsertNoteFromImport(id, username, note) {
   db.prepare(`
     INSERT INTO notes (id, username, title, strokes, images, thumbnail, grid, has_audio,
                        canvas_text, text_items, pages_data, whisper_text, whisper_segments,
-                       voice_first, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       voice_first, created_at, updated_at, deleted_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET title=excluded.title, strokes=excluded.strokes, images=excluded.images,
       thumbnail=excluded.thumbnail, grid=excluded.grid, has_audio=excluded.has_audio,
       canvas_text=excluded.canvas_text, text_items=excluded.text_items,
       pages_data=excluded.pages_data, whisper_text=excluded.whisper_text,
       whisper_segments=excluded.whisper_segments, voice_first=excluded.voice_first,
-      updated_at=excluded.updated_at
+      updated_at=excluded.updated_at, deleted_at=excluded.deleted_at, version=notes.version+1
     WHERE notes.username = excluded.username
   `).run(id, username, note.title||'Senza titolo',
     asJsonText(note.strokes, '[]'), asJsonText(note.images, '[]'),
@@ -460,21 +529,22 @@ function upsertNoteFromImport(id, username, note) {
     note.canvas_text||null, asJsonText(note.text_items, '[]'),
     asJsonText(note.pages_data, null), note.whisper_text||null,
     asJsonText(note.whisper_segments, null), note.voice_first?1:0,
-    note.created_at||new Date().toISOString(), note.updated_at||new Date().toISOString());
+    note.created_at||new Date().toISOString(), note.updated_at||new Date().toISOString(),
+    note.deleted_at||null);
   rebuildFts(id);
 }
 
 // Statistiche per admin
 function getStats() {
   const users  = db.prepare(`SELECT COUNT(*) as n FROM users`).get().n;
-  const notes  = db.prepare(`SELECT COUNT(*) as n FROM notes`).get().n;
+  const notes  = db.prepare(`SELECT COUNT(*) as n FROM notes WHERE deleted_at IS NULL`).get().n;
   const audio  = db.prepare(`SELECT COALESCE(SUM(length(data)),0) as n FROM audio`).get().n;
   // Sottoquery invece di due LEFT JOIN: unire notes e audio nella stessa
   // query produce un prodotto cartesiano che moltiplica audio_bytes per il
   // numero di note dell'utente (e note_count per il numero di audio).
   const perUser = db.prepare(`
     SELECT u.username, u.display_name, u.is_admin, u.last_login,
-           (SELECT COUNT(*)                    FROM notes n WHERE n.username = u.username) as note_count,
+           (SELECT COUNT(*)                    FROM notes n WHERE n.username = u.username AND n.deleted_at IS NULL) as note_count,
            (SELECT COALESCE(SUM(length(a.data)),0) FROM audio a WHERE a.username = u.username) as audio_bytes
     FROM users u
     ORDER BY u.username
@@ -482,7 +552,10 @@ function getStats() {
   return { users, notes, audio_bytes: audio, per_user: perUser };
 }
 
+function close() { try { db.close(); } catch {} }
+
 module.exports = {
+  close,
   // users
   getUsers, getUserByUsername, createUser, updateUser, resetPassword, deleteUser,
   countAdmins, verifyPassword, touchLogin, hashPassword, mustChangePassword,
@@ -490,13 +563,14 @@ module.exports = {
   getSetting, setSetting, getAllSettings, getNoteOwner,
   // notes
   getNotesByUser, getNoteById, createNote, updateNoteMeta, saveContent, deleteNote,
+  getTrash, restoreNote, purgeNote, purgeTrash,
   saveWhisperText, searchNotes, rebuildFts,
   // audio
-  saveAudio, getAudio, deleteAudio, appendAudioChunk,
+  saveAudio, getAudio, deleteAudio, replaceAudio, appendAudioChunk,
   // shares
   createShare, getShare, deleteShare, getSharesForNote,
   // export/import
-  getAllNotesForExport, upsertNoteFromImport,
+  getAllNotesForExport, upsertNoteFromImport, importWouldOverwriteNewer,
   // stats
   getStats,
 };

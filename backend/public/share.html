@@ -195,10 +195,20 @@ function buildPages(){
     const cv=document.createElement('canvas');
     cv.className='pgCv';cv.width=PW_L;cv.height=PH_L;
     const c=cv.getContext('2d');
-    c.fillStyle=dark?'#2a2f37':'#fff';c.fillRect(0,0,PW_L,PH_L);
-    drawGrid(c,dark);
-    drawSS(c,pg.strokes||[],dark);
-    drawText(c,pg.textItems||[],dark);
+    // immagini e tratti su un livello a parte, come nell'app: la gomma
+    // cancella i tratti senza bucare la griglia
+    const imgs=(pg.images||[]).filter(im=>im&&im.src);
+    const paint=els=>{
+      const l=document.createElement('canvas');l.width=PW_L;l.height=PH_L;
+      const lc=l.getContext('2d');
+      els.forEach((el,k)=>{if(el){const im=imgs[k];lc.drawImage(el,im.x,im.y,im.w,im.h);}});
+      drawSS(lc,pg.strokes||[],dark);
+      c.fillStyle=dark?'#2a2f37':'#fff';c.fillRect(0,0,PW_L,PH_L);
+      drawGrid(c,dark);c.drawImage(l,0,0);
+      drawText(c,pg.textItems||[],dark);
+    };
+    paint([]);
+    if(imgs.length)Promise.all(imgs.map(im=>new Promise(res=>{const el=new Image();el.onload=()=>res(el);el.onerror=()=>res(null);el.src=im.src;}))).then(paint);
     wrap.appendChild(cv);
     if(pagesData.length>1){
       const n=document.createElement('div');
@@ -258,7 +268,7 @@ async function init(){
     // pages_data è la fonte di verità; le note vecchie hanno solo strokes flat
     pagesData=(Array.isArray(note.pages_data)&&note.pages_data.length)
       ? note.pages_data
-      : [{strokes:note.strokes||[],textItems:note.text_items||[],images:[]}];
+      : [{strokes:note.strokes||[],textItems:note.text_items||[],images:note.images||[]}];
     buildPages();
     requestAnimationFrame(fitW);
     window.addEventListener('resize',fitW);

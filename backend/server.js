@@ -76,6 +76,9 @@ app.use(session({
   store: new SQLiteStore({ db: 'sessions.db', dir: DB_DIR }),
   secret: SESSION_SECRET,
   resave: false, saveUninitialized: false,
+  // La scadenza riparte a ogni richiesta: chi usa l'app non viene buttato
+  // fuori a metà riunione 14 giorni dopo il login.
+  rolling: true,
   cookie: {
     // 'auto' = express-session decide per ogni richiesta guardando req.secure
     // (che considera anche X-Forwarded-Proto grazie a trust proxy). Un
@@ -91,12 +94,19 @@ app.use(session({
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Rate limiting ─────────────────────────────────────────────
+// Il contatore delle API è per utente quando c'è una sessione: in azienda più
+// persone escono spesso dallo stesso IP (NAT, proxy) e con un contatore per IP
+// si toglievano i salvataggi a vicenda.
+const byUser = (req) => req.session?.user?.username ? `u:${req.session.user.username}` : req.ip;
 const loginLimiter = rateLimit({ windowMs: 15*60*1000, max: 20, message: { error: 'Troppi tentativi, riprova tra 15 minuti' } });
-const apiLimiter   = rateLimit({ windowMs: 60*1000,    max: 300 });
-const uploadLimiter= rateLimit({ windowMs: 60*1000,    max: 30 });
+const apiLimiter   = rateLimit({ windowMs: 60*1000,    max: 600, keyGenerator: byUser });
+const uploadLimiter= rateLimit({ windowMs: 60*1000,    max: 30,  keyGenerator: byUser });
 app.use('/api/login', loginLimiter);
 app.use('/api/', apiLimiter);
-app.use('/api/notes/:id/audio', uploadLimiter);
+// Solo gli invii: il limite valeva anche per la lettura, e aprire qualche nota
+// con più registrazioni faceva sparire la barra audio (429).
+app.post('/api/notes/:id/audio', uploadLimiter);
+app.post('/api/notes/:id/audio/append', uploadLimiter);
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200*1024*1024 } });
 
@@ -297,9 +307,11 @@ app.patch('/api/notes/:id', requireAuth, (req, res) => {
 });
 app.put('/api/notes/:id/content', requireAuth, (req, res) => {
   try {
-    const { strokes, images, thumbnail, grid, canvasText, textItems, pagesData } = req.body;
-    if (!db.saveContent(req.params.id, req.session.user.username, strokes, images, thumbnail, grid, canvasText, textItems, pagesData)) return res.status(404).json({ error: 'Nota non trovata' });
-    res.json({ ok: true });
+    const { strokes, images, thumbnail, grid, canvasText, textItems, pagesData, baseVersion } = req.body;
+    const r = db.saveContent(req.params.id, req.session.user.username, strokes, images, thumbnail, grid, canvasText, textItems, pagesData, baseVersion);
+    if (!r) return res.status(404).json({ error: 'Nota non trovata' });
+    if (r.conflict) return res.status(409).json({ error: 'La nota è stata modificata da un altro dispositivo', version: r.version });
+    res.json({ ok: true, version: r.version });
   } catch(e) {
     console.error('saveContent error:', e.message);
     res.status(500).json({ error: e.message });
@@ -313,8 +325,30 @@ app.get('/api/search', requireAuth, (req, res) => {
 });
 app.delete('/api/notes/:id', requireAuth, (req, res) => {
   if (!db.deleteNote(req.params.id, req.session.user.username)) return res.status(404).json({ error: 'Nota non trovata' });
+  res.json({ ok: true, trash: true, days: TRASH_DAYS });
+});
+
+// ── Cestino ───────────────────────────────────────────────────
+// Le note eliminate restano qui TRASH_DAYS giorni, poi vengono cancellate.
+const TRASH_DAYS = Math.max(1, Number(process.env.TRASH_DAYS) || 30);
+app.get('/api/trash', requireAuth, (req, res) => res.json({ days: TRASH_DAYS, notes: db.getTrash(req.session.user.username) }));
+app.post('/api/trash/:id/restore', requireAuth, (req, res) => {
+  if (!db.restoreNote(req.params.id, req.session.user.username)) return res.status(404).json({ error: 'Nota non trovata nel cestino' });
   res.json({ ok: true });
 });
+app.delete('/api/trash/:id', requireAuth, (req, res) => {
+  if (!db.purgeNote(req.params.id, req.session.user.username)) return res.status(404).json({ error: 'Nota non trovata nel cestino' });
+  res.json({ ok: true });
+});
+app.delete('/api/trash', requireAuth, (req, res) => res.json({ ok: true, deleted: db.purgeNote(null, req.session.user.username) }));
+function purgeTrash() {
+  try {
+    const n = db.purgeTrash(TRASH_DAYS);
+    if (n) console.log(`[cestino] eliminate definitivamente ${n} note più vecchie di ${TRASH_DAYS} giorni`);
+  } catch (e) { console.warn('[cestino] pulizia non riuscita:', e.message); }
+}
+purgeTrash();
+setInterval(purgeTrash, 6 * 3600 * 1000).unref();
 
 // ── Audio ─────────────────────────────────────────────────────
 app.post('/api/notes/:id/audio', requireAuth, upload.single('audio'), (req, res) => {
@@ -336,10 +370,13 @@ app.get('/api/notes/:id/audio', requireAuth, (req, res) => {
 app.get('/api/notes/:id/audio/:session', requireAuth, (req, res) => {
   const sessions = db.getAudio(req.params.id, req.session.user.username);
   const idx = parseInt(req.params.session);
-  if (!sessions||idx>=sessions.length) return res.status(404).json({ error: 'Sessione non trovata' });
+  if (!sessions || !(idx >= 0) || idx >= sessions.length) return res.status(404).json({ error: 'Sessione non trovata' });
   const a=sessions[idx]; res.set('Content-Type',a.mime||'audio/webm').set('Content-Length',a.data.length); res.send(a.data);
 });
-app.delete('/api/notes/:id/audio', requireAuth, (req, res) => { db.deleteAudio(req.params.id, req.session.user.username); res.json({ ok: true }); });
+app.delete('/api/notes/:id/audio', requireAuth, (req, res) => {
+  if (!db.deleteAudio(req.params.id, req.session.user.username)) return res.status(404).json({ error: 'Nota non trovata' });
+  res.json({ ok: true });
+});
 
 // GET trascrizione salvata
 app.get('/api/notes/:id/transcript', requireAuth, (req, res) => {
@@ -468,7 +505,6 @@ app.get('/api/export', requireAuth, async (req, res) => {
   const arc = archiver('zip',{zlib:{level:6}}); arc.pipe(res);
   arc.append(JSON.stringify(notes.map(noteForManifest),null,2),{name:'manifest.json'});
   for (const note of notes) {
-    if (!note.has_audio) continue;
     const audio = db.getAudio(note.id, username);
     if (!audio?.length) continue;
     audio.forEach((a,i)=>arc.append(a.data,{name:`audio/${note.id}_${i}.${a.mime?.includes('mp4')?'mp4':'webm'}`}));
@@ -500,8 +536,7 @@ function restoreAudioFromZip(zip, noteId, username, srcId = noteId) {
   }
   if (!found.length) return 0;
 
-  db.deleteAudio(noteId, username);
-  found.forEach(({ ext, e }) => db.saveAudio(noteId, username, e.getData(), `audio/${ext}`));
+  db.replaceAudio(noteId, username, found.map(({ ext, e }) => ({ data: e.getData(), mime: `audio/${ext}` })));
   return found.length;
 }
 
@@ -521,20 +556,27 @@ app.post('/api/import', requireAuth, importUpload(IMPORT_MAX_BYTES),
       const manifest = JSON.parse(zip.getEntry('manifest.json')?.getData().toString('utf8') || 'null');
       if (!manifest) return res.status(400).json({ error: 'ZIP non valido' });
       const notes = Array.isArray(manifest) ? manifest : (manifest.notes || []);
-      let imported=0, skipped=0, copies=0;
+      let imported=0, skipped=0, copies=0, unchanged=0;
       for (const note of notes) {
         if (!note.id||!note.title){skipped++;continue;}
         // Un id che appartiene a un altro utente non va mai sovrascritto:
         // prima l'import personale aggiornava il contenuto della nota altrui.
         // La nota entra come copia con un id nuovo.
         const owner = db.getNoteOwner(note.id);
+        // Già presente e uguale o più recente: non si tocca. Se però è nel
+        // cestino, reimportarla significa volerla indietro: torna fuori così
+        // com'è (la versione nel cestino non è più vecchia dell'archivio).
+        if (owner === username && db.importWouldOverwriteNewer(note.id, note.updated_at)) {
+          if (db.restoreNote(note.id, username)) imported++; else unchanged++;
+          continue;
+        }
         const id = owner && owner !== username ? crypto.randomUUID() : note.id;
         if (id !== note.id) copies++;
         db.upsertNoteFromImport(id, username, note);
         restoreAudioFromZip(zip, id, username, note.id);
         imported++;
       }
-      res.json({ ok: true, imported, skipped, copies });
+      res.json({ ok: true, imported, skipped, copies, unchanged });
     } catch(e) { res.status(500).json({ error: e.message }); }
     finally { removeUpload(req); }
   }
@@ -550,8 +592,14 @@ app.post('/api/notes/:id/share', requireAuth, (req, res) => {
   db.createShare(token, req.params.id, req.session.user.username, expiresAt);
   res.json({ token, expiresAt });
 });
-app.get('/api/notes/:id/shares', requireAuth, (req, res) => res.json(db.getSharesForNote(req.params.id, req.session.user.username)));
-app.delete('/api/shares/:token', requireAuth, (req, res) => { db.deleteShare(req.params.token, req.session.user.username); res.json({ ok: true }); });
+app.get('/api/notes/:id/shares', requireAuth, (req, res) => {
+  if (db.getNoteOwner(req.params.id) !== req.session.user.username) return res.status(404).json({ error: 'Nota non trovata' });
+  res.json(db.getSharesForNote(req.params.id, req.session.user.username));
+});
+app.delete('/api/shares/:token', requireAuth, (req, res) => {
+  if (!db.deleteShare(req.params.token, req.session.user.username)) return res.status(404).json({ error: 'Link non trovato' });
+  res.json({ ok: true });
+});
 app.get('/api/shared/:token', (req, res) => {
   const share = db.getShare(req.params.token);
   if (!share) return res.status(404).json({ error: 'Link non valido o scaduto' });
@@ -719,7 +767,6 @@ app.get('/api/admin/export', requireAuth, requireAdmin, async (req, res) => {
   const arc = archiver('zip',{zlib:{level:6}}); arc.pipe(res);
   arc.append(JSON.stringify({ users, notes: notes.map(noteForManifest) },null,2),{name:'manifest.json'});
   for (const note of notes) {
-    if (!note.has_audio) continue;
     const audio = db.getAudio(note.id, null);
     if (!audio?.length) continue;
     audio.forEach((a,i)=>arc.append(a.data,{name:`audio/${note.id}_${i}.${a.mime?.includes('mp4')?'mp4':'webm'}`}));
@@ -755,14 +802,19 @@ app.post('/api/admin/import', requireAuth, requireAdmin, importUpload(IMPORT_MAX
         }
       }
       const notes = data.notes || data; // supporta entrambi i formati
+      let unchanged = 0;
       for (const note of notes) {
         if (!note.id||!note.title){skipped++;continue;}
         const owner = note.username || 'admin';
+        // Nota di un altro utente con lo stesso id, o già presente e più recente:
+        // non si tocca (l'upsert non la aggiornerebbe, ma l'audio sì).
+        const current = db.getNoteOwner(note.id);
+        if (current && (current !== owner || db.importWouldOverwriteNewer(note.id, note.updated_at))) { unchanged++; continue; }
         db.upsertNoteFromImport(note.id, owner, note);
         restoreAudioFromZip(zip, note.id, owner);
         imported++;
       }
-      res.json({ ok:true, imported, skipped, usersImported, usersWithoutPassword });
+      res.json({ ok:true, imported, skipped, unchanged, usersImported, usersWithoutPassword });
     } catch(e) { res.status(500).json({ error: e.message }); }
     finally { removeUpload(req); }
   }
@@ -781,15 +833,33 @@ app.get('*', (req, res) => res.sendFile(path.join(__dirname,'public','index.html
 // registrazione audio (getUserMedia) resta bloccata dal browser fuori da
 // HTTPS o localhost.
 // Senza certificati: solo HTTP su PORT.
+const servers = [];
 if (HAS_CERTS) {
-  https.createServer({ cert: fs.readFileSync(CERT_PATH), key: fs.readFileSync(KEY_PATH) }, app)
-    .listen(HTTPS_PORT, () => console.log(`Quetza HTTPS :${HTTPS_PORT}`));
+  servers.push(https.createServer({ cert: fs.readFileSync(CERT_PATH), key: fs.readFileSync(KEY_PATH) }, app)
+    .listen(HTTPS_PORT, () => console.log(`Quetza HTTPS :${HTTPS_PORT}`)));
 
-  http.createServer(app)
+  servers.push(http.createServer(app)
     .listen(PORT, () => console.log(ALLOW_HTTP
       ? `Quetza HTTP :${PORT} (ALLOW_HTTP: app completa in chiaro, registrazione audio non disponibile)`
-      : `Quetza HTTP :${PORT} (solo redirect verso HTTPS)`));
+      : `Quetza HTTP :${PORT} (solo redirect verso HTTPS)`)));
 } else {
   console.warn(`[quetza] Certificati non trovati (${CERT_PATH}) — avvio in HTTP puro. La registrazione audio richiede HTTPS o localhost.`);
-  app.listen(PORT, () => console.log(`Quetza HTTP :${PORT}`));
+  servers.push(app.listen(PORT, () => console.log(`Quetza HTTP :${PORT}`)));
 }
+
+// docker stop manda SIGTERM: si smette di accettare richieste, si lasciano
+// finire quelle in corso (un salvataggio, un upload audio) e si chiude il DB.
+// Senza questo Node, che nel container è il processo 1, ignorava il segnale e
+// veniva ucciso dopo 10 secondi a metà di quello che stava facendo.
+let closing = false;
+function shutdown(sig) {
+  if (closing) return;
+  closing = true;
+  console.log(`[quetza] ${sig}: chiusura in corso`);
+  let open = servers.length;
+  const done = () => { db.close(); console.log('[quetza] database chiuso, uscita'); process.exit(0); };
+  servers.forEach(s => { s.close(() => { if (--open === 0) done(); }); s.closeIdleConnections?.(); });
+  setTimeout(done, 8000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));

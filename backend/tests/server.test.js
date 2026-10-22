@@ -147,6 +147,65 @@ process.env.TRUST_PROXY = '0';
   check('conteggio note corretto', arow.note_count === 1, `${arow.note_count}`);
   check('nessun audio → 0 byte', Number(arow.audio_bytes) === 0, `${arow.audio_bytes}`);
 
+  section('Versioni, audio e trascrizioni nel ripristino');
+  const asForm = (buf) => { const f = new FormData(); f.append('archive', new Blob([buf], { type: 'application/zip' }), 'a.zip'); return f; };
+  const v0 = (await (await req('GET', `/api/notes/${note.id}`)).json()).version;
+  r = await req('PUT', `/api/notes/${note.id}/content`, { strokes: [], pagesData: pages, textItems: [], baseVersion: v0 });
+  const v1 = (await r.json()).version;
+  check('salvataggio dalla versione giusta → versione nuova', r.ok && v1 === v0 + 1, `${v0} → ${v1}`);
+  r = await req('PUT', `/api/notes/${note.id}/content`, { strokes: [], pagesData: [], baseVersion: v0 });
+  const kept = await (await req('GET', `/api/notes/${note.id}`)).json();
+  check('salvataggio da una versione vecchia → 409 e nulla sovrascritto', r.status === 409 && kept.pages_data?.length === 2, r.status);
+
+  const afd = new FormData();
+  afd.append('audio', new Blob([Buffer.from('audio-di-prova')], { type: 'audio/webm' }), 'a.webm');
+  check('audio caricato', (await req('POST', `/api/notes/${note.id}/audio`, afd)).ok);
+  require('../db').saveWhisperText(note.id, 'trascrizione di prova', [{ start: 0, end: 1, text: 'trascrizione di prova' }]);
+  const zip2 = Buffer.from(await (await req('GET', '/api/export')).arrayBuffer());
+  r = await req('POST', '/api/import', asForm(zip2));
+  check('reimport dello stesso archivio: nota lasciata com\'è', (await r.json()).unchanged === 1);
+  await req('DELETE', `/api/notes/${note.id}`);
+  r = await req('POST', '/api/import', asForm(zip2));
+  const tr = await (await req('GET', `/api/notes/${note.id}/transcript`)).json();
+  check('il ripristino conserva la trascrizione', tr.text === 'trascrizione di prova', tr.text);
+  const au = await req('GET', `/api/notes/${note.id}/audio`);
+  check('il ripristino conserva l\'audio', au.ok && Buffer.from(await au.arrayBuffer()).toString() === 'audio-di-prova');
+  await req('PATCH', `/api/notes/${note.id}`, { title: 'Verbale cantiere' });
+  check('rinominata: la ricerca la trova col titolo nuovo', (await (await req('GET', '/api/search?q=cantiere')).json()).some(x => x.id === note.id));
+  await req('PATCH', `/api/notes/${note.id}`, { title: 'Riunione' });
+
+  section('Cestino');
+  const tn = await (await req('POST', '/api/notes', { title: 'Da cestinare' })).json();
+  await req('PUT', `/api/notes/${tn.id}/content`, { strokes: [], canvasText: 'ornitorinco', pagesData: [{ strokes: [], textItems: [{ text: 'ornitorinco', x: 1, y: 1 }], images: [] }] });
+  const tfd = new FormData();
+  tfd.append('audio', new Blob([Buffer.from('audio-cestino')], { type: 'audio/webm' }), 'a.webm');
+  await req('POST', `/api/notes/${tn.id}/audio`, tfd);
+  const tsh = await (await req('POST', `/api/notes/${tn.id}/share`, {})).json();
+  r = await req('DELETE', `/api/notes/${tn.id}`);
+  check('eliminare sposta nel cestino', r.ok && (await r.json()).trash === true);
+  check('nel cestino: sparisce da elenco e API', !(await (await req('GET', '/api/notes')).json()).some(n => n.id === tn.id)
+        && (await req('GET', `/api/notes/${tn.id}`)).status === 404);
+  check('nel cestino: non si salva sopra', (await req('PUT', `/api/notes/${tn.id}/content`, { strokes: [], pagesData: [] })).status === 404);
+  check('nel cestino: la ricerca non la trova', !(await (await req('GET', '/api/search?q=ornitorinco')).json()).some(x => x.id === tn.id));
+  check('nel cestino: il link condiviso è revocato', (await fetch(`${BASE}/api/shared/${tsh.token}`)).status === 404);
+  const trash = await (await req('GET', '/api/trash')).json();
+  check('il cestino la elenca, con i giorni di permanenza', trash.days === 30 && trash.notes.some(n => n.id === tn.id && n.deleted_at));
+  r = await req('POST', `/api/trash/${tn.id}/restore`);
+  const rest = await (await req('GET', `/api/notes/${tn.id}`)).json();
+  check('ripristinata con contenuto e audio', r.ok && rest.pages_data?.[0]?.textItems?.[0]?.text === 'ornitorinco' && rest.has_audio === 1);
+  check('ripristinata: la ricerca la ritrova', (await (await req('GET', '/api/search?q=ornitorinco')).json()).some(x => x.id === tn.id));
+  check('una nota fuori dal cestino non si elimina per sempre', (await req('DELETE', `/api/trash/${tn.id}`)).status === 404);
+  await req('DELETE', `/api/notes/${tn.id}`);
+  r = await req('DELETE', `/api/trash/${tn.id}`);
+  check('eliminata per sempre dal cestino', r.ok && !(await (await req('GET', '/api/trash')).json()).notes.some(n => n.id === tn.id));
+  const tdb = require('../db');
+  const old = await (await req('POST', '/api/notes', { title: 'vecchia' })).json();
+  await req('DELETE', `/api/notes/${old.id}`);
+  check('pulizia: una nota appena eliminata resta', tdb.purgeTrash(30) === 0 && tdb.getTrash('admin').some(n => n.id === old.id));
+  const activeBefore = (await (await req('GET', '/api/notes')).json()).length;
+  check('pulizia: oltre i giorni previsti sparisce, le note attive no', tdb.purgeTrash(-1) >= 1
+        && !tdb.getTrash('admin').length && (await (await req('GET', '/api/notes')).json()).length === activeBefore);
+
   section('Condivisione dopo il reimport');
   // Eliminando la nota, la FK ON DELETE CASCADE revoca anche i suoi link:
   // il token vecchio non deve più funzionare, e serve rigenerarlo.
@@ -195,6 +254,13 @@ process.env.TRUST_PROXY = '0';
   cookie = adminCookie;
   const orig = await (await req('GET', `/api/notes/${note.id}`)).json();
   check('la nota di admin non è stata toccata', orig.title === 'Riunione', orig.title);
+  cookie = marioCookie;
+  check('mario non cancella audio e trascrizione di admin', (await req('DELETE', `/api/notes/${note.id}/audio`)).status === 404);
+  check('mario non vede i link di admin', (await req('GET', `/api/notes/${note.id}/shares`)).status === 404);
+  check('mario non revoca i link di admin', (await req('DELETE', `/api/shares/${share2.token}`)).status === 404);
+  cookie = adminCookie;
+  const tr2 = await (await req('GET', `/api/notes/${note.id}/transcript`)).json();
+  check('trascrizione di admin intatta', tr2.text === 'trascrizione di prova', tr2.text);
 
   r = await req('PATCH', '/api/admin/users/mario', { isActive: false });
   check('mario disattivato', r.ok);

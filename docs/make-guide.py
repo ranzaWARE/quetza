@@ -68,6 +68,7 @@ ENV = [
     ("DNS_SERVER", "DNS interno per i container, se LDAP o SSO si raggiungono per nome e Docker non li risolve."),
     ("BACKUP_PATH, BACKUP_CRON, BACKUP_KEEP", "Dove, quando e quante copie del DB tenere (./backups, 02:00, 30)."),
     ("IMPORT_MAX_MB", "Dimensione massima di un archivio importato (serve altrettanta RAM)."),
+    ("TRASH_DAYS", "Giorni in cui una nota eliminata resta nel cestino (30)."),
     ("WHISPER_MODEL, LANGUAGE", "Modello e lingua della trascrizione (small, it)."),
     ("WHISPER_MEMORY, WHISPER_TIMEOUT_MIN", "RAM massima del container di trascrizione e tempo massimo per un audio."),
     ("HF_TOKEN", "Token Hugging Face per distinguere chi parla."),
@@ -221,8 +222,11 @@ footer {{ color: var(--muted); font-size: 13px; text-align: center; padding: 0 0
       il foglio lo apri dopo, se ti serve.</li>
     <li><strong>Il titolo</strong> si cambia in alto al centro, dentro la nota.</li>
     <li><strong>Il salvataggio è automatico</strong>, pochi secondi dopo l’ultimo tratto. Il pulsante arancione (o <kbd>Ctrl</kbd> <kbd>S</kbd>) salva subito.
-      Se la rete cade compare una striscia rossa: non chiudere la pagina, Quetza riprova da solo.</li>
-    <li><strong>Duplica ed elimina</strong> stanno nel menu «…» di ogni nota.</li>
+      Ogni modifica resta anche sul dispositivo finché il server non l’ha ricevuta: se la rete cade, la sessione scade
+      o la scheda si chiude, al prossimo accesso Quetza la invia da solo. Vale anche per le registrazioni.</li>
+    <li><strong>Duplica ed elimina</strong> stanno nel menu «…» di ogni nota. Una nota eliminata va nel <strong>Cestino</strong>
+      (pulsante in fondo alla barra della libreria) e si può ripristinare per 30 giorni, audio e trascrizione compresi;
+      poi sparisce da sola. Dal cestino si può anche eliminare per sempre.</li>
   </ol>
   <h3>Cercare</h3>
   <p>La ricerca trova le parole nel titolo, nel testo digitato con lo strumento Testo e nella trascrizione dell’audio.
@@ -316,6 +320,9 @@ footer {{ color: var(--muted); font-size: 13px; text-align: center; padding: 0 0
     l’IT trova lo stato in Amministrazione → Whisper → Test connessione.</p></details>
   <details><summary>La trascrizione non distingue chi parla</summary>
     <p>Il riconoscimento dei parlanti richiede un token Hugging Face configurato dall’IT. Senza, il testo arriva comunque, tutto di seguito.</p></details>
+  <details><summary>È comparsa una nota «(conflitto …)» o «(recuperata)»</summary>
+    <p>La stessa nota è stata modificata da due dispositivi insieme, oppure eliminata su uno mentre era aperta sull’altro.
+    Quetza non sovrascrive nulla: le modifiche di questo dispositivo finiscono in una nota a parte. Confrontale e tieni quella giusta.</p></details>
   <details><summary>Ho dimenticato la password</summary>
     <p>Con SSO o LDAP vale la password aziendale. Per un account locale, un amministratore imposta una password provvisoria
     (Amministrazione → Utenti → Reset pw) e al primo accesso ne sceglierai una nuova.</p></details>
@@ -396,11 +403,17 @@ cd quetza</code></pre></li>
   un backup sullo stesso disco non protegge da un guasto del disco.</p>
   <pre><code>docker exec quetza node /app/backup.js     # backup subito</code></pre>
   <h3>Ripristino</h3>
+  <p>Dalla cartella di Quetza, con il nome del backup scelto. Il database attuale non viene buttato:
+  finisce in <code>data/prima-del-ripristino/</code> dentro il volume, così si può tornare indietro.</p>
   <pre><code>docker compose stop quetza
-docker run --rm -v quetza_quetza_data:/data -v "$PWD/backups":/b alpine \\
-  sh -c 'rm -f /data/quetza.db-wal /data/quetza.db-shm &amp;&amp; cp /b/quetza_AAAAMMGG_HHMMSS.db /data/quetza.db'
+docker compose run --rm --no-deps --entrypoint sh quetza -c '
+  mkdir -p /app/data/prima-del-ripristino &amp;&amp;
+  cp /app/data/quetza.db* /app/data/prima-del-ripristino/ &amp;&amp;
+  rm -f /app/data/quetza.db-wal /app/data/quetza.db-shm &amp;&amp;
+  cp /app/backups/quetza_AAAAMMGG_HHMMSS.db /app/data/quetza.db'
 docker compose start quetza</code></pre>
-  <p>Il nome del volume dipende dalla cartella del progetto: controllalo con <code>docker volume ls</code>.</p>
+  <p>Prima di copiare un backup altrove si può verificarlo: <code>backup.log</code> riporta <em>OK</em> solo per le copie
+  che hanno passato il controllo di integrità di SQLite.</p>
   <h3>Aggiornare</h3>
   <pre><code>cd quetza
 git pull

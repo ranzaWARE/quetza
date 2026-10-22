@@ -301,8 +301,18 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 .MP.palm{background:rgba(230,126,34,.15);color:#d35400;border:1px solid rgba(230,126,34,.4);opacity:.95}
 
 /* ── Toast ──────────────────────────────────────────────── */
-.TT{position:absolute;bottom:80px;right:16px;padding:6px 14px;border-radius:var(--r);font-size:var(--auror-fs-12);font-weight:600;background:var(--success);color:#fff;opacity:0;transition:opacity var(--auror-dur-slow) ease;pointer-events:none;z-index:300;box-shadow:var(--shadow-sm)}
+.TT{position:fixed;bottom:80px;right:16px;padding:6px 14px;border-radius:var(--r);font-size:var(--auror-fs-12);font-weight:600;background:var(--success);color:#fff;opacity:0;transition:opacity var(--auror-dur-slow) ease;pointer-events:none;z-index:300;box-shadow:var(--shadow-sm)}
 .TT.on{opacity:1}
+.TT.act{pointer-events:auto}
+.TT button{margin-left:10px;padding:2px 9px;border:1px solid rgba(255,255,255,.75);border-radius:var(--r-sm);background:transparent;color:inherit;font:inherit;cursor:pointer}
+/* Cestino */
+.trashMD{width:440px;max-width:calc(100vw - 32px)}
+.trashList{max-height:55vh;overflow-y:auto}
+.trashItem{display:flex;align-items:center;gap:8px;background:var(--surface-sunken);border-radius:var(--r-sm);padding:8px 10px;margin-bottom:6px}
+.trashItem .trashMeta{flex:1;min-width:0;display:flex;flex-direction:column}
+.trashItem .trashTitle{font-size:.82rem;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trashItem .trashWhen{font-size:.68rem;color:var(--muted)}
+.mc.danger{color:var(--acc);border-color:var(--acc)}
 
 /* ── Modali ─────────────────────────────────────────────── */
 .MW{position:absolute;inset:0;background:var(--surface-overlay);z-index:100;display:flex;align-items:center;justify-content:center;border-radius:var(--r)}
@@ -389,6 +399,9 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 /* ── Offline banner ─────────────────────────────────────── */
 #OFFBANNER{display:none;position:fixed;top:10px;left:10px;right:10px;background:var(--acc);color:#fff;font-size:.76rem;font-weight:600;text-align:center;padding:6px;z-index:9999;border-radius:var(--r-sm);animation:slidedown .25s ease}
 #OFFBANNER.on{display:block}
+#AUTHBANNER{display:none;position:fixed;top:10px;left:10px;right:10px;background:var(--acc);color:#fff;font-size:.76rem;font-weight:600;text-align:center;padding:6px;z-index:10000;border-radius:var(--r-sm);animation:slidedown .25s ease}
+#AUTHBANNER.on{display:block}
+#AUTHBANNER a{color:#fff;text-decoration:underline}
 @keyframes slidedown{from{transform:translateY(-110%)}to{transform:translateY(0)}}
 /* ── Testo canvas ────────────────────────────────────────── */
 .CV-text { cursor: text !important; }
@@ -517,6 +530,6 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 [data-theme="eink"] .pg-add:hover,
 [data-theme="eink"] #PGADD:hover{background:#000;transform:none}
 /* Banner offline: resta leggibile per contrasto, non per il rosso */
-[data-theme="eink"] #OFFBANNER{background:#000;color:#fff}
+[data-theme="eink"] #OFFBANNER,[data-theme="eink"] #AUTHBANNER{background:#000;color:#fff}
 /* Pillola "palma" (mode pill) — unica a non usare i token colore */
 [data-theme="eink"] .MP.palm{background:#fff;color:#000;border:1px solid #000}

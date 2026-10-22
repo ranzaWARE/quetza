@@ -43,6 +43,7 @@ services:
       ALLOW_HTTP: ${ALLOW_HTTP:-false}
       TRUST_PROXY: ${TRUST_PROXY:-0}
       IMPORT_MAX_MB: ${IMPORT_MAX_MB:-1024}
+      TRASH_DAYS: ${TRASH_DAYS:-30}
       BACKUP_CRON: "${BACKUP_CRON:-0 2 * * *}"
       BACKUP_KEEP: ${BACKUP_KEEP:-30}
       LDAP_ENABLED: ${LDAP_ENABLED:-false}
