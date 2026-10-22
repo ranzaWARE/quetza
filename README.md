@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/img/icon.png" width="160" alt="Icona di Quetza: un Quetzalcoatlus in pixel art, a quattro zampe sulla riga del quaderno">
+  <img src="docs/img/icon.png" width="160" alt="Icona di Quetza: un Quetzalcoatlus in volo in pixel art">
 </p>
 
 <h1 align="center">Quetza</h1>
