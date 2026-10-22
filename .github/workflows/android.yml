@@ -1,0 +1,75 @@
+name: App Android
+
+on:
+  push:
+    branches: [main]
+    paths: ['android/**', '.github/workflows/android.yml']
+    tags: ['android-v*']
+  pull_request:
+    paths: ['android/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Il keystore di firma è un segreto del repository (vedi android/README.md).
+      # Senza, si pubblica solo l'APK debug.
+      - name: Keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.QUETZA_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/quetza.jks"
+            echo "QUETZA_KEYSTORE=$RUNNER_TEMP/quetza.jks" >> "$GITHUB_ENV"
+          fi
+
+      - name: Versione
+        run: |
+          echo "QUETZA_VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF" == refs/tags/android-v* ]]; then
+            echo "QUETZA_VERSION_NAME=${GITHUB_REF#refs/tags/android-v}" >> "$GITHUB_ENV"
+          else
+            echo "QUETZA_VERSION_NAME=1.0.${{ github.run_number }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build
+        env:
+          QUETZA_KEYSTORE_PASSWORD: ${{ secrets.QUETZA_KEYSTORE_PASSWORD }}
+          QUETZA_KEY_ALIAS: ${{ secrets.QUETZA_KEY_ALIAS }}
+          QUETZA_KEY_PASSWORD: ${{ secrets.QUETZA_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          if [ -n "$QUETZA_KEYSTORE" ]; then
+            ./gradlew --no-daemon assembleDebug assembleRelease
+            cp app/build/outputs/apk/release/app-release.apk quetza.apk
+          else
+            ./gradlew --no-daemon assembleDebug
+          fi
+          cp app/build/outputs/apk/debug/app-debug.apk quetza-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quetza-android
+          path: android/quetza*.apk
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/quetza*.apk

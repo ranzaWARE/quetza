@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="setup"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_setup">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="it.ranzaware.quetza"
+            android:targetClass="it.ranzaware.quetza.SetupActivity" />
+    </shortcut>
+</shortcuts>

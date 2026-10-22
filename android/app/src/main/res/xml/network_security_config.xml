@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- La WebView rispetta questa configurazione: un certificato firmato dalla
+     CA aziendale installata sul dispositivo come "certificato utente" viene
+     accettato senza domande (ed è l'unico modo perché funzioni anche il
+     service worker, cioè l'avvio offline). Il testo in chiaro è permesso per
+     le installazioni con QUETZA_ALLOW_HTTP, ma il microfono funziona solo
+     in HTTPS. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

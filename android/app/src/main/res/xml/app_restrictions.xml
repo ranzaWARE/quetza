@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Configurazione gestita (MDM / Intune / Workspace ONE): il sistemista
+     distribuisce l'app già puntata al server, senza che l'utente debba
+     digitare nulla. -->
+<restrictions xmlns:android="http://schemas.android.com/apk/res/android">
+    <restriction
+        android:key="server_url"
+        android:title="@string/mdm_server_url"
+        android:description="@string/mdm_server_url_desc"
+        android:restrictionType="string"
+        android:defaultValue="" />
+    <restriction
+        android:key="cert_sha256"
+        android:title="@string/mdm_cert"
+        android:description="@string/mdm_cert_desc"
+        android:restrictionType="string"
+        android:defaultValue="" />
+    <restriction
+        android:key="eink_mode"
+        android:title="@string/mdm_eink"
+        android:restrictionType="choice"
+        android:entries="@array/eink_labels"
+        android:entryValues="@array/eink_values"
+        android:defaultValue="auto" />
+</restrictions>
