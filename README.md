@@ -171,9 +171,11 @@ GitHub Actions le esegue a ogni push e pull request, insieme alla build delle im
 <details>
 <summary><b>Pubblicare una versione</b></summary>
 
-Aggiorna `version` in `backend/package.json`, scrivi le note in `docs/note-di-versione/v<versione>.md`,
-poi da GitHub: Actions → **Release** → *Run workflow* con la versione. Il workflow rifà i test, crea il tag `v<versione>` e la release.
-L'app Android ha il suo workflow e i suoi tag `android-v*`.
+Le release partono da sole a ogni modifica su `main`: quella del server (`v*`, workflow **Release**, dopo i test) se cambia il server,
+quella dell'app (`android-v*`, workflow **App Android**) se cambia l'app o la sua interfaccia in `backend/public`. Escono con la patch successiva
+(1.1.0 → 1.1.1 → …) e le note elencano le modifiche. Per una versione minore o maggiore alza `version` in `backend/package.json`
+(per l'app il `versionName` in `android/app/build.gradle.kts`) e, se vuoi note scritte a mano, mettile in `docs/note-di-versione/<tag>.md`.
+Da Actions → *Run workflow* si può anche forzare una versione.
 </details>
 
 <details>

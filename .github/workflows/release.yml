@@ -1,49 +1,59 @@
-# Release del server: crea il tag v<versione> e la release su GitHub con le
-# note in docs/note-di-versione/v<versione>.md. Si lancia da Actions
-# (workflow_dispatch) o spingendo un tag v*. Prima rifà i test, e la
-# versione deve coincidere con backend/package.json.
+# Release del server: crea il tag v<versione> e la release su GitHub.
+# Parte da sola a ogni modifica del server su main con la patch successiva
+# (1.1.0 → 1.1.1 → …); per una minore o una maggiore si alza `version` in
+# backend/package.json. Le note sono docs/note-di-versione/v<versione>.md se
+# c'è, se no l'elenco delle modifiche. Da Actions (workflow_dispatch) si può
+# forzare una versione. Prima rifà i test. Vedi .github/scripts/prossima-versione.sh.
 name: Release
 
 on:
   push:
+    branches: [main]
+    paths: ['backend/**', '!backend/tests/**', 'whisper/**', 'nginx/**', 'docker-compose.yml', 'installa.sh', '.env.example']
     tags: ['v*']
   workflow_dispatch:
     inputs:
       versione:
-        description: 'Versione da pubblicare (es. 1.0.0): tag v<versione> sul commit scelto'
-        required: true
+        description: 'Versione da pubblicare (vuoto = la successiva, se il server è cambiato)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
+
+# Due release di fila non devono calcolare la stessa versione
+concurrency:
+  group: release-server
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: backend/package-lock.json
-      - name: Test
-        working-directory: backend
-        run: npm ci && npm test
       - name: Versione e note
         env:
-          VERSIONE: ${{ inputs.versione }}
+          VERSIONE: ${{ inputs.versione || (startsWith(github.ref, 'refs/tags/v') && github.ref_name || '') }}
+          NOTE_EXTRA: "Aggiornare: `docker exec quetza node /app/backup.js`, poi `git pull` e `./installa.sh`. App Android: [release android-v*](https://github.com/${{ github.repository }}/releases?q=android-v&expanded=true)."
         run: |
-          V="${VERSIONE:-${GITHUB_REF_NAME#v}}"
-          P=$(node -p "require('./backend/package.json').version")
-          [ "$V" = "$P" ] || { echo "::error::La versione $V non coincide con backend/package.json ($P)"; exit 1; }
-          NOTE="docs/note-di-versione/v$V.md"
-          [ -f "$NOTE" ] || { echo "::error::Mancano le note di versione in $NOTE"; exit 1; }
-          echo "V=$V" >> "$GITHUB_ENV"
-          echo "NOTE=$NOTE" >> "$GITHUB_ENV"
+          .github/scripts/prossima-versione.sh v "$(node -p "require('./backend/package.json').version")" \
+            backend ':(exclude)backend/tests' ':(exclude)*.md' whisper nginx docker-compose.yml installa.sh .env.example
+      - name: Test
+        if: env.PUBBLICA == 'si'
+        working-directory: backend
+        run: npm ci && npm test
       - uses: softprops/action-gh-release@v2
+        if: env.PUBBLICA == 'si'
         with:
-          tag_name: v${{ env.V }}
+          tag_name: ${{ env.TAG }}
           target_commitish: ${{ github.sha }}
           name: Quetza ${{ env.V }}
-          body_path: ${{ env.NOTE }}
+          body_path: ${{ runner.temp }}/note.md
           make_latest: true
