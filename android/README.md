@@ -97,7 +97,7 @@ La build copia l'interfaccia da `backend/public` dentro l'APK (task `copyWebUi`,
 
 Per provare la modalità dell'app in un browser: apri l'interfaccia servita da un qualunque server di file statici con `?locale=1` (`?locale=0` per uscire).
 
-GitHub Actions costruisce l'APK a ogni modifica sotto `android/` o `backend/public/` e, per i tag `android-v*` (es. `android-v1.0.0`), lo pubblica in una release.
+GitHub Actions costruisce l'APK a ogni modifica sotto `android/` o `backend/public/` e, su `main`, lo pubblica da solo nella release `android-v<versione>` con la patch successiva (1.1.0 → 1.1.1 → …). Per una versione minore o maggiore alza il `versionName` predefinito in `app/build.gradle.kts`; da *Actions › App Android › Run workflow* si può forzare una versione.
 
 ### Firma
 

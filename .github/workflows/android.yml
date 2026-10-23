@@ -8,17 +8,23 @@ on:
   # L'interfaccia dell'app è backend/public, copiata nell'APK
   pull_request:
     paths: ['android/**', 'backend/public/**', '.github/workflows/android.yml']
-  # Da Actions › App Android › Run workflow: con una versione (es. 1.0.0)
-  # pubblica anche la release android-v<versione>.
+  # Ogni modifica all'app su main pubblica da sola la release android-v<versione>
+  # (patch successiva; vedi .github/scripts/prossima-versione.sh). Da Actions ›
+  # App Android › Run workflow si può forzare una versione (es. 2.0.0).
   workflow_dispatch:
     inputs:
       versione:
-        description: 'Versione da pubblicare come release (vuoto = solo build)'
+        description: 'Versione da pubblicare (vuoto = la successiva, se l''app è cambiata)'
         required: false
         default: ''
 
 permissions:
   contents: write
+
+# Due release di fila non devono calcolare la stessa versione
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -28,6 +34,8 @@ jobs:
         working-directory: android
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-java@v4
         with:
@@ -47,18 +55,27 @@ jobs:
             echo "QUETZA_KEYSTORE=$RUNNER_TEMP/quetza.jks" >> "$GITHUB_ENV"
           fi
 
+      # Versione: quella dell'avvio manuale o del tag, se no la successiva
+      # all'ultima release. La base (per una minore o una maggiore) è il
+      # versionName in app/build.gradle.kts.
       - name: Versione
+        if: github.event_name != 'pull_request'
+        working-directory: .
         env:
-          VERSIONE: ${{ inputs.versione }}
+          VERSIONE: ${{ inputs.versione || (startsWith(github.ref, 'refs/tags/android-v') && github.ref_name || '') }}
+          NOTE_EXTRA: "Scarica l'APK qui sotto e installalo sul dispositivo: `quetza.apk` è firmato, `quetza-debug.apk` serve per le prove."
+        run: |
+          BASE=$(sed -n 's/.*QUETZA_VERSION_NAME") ?: "\([0-9.]*\)".*/\1/p' android/app/build.gradle.kts)
+          .github/scripts/prossima-versione.sh android-v "${BASE:-1.0.0}" android backend/public ':(exclude)*.md'
+
+      - name: Versione di prova
+        if: github.event_name == 'pull_request'
+        run: echo "QUETZA_VERSION_NAME=0.0.${{ github.run_number }}-pr${{ github.event.number }}" >> "$GITHUB_ENV"
+
+      - name: Numero di build
         run: |
           echo "QUETZA_VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
-          if [[ "$GITHUB_REF" == refs/tags/android-v* ]]; then
-            echo "QUETZA_VERSION_NAME=${GITHUB_REF#refs/tags/android-v}" >> "$GITHUB_ENV"
-          elif [ -n "$VERSIONE" ]; then
-            echo "QUETZA_VERSION_NAME=$VERSIONE" >> "$GITHUB_ENV"
-          else
-            echo "QUETZA_VERSION_NAME=1.0.${{ github.run_number }}" >> "$GITHUB_ENV"
-          fi
+          [ -z "$V" ] || echo "QUETZA_VERSION_NAME=$V" >> "$GITHUB_ENV"
 
       - name: Build
         env:
@@ -81,10 +98,12 @@ jobs:
           path: android/quetza*.apk
 
       - name: Release
-        if: startsWith(github.ref, 'refs/tags/android-v') || inputs.versione != ''
+        if: env.PUBBLICA == 'si'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('android-v{0}', inputs.versione) }}
+          tag_name: ${{ env.TAG }}
           target_commitish: ${{ github.sha }}
-          name: Quetza per Android ${{ env.QUETZA_VERSION_NAME }}
+          name: Quetza per Android ${{ env.V }}
+          body_path: ${{ runner.temp }}/note.md
           files: android/quetza*.apk
+          make_latest: false
