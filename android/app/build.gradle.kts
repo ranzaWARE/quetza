@@ -1,3 +1,4 @@
+import javax.inject.Inject
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -55,6 +56,40 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
+    }
+}
+
+// L'interfaccia è quella del server (backend/public), copiata nell'APK:
+// l'app funziona senza rete e senza server, con le note sul dispositivo.
+// Le pagine che servono solo sul server restano fuori.
+abstract class CopyWebUi : DefaultTask() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val source: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val output: DirectoryProperty
+
+    @get:Inject
+    abstract val fs: FileSystemOperations
+
+    @TaskAction
+    fun copy() {
+        fs.sync {
+            from(source)
+            into(output.dir("web"))
+            exclude("admin.html", "login.html", "collega.html", "share.html", "sw.js")
+        }
+    }
+}
+
+val copyWebUi = tasks.register<CopyWebUi>("copyWebUi") {
+    source.set(rootProject.layout.projectDirectory.dir("../backend/public"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(copyWebUi, CopyWebUi::output)
     }
 }
 

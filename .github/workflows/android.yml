@@ -3,10 +3,11 @@ name: App Android
 on:
   push:
     branches: [main]
-    paths: ['android/**', '.github/workflows/android.yml']
+    paths: ['android/**', 'backend/public/**', '.github/workflows/android.yml']
     tags: ['android-v*']
+  # L'interfaccia dell'app è backend/public, copiata nell'APK
   pull_request:
-    paths: ['android/**', '.github/workflows/android.yml']
+    paths: ['android/**', 'backend/public/**', '.github/workflows/android.yml']
   # Da Actions › App Android › Run workflow: con una versione (es. 1.0.0)
   # pubblica anche la release android-v<versione>.
   workflow_dispatch:

@@ -26,25 +26,6 @@
             android:textColor="#1d1d1f"
             android:textSize="16sp" />
 
-        <EditText
-            android:id="@+id/url"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:autofillHints="url"
-            android:hint="@string/setup_hint"
-            android:imeOptions="actionGo"
-            android:inputType="textUri"
-            android:singleLine="true" />
-
-        <TextView
-            android:id="@+id/managed"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/setup_managed"
-            android:textColor="#6e6e73"
-            android:visibility="gone" />
-
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

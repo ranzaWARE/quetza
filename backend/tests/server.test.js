@@ -530,9 +530,9 @@ process.env.BACKUP_COPY_DIR = path.join(BKD, 'nas');
     cookie = adminCookie;
     await req('POST', '/api/admin/settings', { oidc_enabled: 'true', oidc_issuer: iss, oidc_client_id: 'quetza', oidc_client_secret: 's', oidc_redirect_uri: `${BASE}/auth/callback` });
 
-    async function ssoLogin(claims, tamper) {
+    async function ssoLogin(claims, tamper, next) {
       cookie = '';
-      const start = await (await req('POST', '/api/login', { username: '__oidc__', password: 'x' })).json();
+      const start = await (await req('POST', '/api/login', { username: '__oidc__', password: 'x', next })).json();
       const u = new URL(start.redirect);
       idClaims = { preferred_username: 'giulia', name: 'Giulia', nonce: u.searchParams.get('nonce'), ...claims };
       const state = tamper === 'state' ? 'sbagliato' : u.searchParams.get('state');
@@ -549,6 +549,10 @@ process.env.BACKUP_COPY_DIR = path.join(BKD, 'nas');
           crypto.createHash('sha256').update(verifier || '').digest('base64url') === u.searchParams.get('code_challenge'));
     const me = await (await req('GET', '/api/me')).json();
     check('utente SSO creato e collegato', me.user?.username === 'giulia' && me.user?.source === 'oidc');
+    ({ cb } = await ssoLogin({}, null, '/collega.html?app=x'));
+    check('dopo il login SSO torna alla pagina richiesta', cb.headers.get('location') === '/collega.html?app=x', cb.headers.get('location'));
+    ({ cb } = await ssoLogin({}, null, '//evil.example/'));
+    check('ritorno verso un altro sito ignorato', cb.headers.get('location') === '/', cb.headers.get('location'));
 
     ({ cb } = await ssoLogin({ nonce: 'altro' }));
     check('nonce diverso → rifiutato', cb.headers.get('location') === '/login.html?error=oidc_failed');
@@ -563,6 +567,94 @@ process.env.BACKUP_COPY_DIR = path.join(BKD, 'nas');
     cookie = adminCookie;
     await req('POST', '/api/admin/settings', { oidc_enabled: 'false' });
   }
+
+  section('Dispositivi collegati');
+  const APP = 'https://appassets.androidplatform.net';
+  cookie = '';
+  r = await fetch(BASE + '/api/notes', { method: 'OPTIONS', headers: { Origin: APP, 'Access-Control-Request-Method': 'PUT', 'Access-Control-Request-Headers': 'authorization,content-type' } });
+  check('CORS: preflight dall\'app Android accettato', r.status === 204 && r.headers.get('access-control-allow-origin') === APP
+        && /authorization/i.test(r.headers.get('access-control-allow-headers') || ''), r.status);
+  r = await fetch(BASE + '/api/notes', { method: 'OPTIONS', headers: { Origin: 'https://evil.example', 'Access-Control-Request-Method': 'GET' } });
+  check('CORS: nessun permesso per altri siti', !r.headers.get('access-control-allow-origin'));
+
+  cookie = lucaCookie;
+  r = await req('POST', '/api/devices', { name: 'Tablet', app: 'https://evil.example/index.html' });
+  check('il token va solo a un\'app client riconosciuta', r.status === 400, r.status);
+  r = await req('POST', '/api/devices', { app: APP + '/index.html', cancel: true });
+  check('annulla: solo l\'indirizzo per tornare all\'app', r.ok && (await r.json()).app === APP + '/index.html' && !(await (await req('GET', '/api/devices')).json()).length);
+  r = await req('POST', '/api/devices', { name: 'Tablet di Luca', app: APP + '/index.html' });
+  const dev = await r.json();
+  check('dispositivo collegato: token e indirizzo di ritorno', r.status === 201 && dev.token?.startsWith('qd_') && dev.app === APP + '/index.html', r.status);
+  const lucaNote = await (await req('POST', '/api/notes', { title: 'Nota di Luca' })).json();
+
+  cookie = '';
+  const bearer = (t = dev.token) => ({ headers: { Authorization: `Bearer ${t}`, Origin: APP } });
+  r = await req('GET', '/api/notes', null, bearer());
+  let dn = r.ok ? await r.json() : [];
+  check('con il token si leggono le proprie note', r.ok && dn.some(n => n.id === lucaNote.id), r.status);
+  check('risposta leggibile dall\'app (CORS)', r.headers.get('access-control-allow-origin') === APP);
+  check('nessun cookie di sessione creato per il dispositivo', !r.headers.get('set-cookie'));
+  check('token sbagliato → 401', (await req('GET', '/api/notes', null, bearer('qd_sbagliato'))).status === 401);
+  r = await fetch(BASE + '/api/notes', { headers: { Cookie: lucaCookie, Origin: APP } });
+  check('dall\'app il cookie non vale: serve il token', r.status === 401, r.status);
+  r = await req('POST', '/api/devices', { name: 'x', app: APP + '/' }, bearer());
+  check('un dispositivo non ne collega altri', r.status === 403, r.status);
+
+  const cid = require('crypto').randomUUID();
+  r = await req('POST', '/api/notes', { id: cid, title: 'Creata offline' }, bearer());
+  check('la nota creata sul dispositivo tiene il suo id', r.status === 201 && (await r.json()).id === cid, r.status);
+  r = await req('POST', '/api/notes', { id: cid, title: 'Creata offline' }, bearer());
+  check('stesso id una seconda volta → 409', r.status === 409, r.status);
+  r = await req('POST', '/api/notes', { id: sn.id, title: 'Id di un altro utente' }, bearer());
+  const other = await r.json();
+  check('id di una nota altrui → nota nuova con un altro id', r.status === 201 && other.id !== sn.id, r.status);
+  cookie = adminCookie;
+  check('la nota dell\'altro utente resta sua', (await (await req('GET', '/api/sync')).json()).notes.some(n => n.id === sn.id));
+  cookie = '';
+  r = await req('PUT', `/api/notes/${cid}/content`, content('scritto in treno', { baseVersion: 1 }), bearer());
+  check('contenuto dal dispositivo salvato', r.ok && (await r.json()).version === 2, r.status);
+  for (const i of [0, 1]) {
+    const fd = new FormData();
+    fd.append('audio', new Blob([Buffer.alloc(100 + i)], { type: 'audio/webm' }), 's.webm');
+    r = await req('POST', `/api/notes/${cid}/audio`, fd, bearer());
+    check(`l'invio audio dice quale sessione è (${i})`, r.ok && (await r.json()).session === i);
+  }
+  await req('PATCH', `/api/notes/${cid}`, { tags: ['Treno'] }, bearer());
+  await req('DELETE', `/api/notes/${other.id}`, null, bearer());
+  r = await req('GET', '/api/sync', null, bearer());
+  const sl = r.ok ? await r.json() : { notes: [] };
+  const sc = sl.notes.find(n => n.id === cid), sTrash = sl.notes.find(n => n.id === other.id);
+  check('sync: stato delle note senza contenuto', sc && sc.version === 2 && sc.audio_count === 2 && sc.whisper_len === 0
+        && JSON.stringify(sc.tags) === '["Treno"]' && !('strokes' in sc), JSON.stringify(sc));
+  check('sync: anche le note nel cestino, con la data', sTrash && !!sTrash.deleted_at);
+  check('sync: solo le note dell\'utente', !sl.notes.some(n => n.id === sn.id) && sl.trash_days > 0);
+
+  r = await req('GET', '/api/devices', null, bearer());
+  const devs = await r.json();
+  check('elenco dispositivi con quello corrente', devs.length === 1 && devs[0].current && devs[0].name === 'Tablet di Luca');
+  cookie = adminCookie;
+  let ul = await (await req('GET', '/api/admin/users')).json();
+  check('l\'admin vede quanti dispositivi ha un utente', ul.find(u => u.username === 'luca')?.devices === 1);
+  cookie = '';
+  r = await req('DELETE', '/api/devices/current', null, bearer());
+  check('il dispositivo si scollega da solo', r.ok, r.status);
+  check('dopo lo scollegamento il token non vale più', (await req('GET', '/api/notes', null, bearer())).status === 401);
+
+  cookie = lucaCookie;
+  const dev2 = await (await req('POST', '/api/devices', { name: 'Telefono', app: APP + '/index.html' })).json();
+  cookie = adminCookie;
+  r = await req('DELETE', '/api/admin/users/luca/devices');
+  check('l\'admin scollega i dispositivi di un utente', r.ok && (await r.json()).deleted === 1);
+  cookie = '';
+  check('token revocato dall\'admin → 401', (await req('GET', '/api/notes', null, bearer(dev2.token))).status === 401);
+  cookie = lucaCookie;
+  const dev3 = await (await req('POST', '/api/devices', { name: 'Telefono', app: APP + '/index.html' })).json();
+  cookie = adminCookie;
+  await req('PATCH', '/api/admin/users/luca', { isActive: false });
+  cookie = '';
+  check('utente disattivato: il dispositivo non sincronizza', (await req('GET', '/api/sync', null, bearer(dev3.token))).status === 401);
+  cookie = adminCookie;
+  await req('PATCH', '/api/admin/users/luca', { isActive: true });
 
   section('Accesso non autenticato');
   cookie = '';

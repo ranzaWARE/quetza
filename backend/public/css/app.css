@@ -126,6 +126,15 @@ html,body{height:100%;overflow:hidden;font-family:var(--auror-font)}
 .noteCard .tag{font-size:.62rem;padding:1px 6px;border-radius:999px;background:var(--surface-sunken);color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .noteCard .owner{font-size:.64rem;color:var(--muted)}
 .tagBar{flex-shrink:0;margin-top:-4px}
+/* App sul dispositivo (local-api.js): avviso "nessun backup", pulsante del
+   server, funzioni che senza server non ci sono */
+.localBan{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex-shrink:0;font-size:.74rem;color:var(--text);background:var(--surface-sunken);border:1px solid var(--line);border-radius:var(--r);padding:6px 10px}
+.localBan[hidden]{display:none}
+.localBan span{flex:1;min-width:200px}
+.localBan .aurorBtn{height:26px;font-size:.72rem;padding:0 10px}
+.localBan .lbX{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:.8rem;padding:2px 4px}
+#logoutB.qlWarn{color:var(--warn)}
+body.qlunlinked #SHAREB,body.qlunlinked #TRANSCB{display:none!important}
 .tagBar:empty{display:none}
 .tagChip{font:inherit;font-size:.72rem;padding:3px 10px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--text);cursor:pointer}
 .tagChip.on{background:var(--brand);border-color:var(--brand-dark);color:var(--text-on-accent);font-weight:600}

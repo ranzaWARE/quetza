@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#f3ead8">
+<link rel="icon" href="/icons/icon-192.png">
+<title>Quetza — Collega dispositivo</title>
+<script>
+  (function(){
+    try{
+      var t = localStorage.getItem('auror-theme');
+      if(!t){ t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+      if(t === 'dark' || t === 'eink') document.documentElement.setAttribute('data-theme', t);
+    }catch(e){}
+  })();
+</script>
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/components.css">
+<style>
+  *{ box-sizing: border-box; }
+  html, body{ margin: 0; padding: 0; min-height: 100%; }
+  body{
+    font-family: var(--auror-font);
+    background: var(--surface);
+    color: var(--text);
+    font-size: var(--auror-fs-14);
+    line-height: var(--auror-lh-body);
+    min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    padding: 40px 16px;
+  }
+  .card{
+    width: 100%; max-width: 420px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--auror-r);
+    box-shadow: var(--shadow-md);
+    padding: 28px 24px 22px;
+    text-align: center;
+  }
+  .mark{
+    width: 44px; height: 44px;
+    border-radius: var(--auror-r);
+    background: var(--accent);
+    color: var(--text-on-accent);
+    display: inline-flex; align-items: center; justify-content: center;
+    margin-bottom: 12px;
+    font-size: 22px;
+  }
+  h1{ margin: 0 0 10px; font-size: 20px; font-weight: 700; }
+  p{ margin: 0 0 16px; color: var(--text-secondary); }
+  .note{ font-size: 12px; color: var(--text-muted); }
+  .actions{ display: flex; flex-direction: column; gap: 8px; }
+  .actions button{ width: 100%; justify-content: center; }
+  .err{ color: var(--danger); }
+  [hidden]{ display: none !important; }
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="mark">⇄</div>
+  <h1>Collega un dispositivo</h1>
+  <p id="msg">Verifica in corso…</p>
+  <div class="actions" id="actions" hidden>
+    <button class="aurorBtn primary" id="ok">Collega e sincronizza</button>
+    <button class="aurorBtn" id="no">Annulla</button>
+  </div>
+  <p class="note" id="note" hidden>Il dispositivo potrà leggere e modificare le tue note finché non lo scolleghi, dall'app o chiedendo all'amministratore.</p>
+</main>
+<script>
+  // Arriva qui l'app client (Android) per collegarsi a questo server: dopo
+  // l'accesso crea il token del dispositivo e torna all'app con il token
+  // nell'hash, che non viene mai mandato a nessun server.
+  (async function () {
+    var q = new URLSearchParams(location.search);
+    var app = q.get('app') || '', name = (q.get('nome') || 'Dispositivo').slice(0, 80);
+    var msg = document.getElementById('msg');
+    var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+    var fail = function (text) { msg.textContent = text; msg.className = 'err'; document.getElementById('actions').hidden = true; };
+
+    var me;
+    try {
+      var r = await fetch('/api/me', { cache: 'no-store' });
+      if (r.status === 401) { location.replace('/login.html?next=' + encodeURIComponent(location.pathname + location.search)); return; }
+      me = await r.json();
+    } catch (e) { return fail('Server non raggiungibile.'); }
+    if (me.must_change_password) {
+      msg.innerHTML = 'Prima va cambiata la password provvisoria: <a href="/">apri Quetza</a>, cambiala, poi ricollega il dispositivo dall\'app.';
+      return;
+    }
+    var who = me.user.displayName || me.user.username;
+    msg.innerHTML = 'Collegare <b>' + esc(name) + '</b> all\'account <b>' + esc(who) + '</b>?<br>Le note del dispositivo e quelle dell\'account verranno sincronizzate.';
+    document.getElementById('actions').hidden = false;
+    document.getElementById('note').hidden = false;
+
+    async function devices(body) {
+      var r = await fetch('/api/devices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      var d = await r.json().catch(function () { return {}; });
+      if (!r.ok) throw new Error(r.status === 400 ? 'Questa app non è abilitata su questo server (impostazione CLIENT_ORIGINS).' : (d.error || 'Collegamento non riuscito.'));
+      return d;
+    }
+    document.getElementById('ok').onclick = async function (e) {
+      e.target.disabled = true;
+      try {
+        var d = await devices({ app: app, name: name });
+        var link = { token: d.token, server: location.origin, user: me.user.username, name: who };
+        location.replace(d.app + '#quetza-link=' + encodeURIComponent(JSON.stringify(link)));
+      } catch (err) { fail(err.message); }
+    };
+    document.getElementById('no').onclick = async function () {
+      try { location.replace((await devices({ app: app, cancel: true })).app + '#quetza-link=annullato'); }
+      catch (err) { fail(err.message); }
+    };
+  })();
+</script>
+</body>
+</html>

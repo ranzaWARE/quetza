@@ -292,6 +292,13 @@
     });
   })();
 
+  // Dove tornare dopo l'accesso (es. /collega.html per collegare l'app):
+  // solo un percorso di questo server.
+  var NEXT = (function(){
+    var n = new URLSearchParams(location.search).get('next') || '';
+    return /^\/(?![\/\\])/.test(n) ? n : '/';
+  })();
+
   // Load config
   async function init() {
     try {
@@ -333,7 +340,7 @@
         body: JSON.stringify({ username: document.getElementById('u').value.trim(), password: document.getElementById('p').value, method: 'local' })
       });
       var d = await r.json();
-      if (r.ok) window.location.href = '/';
+      if (r.ok) window.location.href = NEXT;
       else { err.textContent = d.error || 'Credenziali non valide'; err.classList.add('show'); }
     } catch { err.textContent = 'Errore di rete'; err.classList.add('show'); }
     finally { btn.disabled = false; }
@@ -347,7 +354,7 @@
     fetch('/api/login', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ username: '__oidc__', password: '__oidc__' })
+      body: JSON.stringify({ username: '__oidc__', password: '__oidc__', next: NEXT })
     }).then(function(r){ return r.json(); }).then(function(d){
       if (d.redirect) window.location.href = d.redirect;
     }).catch(function(){ btn.disabled = false; btn.textContent = 'Accedi con SSO'; });
@@ -366,7 +373,7 @@
         body: JSON.stringify({ username: document.getElementById('ldapUser').value.trim(), password: document.getElementById('ldapPwd').value, method: 'ldap' })
       });
       var d = await r.json();
-      if (r.ok) window.location.href = '/';
+      if (r.ok) window.location.href = NEXT;
       else { err.textContent = d.error || 'Credenziali non valide'; err.classList.add('show'); }
     } catch { err.textContent = 'Errore di rete'; err.classList.add('show'); }
     finally { btn.disabled = false; }
@@ -390,7 +397,7 @@
     banner.textContent = msgs[err] || 'Accesso non riuscito.';
     banner.classList.add('show');
     // Rimuove il parametro dall'URL per non ripresentare l'errore a un refresh
-    history.replaceState(null, '', location.pathname);
+    history.replaceState(null, '', location.pathname + (NEXT !== '/' ? '?next=' + encodeURIComponent(NEXT) : ''));
   })();
 
   init();
