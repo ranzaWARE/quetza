@@ -21,6 +21,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -36,11 +37,23 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import org.json.JSONObject
 
+/**
+ * L'interfaccia di Quetza è dentro l'app (assets/web, copiata da
+ * backend/public) e le note stanno sul dispositivo: si usa senza rete e
+ * senza server. Collegando un server Quetza dall'app, le note si
+ * sincronizzano con l'account (vedi js/local-sync.js).
+ */
 class MainActivity : ComponentActivity() {
+
+    companion object {
+        const val APP_ORIGIN = "https://appassets.androidplatform.net"
+        const val APP_URL = "$APP_ORIGIN/index.html"
+    }
 
     private lateinit var config: ServerConfig
     private lateinit var certs: CertTrust
@@ -49,8 +62,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var overlayText: TextView
     private lateinit var downloads: Downloads
 
-    private lateinit var serverUrl: String
     private lateinit var shim: String
+    private lateinit var assetLoader: WebViewAssetLoader
     private var shimAtDocumentStart = false
     private var mainFrameFailed = false
     private var recording = false
@@ -84,11 +97,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         config = ServerConfig(this)
-        serverUrl = config.serverUrl ?: run {
-            startActivity(Intent(this, SetupActivity::class.java))
-            finish()
-            return
-        }
         val eink = config.isEink
 
         // Barre di sistema chiare su fondo chiaro, come il tema della PWA.
@@ -102,7 +110,9 @@ class MainActivity : ComponentActivity() {
         overlay = findViewById(R.id.overlay)
         overlayText = findViewById(R.id.overlay_text)
         downloads = Downloads(this)
-        certs = CertTrust(this, config) { showOverlay(it) }
+        // Un certificato rifiutato durante la sincronizzazione non deve coprire
+        // le note: solo un avviso. Sulle pagine del server (collegamento) sì.
+        certs = CertTrust(this, config) { if (isOwnOrigin(web.url)) toast(it) else showOverlay(it) }
 
         ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
             val b = insets.getInsets(
@@ -115,10 +125,11 @@ class MainActivity : ComponentActivity() {
 
         findViewById<Button>(R.id.retry).setOnClickListener {
             hideOverlay()
-            if (web.url == null) web.loadUrl(serverUrl) else web.reload()
+            if (web.url == null) web.loadUrl(APP_URL) else web.reload()
         }
         findViewById<Button>(R.id.change_server).setOnClickListener {
-            startActivity(Intent(this, SetupActivity::class.java))
+            hideOverlay()
+            web.loadUrl(APP_URL)
         }
 
         if (eink) applyEinkTweaks(root)
@@ -133,7 +144,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        if (savedInstanceState == null || web.restoreState(savedInstanceState) == null) web.loadUrl(serverUrl)
+        if (savedInstanceState == null || web.restoreState(savedInstanceState) == null) web.loadUrl(APP_URL)
     }
 
     @SuppressLint("SetJavaScriptEnabled", "RequiresFeature")
@@ -164,10 +175,26 @@ class MainActivity : ComponentActivity() {
             setAcceptThirdPartyCookies(web, true)
         }
 
-        shim = "window.__quetzaEink=$eink;\n" + assets.open("quetza-shim.js").bufferedReader().use { it.readText() }
-        val origins = setOf(config.origin)
-        // Il ponte esiste solo per le pagine del server Quetza, non per il
-        // provider SSO o qualunque altro sito aperto nella WebView.
+        // https://appassets.androidplatform.net/… → assets/web/…
+        val assetsHandler = WebViewAssetLoader.AssetsPathHandler(this)
+        assetLoader = WebViewAssetLoader.Builder()
+            .addPathHandler("/") { path -> assetsHandler.handle("web/" + path.ifEmpty { "index.html" }) }
+            .build()
+
+        // Chi è l'app per l'interfaccia: con __quetzaClient le note restano sul
+        // dispositivo (js/local-api.js). server = indirizzo da proporre per il
+        // collegamento (MDM, o quello della versione precedente dell'app).
+        val client = JSONObject()
+            .put("platform", "android")
+            .put("version", BuildConfig.VERSION_NAME)
+            .put("device", deviceName())
+            .put("managed", config.isManaged)
+        config.serverUrl?.let { client.put("server", it.removeSuffix("/")) }
+        shim = "window.__quetzaClient=$client;\nwindow.__quetzaEink=$eink;\n" +
+            assets.open("quetza-shim.js").bufferedReader().use { it.readText() }
+        val origins = setOf(APP_ORIGIN)
+        // Il ponte esiste solo per l'interfaccia dell'app, non per le pagine
+        // del server, del provider SSO o di qualunque altro sito.
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             WebViewCompat.addWebMessageListener(web, "QuetzaAndroid", origins) { _, message, _, _, _ ->
                 onBridgeMessage(message.data)
@@ -177,6 +204,9 @@ class MainActivity : ComponentActivity() {
         if (shimAtDocumentStart) WebViewCompat.addDocumentStartJavaScript(web, shim, origins)
 
         web.webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+                assetLoader.shouldInterceptRequest(request.url)
+
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val uri = request.url
                 return when (uri.scheme?.lowercase()) {
@@ -193,13 +223,16 @@ class MainActivity : ComponentActivity() {
 
             override fun onPageFinished(view: WebView, url: String) {
                 if (!mainFrameFailed) hideOverlay()
+                // Tornati alle note (es. dopo il collegamento al server): "indietro"
+                // non deve riportare alle pagine di login.
+                if (isOwnOrigin(url)) view.clearHistory()
                 CookieManager.getInstance().flush()
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (!request.isForMainFrame) return
                 mainFrameFailed = true
-                showOverlay("$serverUrl\n${error.description}")
+                showOverlay("${request.url.host}\n${error.description}")
             }
 
             override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
@@ -321,8 +354,13 @@ class MainActivity : ComponentActivity() {
         window.decorView.setBackgroundColor(Color.WHITE)
     }
 
-    private fun isOwnOrigin(url: String): Boolean =
-        runCatching { ServerConfig.originOf(Uri.parse(url)) == config.origin }.getOrDefault(false)
+    private fun isOwnOrigin(url: String?): Boolean =
+        url != null && runCatching { ServerConfig.originOf(Uri.parse(url)) == APP_ORIGIN }.getOrDefault(false)
+
+    private fun deviceName(): String {
+        val brand = Build.MANUFACTURER.replaceFirstChar { it.uppercase() }
+        return if (Build.MODEL.startsWith(brand, ignoreCase = true)) Build.MODEL else "$brand ${Build.MODEL}"
+    }
 
     private fun hasMic() =
         ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED

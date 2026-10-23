@@ -70,6 +70,41 @@ app.use((req, res, next) => {
   res.redirect(308, base + req.originalUrl);
 });
 
+// ── App client sul dispositivo ────────────────────────────────
+// Le app client (Android e le future) hanno l'interfaccia dentro l'app e le
+// note sul dispositivo; se collegate a questo server sincronizzano con un
+// token del dispositivo. Le loro richieste arrivano da un'altra origine:
+// CORS solo per le origini delle app, e da lì mai cookie, solo il token.
+const CLIENT_ORIGINS = new Set(['https://appassets.androidplatform.net',
+  ...(process.env.CLIENT_ORIGINS || '').split(',').map(s => s.trim().replace(/\/+$/, '')).filter(Boolean)]);
+app.use('/api/', (req, res, next) => {
+  const origin = req.headers.origin;
+  if (!origin || !CLIENT_ORIGINS.has(origin)) return next();
+  delete req.headers.cookie;
+  res.set({ 'Access-Control-Allow-Origin': origin, 'Vary': 'Origin',
+            'Access-Control-Expose-Headers': 'Content-Disposition, X-Audio-Sessions' });
+  if (req.method !== 'OPTIONS') return next();
+  res.set({ 'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE',
+            'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Max-Age': '600' });
+  res.sendStatus(204);
+});
+// Authorization: Bearer <token del dispositivo> → sessione di quell'utente
+// solo per questa richiesta (express-session non tocca una req.session già
+// presente, e nessun cookie viene creato).
+app.use('/api/', (req, res, next) => {
+  const h = req.headers.authorization || '';
+  if (!h.startsWith('Bearer ')) return next();
+  const d = db.deviceByToken(h.slice(7).trim());
+  const u = d && db.getUserByUsername(d.username);
+  if (!u || !u.is_active) return res.status(401).json({ error: 'Dispositivo non collegato o collegamento revocato' });
+  req.device = d;
+  req.session = {
+    user: { username: u.username, displayName: u.display_name || u.username, source: u.source, is_admin: u.is_admin, must_change_password: 0 },
+    regenerate(cb) { cb(); }, destroy(cb) { if (cb) cb(); }, save(cb) { if (cb) cb(); },
+  };
+  next();
+});
+
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 app.use(session({
@@ -171,7 +206,7 @@ app.post('/api/login', async (req, res) => {
     const state    = crypto.randomBytes(16).toString('hex');
     const nonce    = crypto.randomBytes(16).toString('hex');
     const verifier = crypto.randomBytes(32).toString('base64url');
-    req.session.oidc = { state, nonce, verifier };
+    req.session.oidc = { state, nonce, verifier, next: localPath(req.body.next) };
     const url = new URL(disc.authorizationEndpoint);
     url.search = new URLSearchParams({
       ...Object.fromEntries(url.searchParams),
@@ -194,6 +229,11 @@ app.post('/api/login', async (req, res) => {
     res.status(401).json({ error: 'Credenziali non valide' });
   }
 });
+
+// Dove tornare dopo il login: solo un percorso di questo server
+function localPath(p) {
+  return typeof p === 'string' && /^\/(?![\/\\])/.test(p) ? p : null;
+}
 
 function regenerateSession(req) {
   return new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
@@ -265,14 +305,14 @@ app.get('/auth/callback', async (req, res) => {
     const dbUser = auth.syncExternalUser(username, payload.name || username, 'oidc');
     await regenerateSession(req);
     req.session.user = { username, displayName: payload.name||username, source:'oidc', is_admin: dbUser.is_admin||0 };
-    res.redirect('/');
+    res.redirect(pending.next || '/');
   } catch(e) {
     // e.message da solo per un fetch fallito è quasi sempre il generico
     // "fetch failed" di Node — la causa vera (DNS non risolto, connessione
     // rifiutata, certificato TLS non fidato, timeout...) sta in e.cause e
     // prima andava persa, rendendo impossibile capire perché falliva.
     console.error(`[oidc] callback fallito verso ${tokenUrl}:`, e.message, e.cause || '');
-    res.redirect('/login.html?error=oidc_failed');
+    res.redirect('/login.html?error=oidc_failed' + (pending.next ? '&next=' + encodeURIComponent(pending.next) : ''));
   }
 });
 
@@ -329,8 +369,17 @@ app.get('/api/notes/:id', requireAuth, (req, res) => {
   }
   res.json({ ...n, role: a.role });
 });
+// Un dispositivo può proporre l'id della nota che ha creato offline: resta
+// lo stesso ovunque. Se è già di questo utente la nota c'è già (409); se è di
+// un altro, la nota nasce con un id nuovo, che il dispositivo adotta.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 app.post('/api/notes', requireAuth, (req, res) => {
-  const n = db.createNote(crypto.randomUUID(), req.session.user.username, req.body.title||'Nuova nota', !!req.body.voiceFirst);
+  const me = req.session.user.username;
+  let id = typeof req.body.id === 'string' && UUID_RE.test(req.body.id) ? req.body.id.toLowerCase() : null;
+  const owner = id && db.getNoteOwner(id);
+  if (owner === me) return res.status(409).json({ error: 'Nota già presente', id });
+  if (owner) id = null;
+  const n = db.createNote(id || crypto.randomUUID(), me, req.body.title||'Nuova nota', !!req.body.voiceFirst);
   res.status(201).json(n);
 });
 app.patch('/api/notes/:id', requireAuth, (req, res) => {
@@ -369,6 +418,32 @@ app.delete('/api/notes/:id', requireAuth, (req, res) => {
   res.json({ ok: true, trash: true, days: TRASH_DAYS });
 });
 
+// ── Dispositivi collegati ─────────────────────────────────────
+// Stato di tutte le note (cestino compreso) per la sincronizzazione
+app.get('/api/sync', requireAuth, (req, res) =>
+  res.json({ notes: db.getSyncList(req.session.user.username), trash_days: TRASH_DAYS }));
+// Collegamento di un dispositivo, dalla pagina /collega.html dopo il login:
+// il token torna all'app solo se il suo indirizzo è quello di un'app client.
+app.post('/api/devices', requireAuth, (req, res) => {
+  if (req.device) return res.status(403).json({ error: 'Un dispositivo non può collegarne altri' });
+  let back;
+  try { back = new URL(String(req.body.app || '')); } catch {}
+  if (!back || !CLIENT_ORIGINS.has(back.origin)) return res.status(400).json({ error: 'App non riconosciuta' });
+  // Annulla: solo l'indirizzo per tornare all'app, nessun token
+  if (req.body.cancel) return res.json({ app: back.origin + back.pathname });
+  const name = String(req.body.name || '').trim() || 'Dispositivo';
+  const d = db.createDevice(req.session.user.username, name);
+  res.status(201).json({ ...d, app: back.origin + back.pathname });
+});
+app.get('/api/devices', requireAuth, (req, res) =>
+  res.json(db.getDevices(req.session.user.username).map(d => ({ ...d, current: d.id === req.device?.id }))));
+// 'current' = il dispositivo che fa la richiesta (si scollega da solo)
+app.delete('/api/devices/:id', requireAuth, (req, res) => {
+  const id = req.params.id === 'current' ? req.device?.id : req.params.id;
+  if (!id || !db.deleteDevice(id, req.session.user.username)) return res.status(404).json({ error: 'Dispositivo non trovato' });
+  res.json({ ok: true });
+});
+
 // ── Cestino ───────────────────────────────────────────────────
 // Le note eliminate restano qui TRASH_DAYS giorni, poi vengono cancellate.
 const TRASH_DAYS = Math.max(1, Number(process.env.TRASH_DAYS) || 30);
@@ -397,8 +472,9 @@ app.post('/api/notes/:id/audio', requireAuth, upload.single('audio'), (req, res)
   const a = noteFor(req, res, 'write'); if (!a) return;
   const q = overQuota(a.owner, req.file.size);
   if (q) return res.status(507).json({ error: QUOTA_MSG, ...q });
-  if (!db.saveAudio(req.params.id, a.owner, req.file.buffer, req.file.mimetype)) return res.status(404).json({ error: 'Nota non trovata' });
-  res.json({ ok: true });
+  const saved = db.saveAudio(req.params.id, a.owner, req.file.buffer, req.file.mimetype);
+  if (!saved) return res.status(404).json({ error: 'Nota non trovata' });
+  res.json({ ok: true, session: saved.session });
 });
 app.post('/api/notes/:id/audio/append', requireAuth, upload.single('chunk'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Nessun chunk' });
@@ -811,6 +887,11 @@ app.put('/api/admin/users/:username/quota', requireAuth, requireAdmin, (req, res
   if (!db.setUserQuota(req.params.username, mb)) return res.status(404).json({ error: 'Utente non trovato' });
   res.json({ ok: true });
 });
+
+// Tablet perso o cambio di mano: l'app non sincronizza più (le note già
+// sul dispositivo restano lì)
+app.delete('/api/admin/users/:username/devices', requireAuth, requireAdmin, (req, res) =>
+  res.json({ ok: true, deleted: db.deleteDevices(req.params.username) }));
 
 app.post('/api/admin/users/:username/reset-password', requireAuth, requireAdmin, (req, res) => {
   const { password } = req.body;

@@ -132,6 +132,19 @@ db.exec(`
 `);
 // Etichette della nota: array JSON di stringhe
 try { db.exec(`ALTER TABLE notes ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'`); } catch {}
+// Dispositivi collegati (app client che sincronizzano le note tenute sul
+// dispositivo): ognuno ha un suo token, salvato qui solo come hash.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS device_tokens (
+    id         TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL UNIQUE,
+    username   TEXT NOT NULL,
+    name       TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_used  TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_device_tokens_user ON device_tokens(username);
+`);
 
 // Indice FTS — ricrea se schema cambiato (rimuove vecchia versione con content table)
 try {
@@ -225,7 +238,9 @@ if (!adminExists) {
 
 // ── Users ─────────────────────────────────────────────────────
 function getUsers() {
-  return db.prepare(`SELECT username, display_name, is_admin, is_active, source, must_change_password, quota_mb, created_at, last_login FROM users ORDER BY is_admin DESC, username ASC`).all();
+  return db.prepare(`SELECT username, display_name, is_admin, is_active, source, must_change_password, quota_mb, created_at, last_login,
+                            (SELECT COUNT(*) FROM device_tokens d WHERE d.username = users.username) AS devices
+                     FROM users ORDER BY is_admin DESC, username ASC`).all();
 }
 
 function getUserByUsername(username) {
@@ -263,7 +278,36 @@ function resetPassword(username, newPassword, mustChange = true) {
 function deleteUser(username) {
   db.prepare(`DELETE FROM users WHERE username = ?`).run(username);
   // Un nuovo utente con lo stesso nome non deve ereditare le condivisioni
+  // né i dispositivi collegati
   db.prepare(`DELETE FROM note_access WHERE username = ?`).run(username);
+  db.prepare(`DELETE FROM device_tokens WHERE username = ?`).run(username);
+}
+
+// ── Dispositivi collegati ─────────────────────────────────────
+const tokenHash = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+function createDevice(username, name) {
+  const id = crypto.randomUUID();
+  const token = 'qd_' + crypto.randomBytes(32).toString('base64url');
+  db.prepare(`INSERT INTO device_tokens (id, token_hash, username, name, last_used) VALUES (?, ?, ?, ?, datetime('now'))`)
+    .run(id, tokenHash(token), username, String(name || '').slice(0, 80));
+  return { id, token };
+}
+// Ultimo uso aggiornato al massimo ogni 5 minuti: la sincronizzazione fa
+// molte richieste e non serve una scrittura per ognuna.
+function deviceByToken(token) {
+  if (typeof token !== 'string' || !token.startsWith('qd_')) return null;
+  const d = db.prepare(`SELECT id, username, name FROM device_tokens WHERE token_hash = ?`).get(tokenHash(token));
+  if (d) db.prepare(`UPDATE device_tokens SET last_used = datetime('now') WHERE id = ? AND (last_used IS NULL OR last_used < datetime('now', '-5 minutes'))`).run(d.id);
+  return d || null;
+}
+function getDevices(username) {
+  return db.prepare(`SELECT id, name, created_at, last_used FROM device_tokens WHERE username = ? ORDER BY created_at DESC`).all(username);
+}
+function deleteDevice(id, username) {
+  return db.prepare(`DELETE FROM device_tokens WHERE id = ? AND username = ?`).run(id, username).changes > 0;
+}
+function deleteDevices(username) {
+  return db.prepare(`DELETE FROM device_tokens WHERE username = ?`).run(username).changes;
 }
 
 function countAdmins() {
@@ -335,6 +379,17 @@ function getAllSettings() {
 // ── Notes ─────────────────────────────────────────────────────
 function getNotesByUser(username) {
   return db.prepare(`SELECT id, title, thumbnail, grid, has_audio, tags, created_at, updated_at FROM notes WHERE username = ? AND deleted_at IS NULL ORDER BY updated_at DESC`).all(username)
+    .map(n => ({ ...n, tags: parseTags(n.tags) }));
+}
+
+// Stato di tutte le note dell'utente, cestino compreso, per la
+// sincronizzazione dei dispositivi: quanto basta per capire cosa è cambiato
+// senza scaricare il contenuto.
+function getSyncList(username) {
+  return db.prepare(`SELECT id, version, title, grid, tags, voice_first, created_at, updated_at, deleted_at,
+                            COALESCE(length(whisper_text), 0) AS whisper_len,
+                            (SELECT COUNT(*) FROM audio a WHERE a.note_id = notes.id) AS audio_count
+                     FROM notes WHERE username = ?`).all(username)
     .map(n => ({ ...n, tags: parseTags(n.tags) }));
 }
 
@@ -532,7 +587,7 @@ function saveAudio(noteId, username, buffer, mime) {
   const session = row && row.m !== null ? row.m + 1 : 0;
   db.prepare(`INSERT INTO audio (note_id, username, session, data, mime) VALUES (?, ?, ?, ?, ?)`).run(noteId, username, session, buffer, mime);
   db.prepare(`UPDATE notes SET has_audio = 1, updated_at = datetime('now') WHERE id = ?`).run(noteId);
-  return true;
+  return { session };
 }
 
 function getAudio(noteId, username) {
@@ -682,12 +737,15 @@ module.exports = {
   // users
   getUsers, getUserByUsername, createUser, updateUser, resetPassword, deleteUser,
   countAdmins, verifyPassword, touchLogin, hashPassword, mustChangePassword,
+  // dispositivi collegati
+  createDevice, deviceByToken, getDevices, deleteDevice, deleteDevices,
   // settings
   getSetting, setSetting, getAllSettings, getNoteOwner,
   noteBytes, storageUsed, quotaFor, setUserQuota,
   // notes
   getNotesByUser, getNoteById, createNote, updateNoteMeta, saveContent, deleteNote,
   getTrash, restoreNote, purgeNote, purgeTrash,
+  getSyncList,
   noteAccess, getSharedWithMe, getAccessList, setAccess, removeAccess, getDirectory, getAllAccess, importAccess,
   saveWhisperText, searchNotes, rebuildFts,
   // audio

@@ -8,7 +8,7 @@ import android.os.Bundle
 import androidx.core.content.edit
 
 /**
- * Impostazioni dell'app: indirizzo del server, certificati accettati e
+ * Impostazioni dell'app: server da proporre, certificati accettati e
  * modalità e-ink. La configurazione gestita (MDM) ha sempre la precedenza
  * su quella scelta dall'utente.
  */
@@ -23,12 +23,13 @@ class ServerConfig(context: Context) {
 
     val isManaged: Boolean get() = managedUrl != null
 
-    var serverUrl: String?
+    /**
+     * Server da proporre per il collegamento: quello dell'MDM, oppure quello
+     * scelto con la versione precedente dell'app (che apriva il sito). Il
+     * collegamento vero e proprio lo fa e lo ricorda l'interfaccia.
+     */
+    val serverUrl: String?
         get() = managedUrl ?: prefs.getString("server_url", null)
-        set(value) = prefs.edit { putString("server_url", value) }
-
-    /** "https://host:porta", come lo intende la WebView per le regole di origine. */
-    val origin: String get() = originOf(Uri.parse(serverUrl))
 
     var einkMode: String
         get() = managed.getString("eink_mode")?.takeIf { it in EINK_MODES }

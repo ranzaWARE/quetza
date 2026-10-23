@@ -23,7 +23,10 @@
   // Registrazione service worker — indipendente dal login, serve solo per
   // l'installabilità PWA (manifest + SW con fetch handler sono i requisiti
   // minimi del prompt "Installa app" dei browser Chromium).
-  if ('serviceWorker' in navigator) {
+  // Non nelle app client (Android…): l'interfaccia è già dentro l'app.
+  var quetzaLocal = !!window.__quetzaClient || location.hostname === 'appassets.androidplatform.net';
+  try { quetzaLocal = quetzaLocal || localStorage.getItem('quetza-local') === '1' || /[?&]locale=1/.test(location.search); } catch(e){}
+  if ('serviceWorker' in navigator && !quetzaLocal) {
     window.addEventListener('load', function(){
       navigator.serviceWorker.register('/sw.js').catch(function(){});
     });
@@ -401,6 +404,8 @@
 <script src="/vendor/jspdf.umd.min.js"></script>
 <script src="/js/audio-bar.js"></script>
 <script src="/js/local-store.js"></script>
+<script src="/js/local-api.js"></script>
+<script src="/js/local-sync.js"></script>
 <script src="/js/app.js"></script>
 </body>
 </html>

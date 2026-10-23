@@ -308,6 +308,9 @@ footer {{ color: var(--muted); font-size: 13px; text-align: center; padding: 0 0
   <p>Quetza funziona nel browser di computer, tablet e telefono. Si scrive con la penna (Apple Pencil, S Pen, penne Windows), che usa anche la pressione; il dito serve solo a scorrere e ingrandire.
   Su un telefono senza penna restano comode le note vocali, la lettura e la condivisione.
   Si può <strong>installare come app</strong>: in Chrome/Edge dal menu <em>Installa app</em>, su iPad e iPhone da Safari con <em>Condividi → Aggiungi alla schermata Home</em>.</p>
+  <p>Su Android c’è anche l’<strong>app Quetza</strong>, che funziona pure senza rete e senza server: le note stanno sul tablet.
+  Così però non hanno nessun backup, e una riga in cima alla libreria lo ricorda. Con il pulsante in alto a destra si collega il server
+  (stesso accesso del browser): da lì le note si sincronizzano da sole in entrambi i sensi e tornano trascrizione e condivisione.</p>
   <p>Il pulsante con il sole cambia tema: <strong>chiaro</strong>, <strong>scuro</strong> ed <strong>e-ink</strong> (alto contrasto, per tablet a inchiostro elettronico).
   Nel tema scuro l’inchiostro nero diventa bianco, e torna nero nel PDF.</p>
   {fig("editor-scuro", "La stessa nota nel tema scuro.")}
@@ -355,7 +358,8 @@ footer {{ color: var(--muted); font-size: 13px; text-align: center; padding: 0 0
   <h3>Utenti</h3>
   {fig("admin", "Utenti: ruolo, stato, origine (locale, ldap, oidc) e ultimo accesso.")}
   <p><strong>+ Nuovo utente</strong> crea un account locale. Gli utenti LDAP e SSO si creano da soli al primo accesso, come utenti normali:
-  rendili amministratori da qui. <strong>Disattiva</strong> blocca subito l’accesso, anche alle sessioni già aperte. Non si può togliere l’ultimo amministratore.</p>
+  rendili amministratori da qui. <strong>Disattiva</strong> blocca subito l’accesso, anche alle sessioni già aperte. Non si può togliere l’ultimo amministratore.
+  <strong>Scollega dispositivi</strong> compare per chi ha collegato l’app Android: la ferma (un tablet perso, per esempio); le note già sul tablet restano lì.</p>
   <p><strong>Spazio per utente</strong>: nella tabella sotto le statistiche si vede quanto occupa ciascuno (note, immagini, audio, cestino compreso).
   <em>Spazio massimo per utente</em> vale per tutti (0 = nessun limite); <strong>Limite</strong> su una riga ne dà uno personale
   (vuoto = quello generale, 0 = nessun limite). Chi lo supera non perde nulla: le modifiche restano sul suo dispositivo finché non libera spazio.

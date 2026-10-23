@@ -872,6 +872,19 @@ function sessionLost() {
   };
 }
 
+// App sul dispositivo: la sincronizzazione ha portato modifiche dal server.
+// La nota aperta si ricarica se qui non c'è niente da salvare; altrimenti al
+// salvataggio il lavoro di qui finisce in una copia (conflitto).
+window.addEventListener('quetza:synced', async e => {
+  await loadNotes();
+  const id = S.curId;
+  if (!id || !(e.detail?.changed || []).includes(id) || S.dirty || S._saveP || S.recOn || S.playing) return;
+  const page = S.curPage;
+  await openNote(id);
+  if (S.curId === id && page) goPage(Math.min(page, S.pages.length - 1));
+  toast('Nota aggiornata con le modifiche arrivate dal server', 4000);
+});
+
 // Chiudere o ricaricare la scheda con qualcosa non ancora sul server
 window.addEventListener('beforeunload', e => {
   if (S._leaving) return;
@@ -2668,7 +2681,10 @@ function setupLibrary() {
     e.target.value = '';
   };
 
-  document.getElementById('logoutB').onclick = async () => {
+  // App sul dispositivo: niente login né uscita, il pulsante apre il
+  // pannello del server (collegamento e sincronizzazione)
+  if (window.QuetzaLocal) document.getElementById('logoutB').onclick = () => QuetzaLocal.openPanel();
+  else document.getElementById('logoutB').onclick = async () => {
     if (S.recOn) stopRec();
     const onServer = await flushSave();
     if (!onServer || S._uploads > 0) {
@@ -3533,12 +3549,20 @@ function showTranscriptPanel(data) {
 // ── Auto-trascrizione ────────────────────────────────────
 async function autoTranscribe(noteId = S.curId) {
   if (!noteId) return;
+  // Sul dispositivo senza server nessuno può trascrivere
+  if (window.QuetzaLocal && !QuetzaLocal.linked()) return;
   S.whisperPending = true;
   updateTranscribeBtn();
 
   try {
     // Chiama endpoint async (risponde subito 202, processa in background)
-    await fetch(`/api/notes/${noteId}/transcribe-async`, { method: 'POST' });
+    const r = await fetch(`/api/notes/${noteId}/transcribe-async`, { method: 'POST' });
+    if (!r.ok) {
+      S.whisperPending = false;
+      updateTranscribeBtn();
+      if (r.status === 503) toast('⚠ ' + ((await r.json().catch(() => ({}))).error || 'Trascrizione non disponibile'), 6000);
+      return;
+    }
 
     // Polling ogni 5s finché la trascrizione non è pronta (max 10 minuti)
     let attempts = 0;
@@ -3604,7 +3628,7 @@ async function loadShares() {
   const el = document.getElementById('SHARELIST');
   if (!shares.length) { el.innerHTML = '<p class="ms" style="text-align:center;margin-bottom:0">Nessun link attivo</p>'; return; }
   el.innerHTML = shares.map(s => {
-    const url = `${location.origin}/share/${s.token}`;
+    const url = `${window.QuetzaLocal?.link?.server || location.origin}/share/${s.token}`;
     const exp = s.expires_at ? `Scade ${new Date(s.expires_at).toLocaleDateString('it-IT')}` : 'Nessuna scadenza';
     return `<div class="shareItem">
       <div class="shareMeta">

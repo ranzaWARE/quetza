@@ -37,7 +37,7 @@ Gli utenti entrano con l'account aziendale (LDAP o SSO) e niente esce dalla rete
   <tr><td width="32%">🔗 <b>Condivisione</b></td><td>Con i colleghi, in lettura o in modifica, o con tutti. Link di sola lettura, con scadenza, per chi non ha un account. Export in PDF di tutte le pagine.</td></tr>
   <tr><td width="32%">🏢 <b>Pronta per l'organizzazione</b></td><td>Account locali, LDAP / Active Directory e SSO con qualsiasi provider OIDC. Pannello di amministrazione con spazio massimo per utente, logo e nome dell'organizzazione.</td></tr>
   <tr><td width="32%">💾 <b>Backup ogni notte</b></td><td>Copia coerente e verificata del database, anche su una cartella del NAS. Stato dei backup nel pannello. Export e import completi per cambiare server.</td></tr>
-  <tr><td width="32%">📱 <b>Ovunque</b></td><td>Computer, tablet e telefono. Si installa come app (PWA) oppure con l'<a href="android/README.md">app Android</a>, ottimizzata anche per i tablet e-ink Boox. Tema chiaro, scuro ed e-ink.</td></tr>
+  <tr><td width="32%">📱 <b>Ovunque</b></td><td>Computer, tablet e telefono. Si installa come app (PWA) oppure con l'<a href="android/README.md">app Android</a>, che funziona anche senza rete e senza server, con le note sul dispositivo, e si sincronizza quando colleghi il server. Ottimizzata per i tablet e-ink Boox. Tema chiaro, scuro ed e-ink.</td></tr>
 </table>
 
 <table>
@@ -85,6 +85,7 @@ Tutto sta nel file `.env`, commentato riga per riga ([`.env.example`](.env.examp
 | `BACKUP_COPY_PATH` | Cartella del NAS, montata sul server, dove copiare anche ogni backup. |
 | `WHISPER_MODEL`, `HF_TOKEN` | Modello di trascrizione e token per distinguere chi parla. |
 | `LDAP_*`, `OIDC_INTERNAL_URL` | Accesso aziendale (si configura anche dal pannello). |
+| `CLIENT_ORIGINS` | Altre app client autorizzate a sincronizzare (l'app Android lo è già). Di solito vuoto. |
 
 Accanto a `docker-compose.yml` ci sono quattro cartelle:
 
@@ -108,6 +109,7 @@ Gli account locali restano sempre utilizzabili: se l'AD o il provider SSO non ri
 - Note, audio, trascrizioni e utenti stanno in un database SQLite nel volume `quetza_data`.
 - Ogni notte una copia coerente e verificata va in `backups/` (ultime 30) e, con `BACKUP_COPY_PATH`, anche sul NAS. Il pannello admin segnala un backup fallito o vecchio. Ripristino e aggiornamento sono spiegati nella guida.
 - Nessun salvataggio si perde: le modifiche restano sul dispositivo finché il server non le ha ricevute, e se due persone scrivono insieme sulla stessa nota nessuna versione viene sovrascritta.
+- L'app Android tiene le note sul dispositivo: senza server collegato **non c'è nessun backup**; collegata, sincronizza tutto con l'account e il backup notturno le comprende. Ogni dispositivo si collega con un token suo, che l'amministratore può revocare.
 - Nessun servizio esterno, nessun CDN: Internet serve solo per installare e per scaricare i modelli di trascrizione.
 - Solo HTTPS per gli utenti; utenti disattivati e permessi revocati hanno effetto subito.
 
@@ -135,7 +137,8 @@ Gli account locali restano sempre utilizzabili: se l'AD o il provider SSO non ri
 | Cartella | Cosa contiene |
 |---|---|
 | `backend/` | Express + SQLite (better-sqlite3): API, autenticazione locale/LDAP/OIDC, file statici, HTTPS. |
-| `backend/public/` | Frontend senza build: `index.html` + `js/app.js` (canvas, audio, PDF con jsPDF), `admin.html`, `login.html`, `share.html`, `guida.html`. |
+| `backend/public/` | Frontend senza build: `index.html` + `js/app.js` (canvas, audio, PDF con jsPDF), `admin.html`, `login.html`, `share.html`, `guida.html`. Nelle app client `js/local-api.js` serve le API dal dispositivo (IndexedDB) e `js/local-sync.js` sincronizza con il server; `collega.html` collega un dispositivo. |
+| `android/` | App Android (Kotlin): l'interfaccia di `backend/public` dentro l'APK, note sul dispositivo, server facoltativo. |
 | `whisper/` | Microservizio Python (faster-whisper + pyannote) per trascrizione e diarizzazione. |
 | `nginx/` | Reverse proxy facoltativo (`docker compose --profile nginx up -d`). |
 | `docs/` | Icona (`make-icon.py`), guida (`make-guide.py`), schermate (`screenshots/make.sh`), immagini del README. |
@@ -155,13 +158,13 @@ Senza certificati parte in HTTP: la registrazione audio funziona solo su `localh
 <summary><b>Test</b></summary>
 
 ```bash
-cd backend && npm install && npm test        # 215 test: DB, API HTTP, sicurezza, SSO con provider finto, canvas/PDF
+cd backend && npm install && npm test        # 245 test: DB, API HTTP, sicurezza, SSO con provider finto, canvas/PDF
 cd whisper && python3 test_server.py         # trascrizione con ffmpeg e modelli finti (serve solo flask)
 ```
 
 Le suite coprono password e cambio obbligatorio, sessioni, import con id di altri utenti, utenti disattivati,
 impostazioni del pannello, flusso OIDC (PKCE, nonce, aud, state), escape LDAP, export/import multipagina,
-condivisione con link e tra colleghi, etichette, spazio per utente, backup con copia esterna, ricerca e PDF pagina per pagina.
+condivisione con link e tra colleghi, etichette, spazio per utente, backup con copia esterna, dispositivi collegati (token, CORS, sincronizzazione), ricerca e PDF pagina per pagina.
 GitHub Actions le esegue a ogni push e pull request, insieme alla build delle immagini Docker con un avvio di prova.
 </details>
 

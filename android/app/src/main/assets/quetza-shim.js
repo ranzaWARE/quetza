@@ -1,5 +1,8 @@
-/* Quetza per Android — script iniettato all'avvio di ogni pagina del server.
-   Colma quello che la WebView non fa da sola rispetto a Chrome:
+/* Quetza per Android — script iniettato all'avvio dell'interfaccia (inclusa
+   nell'app, https://appassets.androidplatform.net). Prima di questo file
+   l'app imposta window.__quetzaClient, che fa tenere le note sul
+   dispositivo (js/local-api.js). Colma quello che la WebView non fa da sola
+   rispetto a Chrome:
    - i download di blob (PDF, export .zip) vengono passati all'app, che li
      salva in Download/Quetza;
    - l'app sa quando il microfono è acceso, per tenere lo schermo attivo e

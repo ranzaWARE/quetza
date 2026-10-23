@@ -505,9 +505,19 @@ function renderUsers() {
           ? `<button class="aurorBtn xs" style="margin-left:4px" data-u="${h(u.username)}" onclick="toggleActive(this.dataset.u,false)">Disattiva</button>`
           : `<button class="aurorBtn xs" style="margin-left:4px" data-u="${h(u.username)}" onclick="toggleActive(this.dataset.u,true)">Attiva</button>`}
         ${u.source==='local'?`<button class="aurorBtn xs" style="margin-left:4px" data-u="${h(u.username)}" onclick="openResetPw(this.dataset.u)">Reset pw</button>`:''}
+        ${u.devices?`<button class="aurorBtn xs" style="margin-left:4px" data-u="${h(u.username)}" data-n="${u.devices}" title="App collegate che sincronizzano le note di questo utente" onclick="unlinkDevices(this.dataset.u,this.dataset.n)">Scollega ${u.devices===1?'dispositivo':u.devices+' dispositivi'}</button>`:''}
         <button class="aurorBtn danger xs" style="margin-left:4px" data-u="${h(u.username)}" onclick="delUser(this.dataset.u)">Elimina</button>
       </td>
     </tr>`).join('');
+}
+
+// Tablet perso o passato a un'altra persona: smette di sincronizzare (le
+// note già sul dispositivo restano lì)
+async function unlinkDevices(username, n) {
+  if (!confirm(`Scollegare ${n == 1 ? 'il dispositivo' : `i ${n} dispositivi`} di "${username}"? L'app non sincronizzerà più finché l'utente non la ricollega. Le note già sul dispositivo restano lì.`)) return;
+  const r = await fetch(`${userUrl(username)}/devices`, { method: 'DELETE' });
+  if (!r.ok) return alert((await r.json().catch(() => ({}))).error || 'Errore');
+  await load();
 }
 
 async function toggleAdmin(username, promote) {

@@ -1,27 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Quetza</string>
-    <string name="setup_title">Server Quetza</string>
-    <string name="shortcut_setup">Cambia server</string>
+    <string name="setup_title">Impostazioni</string>
+    <string name="shortcut_setup">Impostazioni</string>
 
-    <string name="setup_intro">Indirizzo del server Quetza della tua organizzazione, lo stesso che apri nel browser.</string>
-    <string name="setup_hint">https://192.168.1.20:8443</string>
-    <string name="setup_managed">Indirizzo impostato dall\'amministratore.</string>
+    <string name="setup_intro">Le note stanno su questo dispositivo. Il server Quetza (facoltativo) si collega dall\'app, con il pulsante in alto a destra.</string>
     <string name="setup_eink">Schermo e-ink</string>
     <string name="setup_eink_auto">Automatico</string>
     <string name="setup_eink_on">Sempre</string>
     <string name="setup_eink_off">Mai</string>
     <string name="setup_eink_detected">Rilevato: dispositivo e-ink (Boox). Tema e-ink, niente animazioni, refresh ridotti.</string>
     <string name="setup_eink_not_detected">Nessuno schermo e-ink rilevato.</string>
-    <string name="setup_connect">Collega</string>
+    <string name="setup_connect">Salva</string>
     <string name="setup_forget">Dimentica i certificati accettati</string>
-    <string name="setup_forgotten">Certificati dimenticati: al prossimo collegamento verranno richiesti.</string>
-    <string name="setup_invalid">Indirizzo non valido. Esempio: https://192.168.1.20:8443</string>
-    <string name="setup_cert_note">Se il server usa un certificato self-signed, al primo collegamento Quetza ne mostra l\'impronta e chiede se fidarsi. In alternativa installa sul dispositivo la CA aziendale (Impostazioni › Sicurezza › Crittografia e credenziali › Installa certificato › Certificato CA): così funziona anche l\'avvio senza rete.</string>
+    <string name="setup_forgotten">Certificati dimenticati: alla prossima connessione al server verranno richiesti.</string>
+    <string name="setup_cert_note">Se il server usa un certificato self-signed, al primo collegamento Quetza ne mostra l\'impronta e chiede se fidarsi. In alternativa installa sul dispositivo la CA aziendale (Impostazioni › Sicurezza › Crittografia e credenziali › Installa certificato › Certificato CA).</string>
 
     <string name="offline_title">Server non raggiungibile</string>
     <string name="offline_retry">Riprova</string>
-    <string name="offline_change">Cambia server</string>
+    <string name="offline_change">Torna alle note</string>
     <string name="cert_rejected">Certificato del server non accettato.</string>
 
     <string name="cert_title_new">Certificato da verificare</string>
@@ -44,7 +41,7 @@
     <string name="rec_text">Tocca per tornare alla nota.</string>
 
     <string name="mdm_server_url">Indirizzo del server</string>
-    <string name="mdm_server_url_desc">Es. https://quetza.azienda.local:8443</string>
+    <string name="mdm_server_url_desc">Server da collegare, es. https://quetza.azienda.local:8443. Senza, le note restano solo sul dispositivo finché l\'utente non ne collega uno.</string>
     <string name="mdm_cert">Impronte SHA-256 ammesse</string>
     <string name="mdm_cert_desc">Una o più, separate da virgola. Se impostate, l\'utente non può accettare altri certificati.</string>
     <string name="mdm_eink">Modalità e-ink</string>
